@@ -16,6 +16,9 @@ services:
     image: bridge-scour/frontend:latest
     depends_on:
       - backend
+    # /data/ 경로로 노출되는 정적 시뮬레이션 데이터를 nginx 가 직접 서빙
+    volumes:
+      - file-storage:/var/lib/scour/storage:ro
     networks:
       - frontend-net
     restart: unless-stopped

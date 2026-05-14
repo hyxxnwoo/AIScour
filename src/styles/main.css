@@ -174,3 +174,104 @@ body {
 .camera-presets button:hover {
   background: #244a76;
 }
+
+.metadata-panel {
+  position: absolute;
+  bottom: 80px;
+  left: 16px;
+  width: 240px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 8px;
+  color: #e6eef7;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(4px);
+}
+
+.metadata-panel__title {
+  font-size: 11px;
+  margin-bottom: 6px;
+  color: #cfd8e3;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.metadata-panel__list {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 2px 8px;
+  margin: 0;
+}
+
+.metadata-panel__list dt {
+  color: #7ec8e3;
+  font-weight: 500;
+}
+
+.metadata-panel__list dd {
+  margin: 0;
+  color: #e6eef7;
+  word-break: break-word;
+}
+
+.cell-time-series {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 320px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 8px;
+  color: #e6eef7;
+  font-size: 11px;
+  backdrop-filter: blur(4px);
+  display: none;
+}
+
+.cell-time-series.is-active {
+  display: block;
+}
+
+.cell-time-series__title {
+  font-size: 11px;
+  margin-bottom: 6px;
+  color: #cfd8e3;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cell-time-series__svg {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  display: block;
+}
+
+.cell-time-series__stats {
+  margin-top: 4px;
+  color: #cfd8e3;
+  font-variant-numeric: tabular-nums;
+}
+
+.cell-time-series__empty {
+  margin-top: 4px;
+  color: #9ab0c2;
+  font-size: 10.5px;
+}
+
+.context-banner {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(11, 29, 51, 0.9);
+  color: #f4d35e;
+  font-size: 14px;
+  z-index: 10;
+}
+
+.context-banner.is-visible {
+  display: flex;
+}

@@ -8,13 +8,17 @@ export interface RendererOptions {
   maxPixelRatio?: number;
 }
 
-// RendererManager: WebGLRenderer 생성, 픽셀 비율/사이즈 관리, 리사이즈 대응을 담당한다.
-// 윈도우 리사이즈 핸들러를 직접 등록하여 호출자는 별도 보일러플레이트 없이 사용할 수 있다.
+export type ContextLossCallback = (event: WebGLContextEvent) => void;
+
+// RendererManager: WebGLRenderer 생성, 픽셀 비율/사이즈 관리, 리사이즈 대응,
+// WebGL 컨텍스트 손실/복원 이벤트 처리를 담당한다.
 export class RendererManager implements Disposable {
   public readonly renderer: WebGLRenderer;
   private readonly canvas: HTMLCanvasElement;
   private readonly maxPixelRatio: number;
   private resizeListener: (() => void) | undefined;
+  private readonly lostListeners = new Set<ContextLossCallback>();
+  private readonly restoredListeners = new Set<ContextLossCallback>();
 
   public constructor(options: RendererOptions) {
     this.canvas = options.canvas;
@@ -27,6 +31,30 @@ export class RendererManager implements Disposable {
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.maxPixelRatio));
     this.applyCanvasSize();
+
+    // WebGL 컨텍스트 손실은 GPU 드라이버 재시작/탭 비활성화 등으로 발생할 수 있다.
+    // preventDefault() 로 브라우저가 자동 복구를 시도하도록 한다.
+    this.canvas.addEventListener('webglcontextlost', this.onContextLost);
+    this.canvas.addEventListener('webglcontextrestored', this.onContextRestored);
+  }
+
+  private onContextLost = (event: Event): void => {
+    event.preventDefault();
+    for (const cb of this.lostListeners) cb(event as WebGLContextEvent);
+  };
+
+  private onContextRestored = (event: Event): void => {
+    for (const cb of this.restoredListeners) cb(event as WebGLContextEvent);
+  };
+
+  public onContextLossEvent(listener: ContextLossCallback): () => void {
+    this.lostListeners.add(listener);
+    return () => this.lostListeners.delete(listener);
+  }
+
+  public onContextRestoredEvent(listener: ContextLossCallback): () => void {
+    this.restoredListeners.add(listener);
+    return () => this.restoredListeners.delete(listener);
   }
 
   // 외부 호출자가 직접 사이즈 동기화를 트리거할 수 있게 노출한다.
@@ -51,6 +79,10 @@ export class RendererManager implements Disposable {
       window.removeEventListener('resize', this.resizeListener);
       this.resizeListener = undefined;
     }
+    this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
+    this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    this.lostListeners.clear();
+    this.restoredListeners.clear();
     this.renderer.dispose();
   }
 }
