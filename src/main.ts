@@ -5,6 +5,7 @@ import { CellTimeSeries } from '@/components/CellTimeSeries';
 import { ColorLegend } from '@/components/ColorLegend';
 import { FluidControls } from '@/components/FluidControls';
 import { HudOverlay } from '@/components/HudOverlay';
+import { ScourWarning } from '@/components/ScourWarning';
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts';
 import { MetadataPanel } from '@/components/MetadataPanel';
 import { TimeControls } from '@/components/TimeControls';
@@ -15,6 +16,7 @@ import { RendererManager } from '@/core/RendererManager';
 import { SceneManager } from '@/core/SceneManager';
 import { createDataSource } from '@/data/createDataSource';
 import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
+import { BridgeCollapse } from '@/modules/BridgeCollapse';
 import { FluidSlicePlane } from '@/modules/FluidSlicePlane';
 import { Picking } from '@/modules/Picking';
 import { PierMarker, type PierDefinition } from '@/modules/PierMarker';
@@ -59,6 +61,28 @@ async function bootstrap(): Promise<void> {
     ...(p.height !== undefined ? { height: p.height } : {}),
   }));
   const piers = new PierMarker({ scene: sceneManager.scene, baseElevation: -1.5 }, pierDefs);
+
+  // ── 세굴 붕괴 시뮬레이터 (교각 구조체 + 붕괴 애니메이션)
+  const CRITICAL_SCOUR_DEPTH = 3.0; // 미터 — 기초 노출 임계 세굴 깊이
+  const bridgeCollapse = new BridgeCollapse({
+    scene: sceneManager.scene,
+    series,
+    piers: pierDefs,
+    criticalScourDepth: CRITICAL_SCOUR_DEPTH,
+    baseElevation: -1.5,
+  });
+
+  const scourWarning = new ScourWarning({
+    pierCount: pierDefs.length,
+    pierIds: pierDefs.map((p) => p.id),
+    criticalDepthM: CRITICAL_SCOUR_DEPTH,
+  });
+  appRoot.appendChild(scourWarning.element);
+
+  bridgeCollapse.onCollapse((evt) => {
+    scourWarning.showCollapse(evt);
+    hud.set('Pick', `⚠ 교각 ${evt.pierId} 붕괴 (t=${evt.timestampSeconds.toFixed(1)}s)`);
+  });
 
   // ── 유체 데이터 (현재는 합성 데이터만 지원, 추후 ManifestFluidSource 추가 가능)
   const fluidSource = new SyntheticFluidSource({
@@ -246,6 +270,8 @@ async function bootstrap(): Promise<void> {
     fpsMeter.begin();
     timeControls.tick(delta);
     terrain.updateAtTime(timeControls.time);
+    bridgeCollapse.updateAtTime(timeControls.time);
+    scourWarning.update(bridgeCollapse.getScourRatios(timeControls.time), CRITICAL_SCOUR_DEPTH);
     slicePlane.updateAtTime(timeControls.time);
     arrows.updateAtTime(timeControls.time);
     cellSeries.setTime(timeControls.time);
@@ -281,6 +307,8 @@ async function bootstrap(): Promise<void> {
     hud.dispose();
     arrows.dispose();
     slicePlane.dispose();
+    scourWarning.dispose();
+    bridgeCollapse.dispose();
     piers.dispose();
     terrain.dispose();
     lightManager.dispose();
