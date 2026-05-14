@@ -3,6 +3,7 @@ import {
   DoubleSide,
   Mesh,
   MeshStandardMaterial,
+  type Object3D,
   PlaneGeometry,
   type Scene,
 } from 'three';
@@ -69,17 +70,63 @@ export class Terrain implements Disposable {
     return this.frames.length;
   }
 
-  // 시간(초) 을 받아 가장 가까운 프레임을 적용한다. 프레임이 비어있으면 베이스만 표시.
-  public updateAtTime(elapsedSeconds: number): void {
+  // Picking 등 외부 모듈이 raycasting 대상으로 사용할 메쉬 목록.
+  public get pickables(): Object3D[] {
+    return [this.mesh];
+  }
+
+  // 격자 한 칸 길이(미터). UI 레이블 등에 활용.
+  public get cellSize(): number {
+    return this.grid.cellSize;
+  }
+
+  // 월드 좌표(x, z) → 격자 셀 정보. 격자 밖이면 null.
+  public queryAtWorld(
+    worldX: number,
+    worldZ: number,
+  ): {
+    gridX: number;
+    gridY: number;
+    baseElevation: number;
+    deltaElevation: number;
+    elevation: number;
+  } | null {
+    const halfW = ((this.grid.width - 1) * this.grid.cellSize) / 2;
+    const halfH = ((this.grid.height - 1) * this.grid.cellSize) / 2;
+    const fx = (worldX + halfW) / this.grid.cellSize;
+    const fy = (worldZ + halfH) / this.grid.cellSize;
+    const gx = Math.round(fx);
+    const gy = Math.round(fy);
+    if (gx < 0 || gy < 0 || gx >= this.grid.width || gy >= this.grid.height) {
+      return null;
+    }
+    const idx = gy * this.grid.width + gx;
+    const baseElevation = this.baseZ[idx];
+    const frame = this.currentFrameIndex >= 0 ? this.frames[this.currentFrameIndex] : undefined;
+    const deltaElevation = frame ? frame.deltaElevations[idx] : 0;
+    return {
+      gridX: gx,
+      gridY: gy,
+      baseElevation,
+      deltaElevation,
+      elevation: baseElevation + deltaElevation,
+    };
+  }
+
+  // 시뮬레이션 총 길이(초). 마지막 프레임의 timestamp.
+  public get durationSeconds(): number {
+    if (this.frames.length === 0) return 0;
+    return this.frames[this.frames.length - 1].timestampSeconds;
+  }
+
+  // 절대 시간(초)을 받아 가장 가까운 프레임을 적용한다. 루프/일시정지 등은 외부 컨트롤러가 담당한다.
+  public updateAtTime(timeSeconds: number): void {
     if (this.frames.length === 0) return;
-    const last = this.frames[this.frames.length - 1];
-    const total = last.timestampSeconds || 1;
-    // 끝까지 도달하면 처음으로 되돌리는 단순 루프 (추후 일시정지/스크럽 컨트롤로 대체)
-    const looped = elapsedSeconds % total;
+    const clamped = Math.max(0, Math.min(timeSeconds, this.durationSeconds));
     // 단조 증가 가정으로 선형 탐색 (프레임 수 ~수백 수준이면 충분)
     let idx = 0;
     for (let i = 0; i < this.frames.length; i += 1) {
-      if (this.frames[i].timestampSeconds <= looped) {
+      if (this.frames[i].timestampSeconds <= clamped) {
         idx = i;
       } else {
         break;
