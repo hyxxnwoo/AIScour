@@ -5,9 +5,10 @@ import { CellTimeSeries } from '@/components/CellTimeSeries';
 import { ColorLegend } from '@/components/ColorLegend';
 import { FluidControls } from '@/components/FluidControls';
 import { HudOverlay } from '@/components/HudOverlay';
-import { ScourWarning } from '@/components/ScourWarning';
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts';
 import { MetadataPanel } from '@/components/MetadataPanel';
+import { ScourWarning } from '@/components/ScourWarning';
+import { SimParamPanel } from '@/components/SimParamPanel';
 import { TimeControls } from '@/components/TimeControls';
 import { AnimationLoop } from '@/core/AnimationLoop';
 import { CameraManager } from '@/core/CameraManager';
@@ -16,16 +17,123 @@ import { RendererManager } from '@/core/RendererManager';
 import { SceneManager } from '@/core/SceneManager';
 import { createDataSource } from '@/data/createDataSource';
 import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
+import { SyntheticScourSource } from '@/data/SyntheticScourSource';
 import { BridgeCollapse } from '@/modules/BridgeCollapse';
 import { FluidSlicePlane } from '@/modules/FluidSlicePlane';
 import { Picking } from '@/modules/Picking';
 import { PierMarker, type PierDefinition } from '@/modules/PierMarker';
 import { Terrain } from '@/modules/Terrain';
 import { VelocityArrows } from '@/modules/VelocityArrows';
+import type { Scene } from 'three';
+import type { FluidSeries } from '@/types/fluid';
+import type { ScourSeries } from '@/types/terrain';
+import { DEFAULT_SIM_PARAMS, type SimParams } from '@/types/simParams';
 import { createFpsMeter } from '@/utils/fpsMeter';
 import { captureSceneScreenshot } from '@/utils/screenshot';
 
 const MANIFEST_URL = '/data/flow3d/processed/demo/manifest.json';
+
+// 파라미터에 의존하는 모듈 묶음. Apply 시 통째로 교체.
+interface SimState {
+  series: ScourSeries;
+  fluidSeries: FluidSeries;
+  pierDefs: PierDefinition[];
+  terrain: Terrain;
+  pierMarker: PierMarker;
+  bridgeCollapse: BridgeCollapse;
+  slicePlane: FluidSlicePlane;
+  arrows: VelocityArrows;
+  fluidMaxY: number;
+  durationSeconds: number;
+  dispose(): void;
+}
+
+async function buildSimState(
+  params: SimParams,
+  scene: Scene,
+  baseScourSeries: ScourSeries | null, // manifest 에서 받은 베이스 (없으면 합성)
+): Promise<SimState> {
+  // ── 세굴 데이터
+  const scourSrc = new SyntheticScourSource({
+    width: 96,
+    height: 96,
+    cellSize: 0.5,
+    frameCount: params.frameCount,
+    frameIntervalSeconds: params.frameIntervalSeconds,
+    pierDiameter: params.pierDiameter,
+    scourRate: params.scourRate,
+  });
+  const series = baseScourSeries ?? (await scourSrc.load());
+  // manifest 를 쓰더라도 파라미터가 바뀌면 합성으로 교체
+  const activeSeries = baseScourSeries === null ? series : await scourSrc.load();
+
+  const pierDefs: PierDefinition[] = (activeSeries.baseTerrain.metadata?.piers ?? []).map((p) => ({
+    id: p.id,
+    x: p.x,
+    z: p.z,
+    ...(p.diameter !== undefined ? { diameter: p.diameter } : {}),
+    ...(p.height !== undefined ? { height: p.height } : {}),
+  }));
+
+  const terrain = new Terrain(scene, activeSeries);
+  const pierMarker = new PierMarker({ scene, baseElevation: -1.5 }, pierDefs);
+
+  const bridgeCollapse = new BridgeCollapse({
+    scene,
+    series: activeSeries,
+    piers: pierDefs,
+    criticalScourDepth: params.criticalScourDepth,
+    baseElevation: -1.5,
+  });
+
+  // ── 유체 데이터
+  const fluidSource = new SyntheticFluidSource({
+    width: 48,
+    height: 12,
+    depth: 32,
+    cellSize: 0.5,
+    frameCount: params.frameCount,
+    inflowSpeed: params.inflowSpeed,
+    pier: pierDefs[0]
+      ? { x: pierDefs[0].x, z: pierDefs[0].z, radius: params.pierDiameter / 2 }
+      : { x: 0, z: 0, radius: params.pierDiameter / 2 },
+  });
+  const fluidSeries = await fluidSource.load();
+  const fluidMaxY = (fluidSeries.grid.height - 1) * fluidSeries.grid.cellSize;
+
+  const slicePlane = new FluidSlicePlane({
+    scene,
+    series: fluidSeries,
+    initialQuantity: 'speed',
+    initialHeight: fluidMaxY * 0.4,
+  });
+  const arrows = new VelocityArrows({ scene, series: fluidSeries, stride: 4 });
+
+  const durationSeconds = Math.max(
+    terrain.durationSeconds,
+    fluidSeries.frames.at(-1)?.timestampSeconds ?? 0,
+  );
+
+  return {
+    series: activeSeries,
+    fluidSeries,
+    pierDefs,
+    terrain,
+    pierMarker,
+    bridgeCollapse,
+    slicePlane,
+    arrows,
+    fluidMaxY,
+    durationSeconds,
+    dispose() {
+      arrows.dispose();
+      slicePlane.dispose();
+      bridgeCollapse.dispose();
+      pierMarker.dispose();
+      terrain.dispose();
+    },
+  };
+}
 
 async function bootstrap(): Promise<void> {
   const canvas = document.getElementById('scene-canvas') as HTMLCanvasElement | null;
@@ -45,92 +153,34 @@ async function bootstrap(): Promise<void> {
   const fpsMeter = createFpsMeter(appRoot);
   const loop = new AnimationLoop();
 
-  // ── 지형/세굴 데이터
-  const { source, origin } = await createDataSource({
+  // ── 최초 베이스 데이터 (manifest 있으면 사용, 없으면 null → buildSimState 내부에서 합성)
+  const { origin } = await createDataSource({
     manifestUrl: MANIFEST_URL,
     syntheticOptions: { width: 96, height: 96, frameCount: 90 },
   });
-  const series = await source.load();
-  const terrain = new Terrain(sceneManager.scene, series);
 
-  const pierDefs: PierDefinition[] = (series.baseTerrain.metadata?.piers ?? []).map((p) => ({
-    id: p.id,
-    x: p.x,
-    z: p.z,
-    ...(p.diameter !== undefined ? { diameter: p.diameter } : {}),
-    ...(p.height !== undefined ? { height: p.height } : {}),
-  }));
-  const piers = new PierMarker({ scene: sceneManager.scene, baseElevation: -1.5 }, pierDefs);
-
-  // ── 세굴 붕괴 시뮬레이터 (교각 구조체 + 붕괴 애니메이션)
-  const CRITICAL_SCOUR_DEPTH = 3.0; // 미터 — 기초 노출 임계 세굴 깊이
-  const bridgeCollapse = new BridgeCollapse({
-    scene: sceneManager.scene,
-    series,
-    piers: pierDefs,
-    criticalScourDepth: CRITICAL_SCOUR_DEPTH,
-    baseElevation: -1.5,
-  });
-
-  const scourWarning = new ScourWarning({
-    pierCount: pierDefs.length,
-    pierIds: pierDefs.map((p) => p.id),
-    criticalDepthM: CRITICAL_SCOUR_DEPTH,
-  });
-  appRoot.appendChild(scourWarning.element);
-
-  bridgeCollapse.onCollapse((evt) => {
-    scourWarning.showCollapse(evt);
-    hud.set('Pick', `⚠ 교각 ${evt.pierId} 붕괴 (t=${evt.timestampSeconds.toFixed(1)}s)`);
-  });
-
-  // ── 유체 데이터 (현재는 합성 데이터만 지원, 추후 ManifestFluidSource 추가 가능)
-  const fluidSource = new SyntheticFluidSource({
-    width: 48,
-    height: 12,
-    depth: 32,
-    cellSize: 0.5,
-    frameCount: 90,
-    pier: pierDefs[0]
-      ? { x: pierDefs[0].x, z: pierDefs[0].z, radius: (pierDefs[0].diameter ?? 1.5) / 2 }
-      : { x: 0, z: 0, radius: 0.75 },
-  });
-  const fluidSeries = await fluidSource.load();
-  const fluidMaxY = (fluidSeries.grid.height - 1) * fluidSeries.grid.cellSize;
-
-  const slicePlane = new FluidSlicePlane({
-    scene: sceneManager.scene,
-    series: fluidSeries,
-    initialQuantity: 'speed',
-    initialHeight: fluidMaxY * 0.4,
-  });
-  const arrows = new VelocityArrows({
-    scene: sceneManager.scene,
-    series: fluidSeries,
-    stride: 4,
-  });
+  let params: SimParams = { ...DEFAULT_SIM_PARAMS };
+  let sim = await buildSimState(params, sceneManager.scene, null);
 
   const sceneRadius =
-    (Math.hypot(series.baseTerrain.width, series.baseTerrain.height) *
-      series.baseTerrain.cellSize) /
+    (Math.hypot(sim.series.baseTerrain.width, sim.series.baseTerrain.height) *
+      sim.series.baseTerrain.cellSize) /
     2;
 
+  // ── 파라미터 독립적인 UI
   const hud = new HudOverlay(hudEl, {
     initial: {
       Source: origin === 'manifest' ? `manifest (${MANIFEST_URL})` : 'synthetic (fallback)',
-      Grid: `${series.baseTerrain.width}×${series.baseTerrain.height} (cell ${series.baseTerrain.cellSize}m)`,
-      Frames: `${terrain.frameCount} (duration ${terrain.durationSeconds.toFixed(1)}s)`,
-      Fluid: `${fluidSeries.grid.width}×${fluidSeries.grid.height}×${fluidSeries.grid.depth} · ${fluidSeries.frames.length}f`,
+      Grid: `${sim.series.baseTerrain.width}×${sim.series.baseTerrain.height} (cell ${sim.series.baseTerrain.cellSize}m)`,
+      Frames: `${sim.terrain.frameCount} (duration ${sim.terrain.durationSeconds.toFixed(1)}s)`,
+      Fluid: `${sim.fluidSeries.grid.width}×${sim.fluidSeries.grid.height}×${sim.fluidSeries.grid.depth} · ${sim.fluidSeries.frames.length}f`,
       Pick: '— (마우스를 지형 위로 이동)',
       Keys: 'Space=Play · ←/→=Seek · R/T/F/X=Camera · P=PNG',
     },
   });
 
   const timeControls = new TimeControls({
-    durationSeconds: Math.max(
-      terrain.durationSeconds,
-      fluidSeries.frames.at(-1)?.timestampSeconds ?? 0,
-    ),
+    durationSeconds: sim.durationSeconds,
     autoPlay: true,
     loop: true,
   });
@@ -139,63 +189,132 @@ async function bootstrap(): Promise<void> {
   const legend = new ColorLegend({
     title: '세굴 ↔ 퇴적 (Δ elevation)',
     unit: 'm',
-    initialAbsMax: terrain.absMax,
+    initialAbsMax: sim.terrain.absMax,
   });
   appRoot.appendChild(legend.element);
-  terrain.onFrameApplied(({ absMax }) => legend.setRange(absMax));
 
-  // 유체 컨트롤 (좌측 상단)
   const fluidControls = new FluidControls(
     {
       initialQuantity: 'speed',
       minHeight: 0,
-      maxHeight: fluidMaxY,
-      initialHeight: fluidMaxY * 0.4,
+      maxHeight: sim.fluidMaxY,
+      initialHeight: sim.fluidMaxY * 0.4,
       units: {
-        speed: fluidSeries.metadata?.velocityUnit ?? 'm/s',
-        pressure: fluidSeries.metadata?.pressureUnit ?? 'Pa',
-        density: fluidSeries.metadata?.densityUnit ?? 'kg/m^3',
+        speed: sim.fluidSeries.metadata?.velocityUnit ?? 'm/s',
+        pressure: sim.fluidSeries.metadata?.pressureUnit ?? 'Pa',
+        density: sim.fluidSeries.metadata?.densityUnit ?? 'kg/m^3',
       },
     },
     {
       onQuantityChange: (q) => {
-        slicePlane.setQuantity(q);
-        const r = slicePlane.currentRangeForLegend;
+        sim.slicePlane.setQuantity(q);
+        const r = sim.slicePlane.currentRangeForLegend;
         const unit =
           q === 'pressure'
-            ? (fluidSeries.metadata?.pressureUnit ?? 'Pa')
+            ? (sim.fluidSeries.metadata?.pressureUnit ?? 'Pa')
             : q === 'density'
-              ? (fluidSeries.metadata?.densityUnit ?? 'kg/m^3')
-              : (fluidSeries.metadata?.velocityUnit ?? 'm/s');
+              ? (sim.fluidSeries.metadata?.densityUnit ?? 'kg/m^3')
+              : (sim.fluidSeries.metadata?.velocityUnit ?? 'm/s');
         fluidControls.setRange(r.min, r.max, unit);
       },
-      onSliceHeightChange: (y) => slicePlane.setHeight(y),
-      onSliceVisibilityChange: (v) => slicePlane.setVisible(v),
-      onArrowsVisibilityChange: (v) => arrows.setVisible(v),
+      onSliceHeightChange: (y) => sim.slicePlane.setHeight(y),
+      onSliceVisibilityChange: (v) => sim.slicePlane.setVisible(v),
+      onArrowsVisibilityChange: (v) => sim.arrows.setVisible(v),
     },
   );
   appRoot.appendChild(fluidControls.element);
-  // 초기 범위 라벨 갱신
   {
-    const r = slicePlane.currentRangeForLegend;
-    fluidControls.setRange(r.min, r.max, fluidSeries.metadata?.velocityUnit ?? 'm/s');
+    const r = sim.slicePlane.currentRangeForLegend;
+    fluidControls.setRange(r.min, r.max, sim.fluidSeries.metadata?.velocityUnit ?? 'm/s');
   }
 
+  const scourWarning = new ScourWarning({
+    pierCount: sim.pierDefs.length,
+    pierIds: sim.pierDefs.map((p) => p.id),
+    criticalDepthM: params.criticalScourDepth,
+  });
+  appRoot.appendChild(scourWarning.element);
+
+  sim.bridgeCollapse.onCollapse((evt) => {
+    scourWarning.showCollapse(evt);
+    hud.set('Pick', `⚠ 교각 ${evt.pierId} 붕괴 (t=${evt.timestampSeconds.toFixed(1)}s)`);
+  });
+
   const metadataPanel = new MetadataPanel({
-    metadata: series.baseTerrain.metadata,
+    metadata: sim.series.baseTerrain.metadata,
     extra: {
       Source: origin,
-      Grid: `${series.baseTerrain.width} × ${series.baseTerrain.height}`,
-      Cell: `${series.baseTerrain.cellSize} m`,
-      Frames: String(terrain.frameCount),
-      Duration: `${terrain.durationSeconds.toFixed(1)} s`,
-      Piers: String(pierDefs.length),
+      Grid: `${sim.series.baseTerrain.width} × ${sim.series.baseTerrain.height}`,
+      Cell: `${sim.series.baseTerrain.cellSize} m`,
+      Frames: String(sim.terrain.frameCount),
+      Duration: `${sim.terrain.durationSeconds.toFixed(1)} s`,
+      Piers: String(sim.pierDefs.length),
     },
   });
   appRoot.appendChild(metadataPanel.element);
 
-  const cellSeries = new CellTimeSeries({ series });
+  const cellSeries = new CellTimeSeries({ series: sim.series });
   appRoot.appendChild(cellSeries.element);
+
+  // ── 파라미터 패널
+  const simParamPanel = new SimParamPanel(params, {
+    onApply: (newParams) => {
+      simParamPanel.setLoading(true);
+      loop.stop();
+      const old = sim;
+
+      void buildSimState(newParams, sceneManager.scene, null).then((next) => {
+        old.dispose();
+        // ScourWarning 리셋
+        scourWarning.element.remove();
+        // ScourWarning 은 pierCount 고정(P1) 이므로 재사용하되 내부 상태 리셋
+        const newScourWarning = new ScourWarning({
+          pierCount: next.pierDefs.length,
+          pierIds: next.pierDefs.map((p) => p.id),
+          criticalDepthM: newParams.criticalScourDepth,
+        });
+        // ScourWarning 재삽입 (simParamPanel 앞에)
+        appRoot.insertBefore(newScourWarning.element, simParamPanel.element);
+
+        next.bridgeCollapse.onCollapse((evt) => {
+          newScourWarning.showCollapse(evt);
+          hud.set('Pick', `⚠ 교각 ${evt.pierId} 붕괴 (t=${evt.timestampSeconds.toFixed(1)}s)`);
+        });
+
+        // Picking 은 terrain 메쉬가 바뀌므로 새 terrain 의 pickables 로 갱신
+        picking.updatePickables(next.terrain.pickables);
+
+        // CellTimeSeries 는 series 교체
+        cellSeries.updateSeries(next.series);
+
+        // ColorLegend 범위 리셋
+        legend.setRange(next.terrain.absMax);
+        next.terrain.onFrameApplied(({ absMax }) => legend.setRange(absMax));
+
+        // TimeControls 기간 갱신
+        timeControls.setDuration(next.durationSeconds);
+        timeControls.setTime(0);
+
+        // HUD 갱신
+        hud.set(
+          'Frames',
+          `${next.terrain.frameCount} (duration ${next.terrain.durationSeconds.toFixed(1)}s)`,
+        );
+        hud.set(
+          'Fluid',
+          `${next.fluidSeries.grid.width}×${next.fluidSeries.grid.height}×${next.fluidSeries.grid.depth} · ${next.fluidSeries.frames.length}f`,
+        );
+
+        params = newParams;
+        sim = next;
+        simParamPanel.setLoading(false);
+        loop.start();
+      });
+    },
+  });
+  appRoot.appendChild(simParamPanel.element);
+
+  sim.terrain.onFrameApplied(({ absMax }) => legend.setRange(absMax));
 
   const cameraPresets = new CameraPresets({
     onSelect: (preset) => cameraManager.applyPreset(preset, sceneRadius),
@@ -218,14 +337,14 @@ async function bootstrap(): Promise<void> {
   const picking = new Picking({
     canvas,
     camera: cameraManager.camera,
-    pickables: terrain.pickables,
+    pickables: sim.terrain.pickables,
   });
   picking.onHover((hit) => {
     if (!hit) {
       hud.set('Pick', '— (지형 밖)');
       return;
     }
-    const cell = terrain.queryAtWorld(hit.worldX, hit.worldZ);
+    const cell = sim.terrain.queryAtWorld(hit.worldX, hit.worldZ);
     if (!cell) {
       hud.set('Pick', '— (지형 밖)');
       return;
@@ -241,7 +360,7 @@ async function bootstrap(): Promise<void> {
       cellSeries.element.classList.remove('is-active');
       return;
     }
-    const cell = terrain.queryAtWorld(hit.worldX, hit.worldZ);
+    const cell = sim.terrain.queryAtWorld(hit.worldX, hit.worldZ);
     if (!cell) return;
     cellSeries.setCell(cell.gridX, cell.gridY);
     cellSeries.element.classList.add('is-active');
@@ -251,7 +370,7 @@ async function bootstrap(): Promise<void> {
     togglePlay: () => timeControls.setPlaying(!timeControls.isPlaying),
     seekRelative: (delta) => timeControls.setTime(timeControls.time + delta),
     seekAbsolute: (t) => timeControls.setTime(t),
-    duration: () => timeControls.time + 1, // duration getter 가 없어 단순 구현; 0/end 점프는 setAbsolute 가 클램프
+    duration: () => timeControls.time + 1,
     applyPreset: (preset) => cameraManager.applyPreset(preset, sceneRadius),
     screenshot: () => {
       void captureSceneScreenshot(
@@ -269,24 +388,27 @@ async function bootstrap(): Promise<void> {
   loop.add((delta) => {
     fpsMeter.begin();
     timeControls.tick(delta);
-    terrain.updateAtTime(timeControls.time);
-    bridgeCollapse.updateAtTime(timeControls.time);
-    scourWarning.update(bridgeCollapse.getScourRatios(timeControls.time), CRITICAL_SCOUR_DEPTH);
-    slicePlane.updateAtTime(timeControls.time);
-    arrows.updateAtTime(timeControls.time);
-    cellSeries.setTime(timeControls.time);
-    // 슬라이스 범위가 시간/양 변경에 따라 갱신될 수 있으므로 매 프레임 라벨 동기화
+    const t = timeControls.time;
+
+    sim.terrain.updateAtTime(t);
+    sim.bridgeCollapse.updateAtTime(t);
+    scourWarning.update(sim.bridgeCollapse.getScourRatios(t), params.criticalScourDepth);
+    sim.slicePlane.updateAtTime(t);
+    sim.arrows.updateAtTime(t);
+    cellSeries.setTime(t);
+
     {
-      const r = slicePlane.currentRangeForLegend;
-      const q = slicePlane.currentQuantityName;
+      const r = sim.slicePlane.currentRangeForLegend;
+      const q = sim.slicePlane.currentQuantityName;
       const unit =
         q === 'pressure'
-          ? (fluidSeries.metadata?.pressureUnit ?? 'Pa')
+          ? (sim.fluidSeries.metadata?.pressureUnit ?? 'Pa')
           : q === 'density'
-            ? (fluidSeries.metadata?.densityUnit ?? 'kg/m^3')
-            : (fluidSeries.metadata?.velocityUnit ?? 'm/s');
+            ? (sim.fluidSeries.metadata?.densityUnit ?? 'kg/m^3')
+            : (sim.fluidSeries.metadata?.velocityUnit ?? 'm/s');
       fluidControls.setRange(r.min, r.max, unit);
     }
+
     cameraManager.update();
     rendererManager.renderer.render(sceneManager.scene, cameraManager.camera);
     fpsMeter.end();
@@ -301,16 +423,13 @@ async function bootstrap(): Promise<void> {
     cameraPresets.dispose();
     cellSeries.dispose();
     metadataPanel.dispose();
+    simParamPanel.dispose();
     fluidControls.dispose();
     legend.dispose();
     timeControls.dispose();
     hud.dispose();
-    arrows.dispose();
-    slicePlane.dispose();
     scourWarning.dispose();
-    bridgeCollapse.dispose();
-    piers.dispose();
-    terrain.dispose();
+    sim.dispose();
     lightManager.dispose();
     cameraManager.dispose();
     rendererManager.dispose();

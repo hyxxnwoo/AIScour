@@ -114,6 +114,12 @@ export class TimeControls implements Disposable {
     return this.currentTime;
   }
 
+  public setDuration(durationSeconds: number): void {
+    this.duration = Math.max(0, durationSeconds);
+    this.slider.max = String(Math.round(this.duration * this.sliderResolution));
+    this.setTime(Math.min(this.currentTime, this.duration), { silent: true });
+  }
+
   public setTime(timeSeconds: number, options?: { silent?: boolean }): void {
     const clamped = Math.max(0, Math.min(timeSeconds, this.duration));
     if (clamped === this.currentTime) return;

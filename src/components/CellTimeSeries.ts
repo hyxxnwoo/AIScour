@@ -20,7 +20,7 @@ export class CellTimeSeries implements Disposable {
   private readonly empty: HTMLDivElement;
   private readonly width: number;
   private readonly height: number;
-  private readonly series: ScourSeries;
+  private series: ScourSeries;
   private currentTime = 0;
   private currentCell: { gridX: number; gridY: number } | null = null;
 
@@ -194,6 +194,12 @@ export class CellTimeSeries implements Disposable {
     const y = padding + h - ((arr[idx] - vMin) / vSpan) * h;
     this.marker.setAttribute('cx', x.toFixed(1));
     this.marker.setAttribute('cy', y.toFixed(1));
+  }
+
+  public updateSeries(series: ScourSeries): void {
+    this.series = series;
+    this.currentCell = null;
+    this.clear();
   }
 
   public dispose(): void {

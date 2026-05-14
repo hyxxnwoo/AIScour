@@ -25,7 +25,7 @@ export interface PickingOptions {
 export class Picking implements Disposable {
   private readonly canvas: HTMLCanvasElement;
   private readonly camera: Camera;
-  private readonly pickables: Object3D[];
+  private pickables: Object3D[];
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
   private readonly hoverListeners = new Set<PickListener>();
@@ -88,6 +88,10 @@ export class Picking implements Disposable {
       worldY: first.point.y,
       worldZ: first.point.z,
     };
+  }
+
+  public updatePickables(pickables: Object3D[]): void {
+    this.pickables = pickables;
   }
 
   public dispose(): void {
