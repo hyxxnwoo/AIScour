@@ -66,6 +66,8 @@ export class SyntheticScourSource implements ScourDataSource {
         elevationUnit: 'm',
         simulationId: 'synthetic-demo',
         capturedAt: new Date().toISOString(),
+        // 합성 데이터의 세굴공이 격자 중심에 형성되므로 교각도 동일 위치에 둔다.
+        piers: [{ id: 'P1', x: 0, z: 0, diameter: 1.5, height: 8 }],
       },
     };
   }

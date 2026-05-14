@@ -25,6 +25,17 @@ export interface TerrainMetadata {
   simulationId?: string;
   // 캡처 시점(ISO 8601)
   capturedAt?: string;
+  // 교각 정의(선택). 메타에 포함되어 있으면 PierMarker 가 자동 생성한다.
+  piers?: PierDefinitionMeta[];
+}
+
+export interface PierDefinitionMeta {
+  id: string;
+  // 격자 중심 기준 월드 좌표(미터)
+  x: number;
+  z: number;
+  diameter?: number;
+  height?: number;
 }
 
 // 시간에 따른 세굴 깊이 변화. 베이스 지형(TerrainGrid) 과 동일한 격자를 가정한다.
