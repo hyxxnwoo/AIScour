@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "editorconfig.editorconfig",
+    "ms-azuretools.vscode-docker",
+    "github.vscode-github-actions",
+    "vitest.explorer",
+    "slevesque.shader",
+    "redhat.vscode-yaml"
+  ]
+}

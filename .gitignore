@@ -1,0 +1,55 @@
+# 의존성
+node_modules/
+.pnp
+.pnp.js
+
+# 빌드 결과물
+dist/
+build/
+*.tsbuildinfo
+
+# 테스트/커버리지
+coverage/
+.nyc_output/
+
+# 로컬 환경 변수: *.example 파일만 커밋, 실제 값이 들어간 파일은 모두 무시
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# 로그
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+*.log
+
+# 에디터/OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# 캐시
+.cache/
+.parcel-cache/
+.turbo/
+.eslintcache
+
+# Vite
+.vite/
+
+# 데이터/스토리지 (대용량 시뮬레이션 데이터 제외)
+storage/flow3d/raw/*
+storage/flow3d/processed/*
+storage/flow3d/metadata/*
+storage/exports/*
+!storage/**/.gitkeep
+
+# Docker
+*.local

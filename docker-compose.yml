@@ -1,0 +1,91 @@
+# =====================================================
+# 베이스 docker-compose: 공통 서비스 정의 + 네트워크 + 볼륨
+# 환경별 오버라이드는 docker-compose.dev.yml / docker-compose.prod.yml 사용
+# 사용 예: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# =====================================================
+name: bridge-scour
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        VITE_APP_TITLE: ${VITE_APP_TITLE:-Bridge Scour 3D Dashboard}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    image: bridge-scour/frontend:latest
+    depends_on:
+      - backend
+    networks:
+      - frontend-net
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    image: bridge-scour/backend:latest
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      BACKEND_PORT: ${BACKEND_PORT:-8000}
+      POSTGRES_HOST: ${POSTGRES_HOST:-database}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      STORAGE_PATH: /var/lib/scour/storage
+    volumes:
+      - file-storage:/var/lib/scour/storage
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - frontend-net
+      - backend-net
+    restart: unless-stopped
+
+  database:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - backend-net
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--save', '60', '1', '--loglevel', 'warning']
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend-net
+    restart: unless-stopped
+
+networks:
+  frontend-net:
+    driver: bridge
+  backend-net:
+    driver: bridge
+    internal: false # 운영 환경에서 외부 인터넷 접근이 필요 없으면 true 로 전환
+
+volumes:
+  db-data:
+    driver: local
+  redis-data:
+    driver: local
+  file-storage:
+    driver: local

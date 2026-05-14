@@ -1,0 +1,56 @@
+# =====================================================
+# 운영 환경 오버라이드
+# - 외부에 노출되는 포트는 frontend(80/443) 만
+# - 환경 변수 파일은 .env.production 을 참조 (.example 을 복사한 후 시크릿 채워 사용)
+# - 컨테이너에 리소스 제한과 로깅 정책을 적용
+# 사용 예:
+#   cp .env.production.example .env.production   # 그리고 시크릿을 채울 것
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d
+# =====================================================
+services:
+  frontend:
+    ports:
+      - '80:8080'
+      # HTTPS 종단은 외부 LB 또는 별도 reverse proxy(예: Caddy/Traefik) 권장
+      # 컨테이너 자체에서 종단할 경우 443 매핑 + 인증서 마운트 추가
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  backend:
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1024M
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+
+  database:
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2048M
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M

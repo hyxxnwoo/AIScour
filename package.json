@@ -1,0 +1,55 @@
+{
+  "name": "bridge-scour-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "FLOW-3D 시뮬레이션 데이터를 기반으로 한 교량 세굴 3D 시각화 대시보드",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,scss,md,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,scss,md,json}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "stats.js": "^0.17.0",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^22.7.0",
+    "@types/stats.js": "^0.17.3",
+    "@types/three": "^0.169.0",
+    "eslint": "^9.11.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "globals": "^15.15.0",
+    "husky": "^9.1.6",
+    "jsdom": "^25.0.1",
+    "lint-staged": "^15.2.10",
+    "prettier": "^3.3.3",
+    "typescript": "~5.6.2",
+    "typescript-eslint": "^8.59.3",
+    "vite": "^5.4.8",
+    "vite-tsconfig-paths": "^5.0.1",
+    "vitest": "^2.1.2"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "src/**/*.{css,scss,md,json}": [
+      "prettier --write"
+    ]
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
