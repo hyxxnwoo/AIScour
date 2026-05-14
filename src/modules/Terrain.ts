@@ -23,6 +23,8 @@ export class Terrain implements Disposable {
   private readonly colors: Float32Array;
   private readonly tmpColor = { r: 0, g: 0, b: 0 };
   private currentFrameIndex = -1;
+  private currentAbsMax = 0;
+  private readonly frameListeners = new Set<(info: { index: number; absMax: number }) => void>();
 
   public constructor(scene: Scene, series: ScourSeries) {
     this.scene = scene;
@@ -165,9 +167,22 @@ export class Terrain implements Disposable {
     positions.needsUpdate = true;
     (this.geometry.attributes['color'] as BufferAttribute).needsUpdate = true;
     this.geometry.computeVertexNormals();
+    this.currentAbsMax = absMax;
+    for (const cb of this.frameListeners) cb({ index, absMax });
+  }
+
+  // 프레임 적용 시점에 호출되는 리스너 등록. 컬러 범례 등이 absMax 를 추적하는 용도.
+  public onFrameApplied(listener: (info: { index: number; absMax: number }) => void): () => void {
+    this.frameListeners.add(listener);
+    return () => this.frameListeners.delete(listener);
+  }
+
+  public get absMax(): number {
+    return this.currentAbsMax;
   }
 
   public dispose(): void {
+    this.frameListeners.clear();
     this.scene.remove(this.mesh);
     this.geometry.dispose();
     (this.mesh.material as MeshStandardMaterial).dispose();

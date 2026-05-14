@@ -111,3 +111,66 @@ body {
   border-radius: 4px;
   padding: 2px 6px;
 }
+
+.color-legend {
+  position: absolute;
+  bottom: 80px;
+  right: 16px;
+  width: 240px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 8px;
+  color: #e6eef7;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(4px);
+}
+
+.color-legend__title {
+  font-size: 11px;
+  margin-bottom: 6px;
+  color: #cfd8e3;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.color-legend__bar {
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.color-legend__scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  color: #cfd8e3;
+}
+
+.camera-presets {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 6px;
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+}
+
+.camera-presets button {
+  background: #1d3a5e;
+  color: #e6eef7;
+  border: 1px solid #2c507e;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+}
+
+.camera-presets button:hover {
+  background: #244a76;
+}

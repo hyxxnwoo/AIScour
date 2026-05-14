@@ -1,5 +1,7 @@
 import '@/styles/main.css';
 
+import { CameraPresets } from '@/components/CameraPresets';
+import { ColorLegend } from '@/components/ColorLegend';
 import { HudOverlay } from '@/components/HudOverlay';
 import { TimeControls } from '@/components/TimeControls';
 import { AnimationLoop } from '@/core/AnimationLoop';
@@ -12,7 +14,7 @@ import { Picking } from '@/modules/Picking';
 import { Terrain } from '@/modules/Terrain';
 import { createFpsMeter } from '@/utils/fpsMeter';
 
-// 엔트리 포인트: 코어 매니저 + Terrain + TimeControls + Picking 을 조립한다.
+// 엔트리 포인트: 코어 매니저 + Terrain + UI(타임/HUD/범례/카메라 프리셋) + Picking 을 조립한다.
 async function bootstrap(): Promise<void> {
   const canvas = document.getElementById('scene-canvas') as HTMLCanvasElement | null;
   const appRoot = document.getElementById('app');
@@ -31,10 +33,16 @@ async function bootstrap(): Promise<void> {
   const fpsMeter = createFpsMeter(appRoot);
   const loop = new AnimationLoop();
 
-  // 합성 데이터 로딩 → Terrain 생성. 추후 SyntheticScourSource 만 실제 어댑터로 교체하면 된다.
+  // 합성 데이터 → Terrain. 추후 ManifestSource 등 실제 어댑터로 교체 가능.
   const dataSource = new SyntheticScourSource({ width: 96, height: 96, frameCount: 90 });
   const series = await dataSource.load();
   const terrain = new Terrain(sceneManager.scene, series);
+
+  // 카메라 프리셋용 씬 반경 (지형 대각선의 절반 정도)
+  const sceneRadius =
+    (Math.hypot(series.baseTerrain.width, series.baseTerrain.height) *
+      series.baseTerrain.cellSize) /
+    2;
 
   const hud = new HudOverlay(hudEl, {
     initial: {
@@ -50,6 +58,19 @@ async function bootstrap(): Promise<void> {
     loop: true,
   });
   appRoot.appendChild(timeControls.element);
+
+  const legend = new ColorLegend({
+    title: '세굴 ↔ 퇴적 (Δ elevation)',
+    unit: 'm',
+    initialAbsMax: terrain.absMax,
+  });
+  appRoot.appendChild(legend.element);
+  terrain.onFrameApplied(({ absMax }) => legend.setRange(absMax));
+
+  const cameraPresets = new CameraPresets({
+    onSelect: (preset) => cameraManager.applyPreset(preset, sceneRadius),
+  });
+  appRoot.appendChild(cameraPresets.element);
 
   const picking = new Picking({
     canvas,
@@ -90,6 +111,8 @@ async function bootstrap(): Promise<void> {
   const dispose = (): void => {
     loop.dispose();
     picking.dispose();
+    cameraPresets.dispose();
+    legend.dispose();
     timeControls.dispose();
     hud.dispose();
     terrain.dispose();

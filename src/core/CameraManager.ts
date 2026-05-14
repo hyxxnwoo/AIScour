@@ -9,6 +9,25 @@ export interface CameraManagerOptions {
   aspect: number;
 }
 
+export type CameraPreset = 'reset' | 'top' | 'side' | 'front';
+
+export interface CameraPresetView {
+  position: { x: number; y: number; z: number };
+  target: { x: number; y: number; z: number };
+}
+
+// 프리셋 카메라 위치. reset 은 CAMERA_DEFAULTS 와 동기화된다.
+const PRESETS: Record<CameraPreset, (radius: number) => CameraPresetView> = {
+  reset: () => ({
+    position: CAMERA_DEFAULTS.initialPosition,
+    target: CAMERA_DEFAULTS.target,
+  }),
+  // 위에서 거의 수직으로 내려다본다 (Y 축 양의 방향). y=0 정확히는 OrbitControls 가 싫어하므로 살짝 기울인다.
+  top: (r) => ({ position: { x: 0.001, y: r * 1.5, z: 0.001 }, target: { x: 0, y: 0, z: 0 } }),
+  side: (r) => ({ position: { x: r * 1.6, y: r * 0.4, z: 0 }, target: { x: 0, y: 0, z: 0 } }),
+  front: (r) => ({ position: { x: 0, y: r * 0.4, z: r * 1.6 }, target: { x: 0, y: 0, z: 0 } }),
+};
+
 // CameraManager: PerspectiveCamera 와 OrbitControls 를 캡슐화한다.
 // 향후 자유 회전 외 카메라 모드(탑뷰, 단면뷰 등)가 필요할 때 이 모듈만 확장하면 된다.
 export class CameraManager implements Disposable {
@@ -42,6 +61,14 @@ export class CameraManager implements Disposable {
 
   public lookAt(target: Vector3): void {
     this.controls.target.copy(target);
+    this.controls.update();
+  }
+
+  // 프리셋 적용. radius 는 씬 크기에 비례한 카메라 거리(미터). 호출자가 지형 크기를 안다.
+  public applyPreset(preset: CameraPreset, radius: number): void {
+    const view = PRESETS[preset](Math.max(1, radius));
+    this.camera.position.set(view.position.x, view.position.y, view.position.z);
+    this.controls.target.set(view.target.x, view.target.y, view.target.z);
     this.controls.update();
   }
 
