@@ -34,6 +34,15 @@ export interface FluidControlsOptions {
   scrdifUnit?: string;
 }
 
+export interface ProbeReadoutValues {
+  u: number;
+  v: number;
+  w: number;
+  scrdif: number;
+  t?: number;
+  rowIndex?: number;
+}
+
 export interface FluidRangeEntry {
   quantity: FluidQuantity;
   label: string;
@@ -89,6 +98,10 @@ export class FluidControls implements Disposable {
   private readonly pointsToggle: HTMLInputElement;
   private readonly applyBtn: HTMLButtonElement;
   private readonly liveCheckbox: HTMLInputElement;
+  private readonly liveRow: HTMLElement;
+  private readonly readoutEls = new Map<FluidQuantity, HTMLSpanElement>();
+  private readonly probeMetaEl: HTMLSpanElement;
+  private _probeMode = false;
   private readonly listenerCleanups: Array<() => void> = [];
   private isLoading = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -158,6 +171,12 @@ export class FluidControls implements Disposable {
       numInput.value = String(this.values[paramKey]);
       this.valueInputs.set(paramKey, numInput);
 
+      const readout = document.createElement('span');
+      readout.className = 'fluid-controls__readout';
+      readout.hidden = true;
+      readout.textContent = formatScientific(this.values[paramKey]);
+      this.readoutEls.set(q, readout);
+
       const applyNumValue = (): void => {
         if (numInput.value.trim() === '') return;
         const raw = Number(numInput.value);
@@ -175,14 +194,20 @@ export class FluidControls implements Disposable {
       const unitEl = document.createElement('span');
       unitEl.className = 'fluid-controls__unit';
       unitEl.textContent = meta.unit;
-      row.append(numInput, unitEl);
+      row.append(numInput, readout, unitEl);
       quantityGroup.appendChild(row);
     }
     this.syncPrimaryMarkers();
     this.element.appendChild(quantityGroup);
 
+    this.probeMetaEl = document.createElement('span');
+    this.probeMetaEl.className = 'fluid-controls__probe-meta';
+    this.probeMetaEl.hidden = true;
+    this.element.appendChild(this.probeMetaEl);
+
     const liveRow = document.createElement('label');
     liveRow.className = 'fluid-controls__live';
+    this.liveRow = liveRow;
     this.liveCheckbox = document.createElement('input');
     this.liveCheckbox.type = 'checkbox';
     this.liveCheckbox.checked = this.debounceMs > 0;
@@ -424,6 +449,53 @@ export class FluidControls implements Disposable {
   public setSliceHeight(yMeters: number): void {
     this.heightSlider.value = String(yMeters);
     this.heightLabel.textContent = `Y = ${yMeters.toFixed(1)} m`;
+  }
+
+  public setProbeMode(enabled: boolean): void {
+    this._probeMode = enabled;
+    this.probeMetaEl.hidden = !enabled;
+    this.liveRow.hidden = enabled;
+    this.applyBtn.hidden = enabled;
+    for (const q of FLUID_DASHBOARD_QUANTITIES) {
+      const paramKey = FLUID_QUANTITY_PARAM_KEYS[q];
+      const input = this.valueInputs.get(paramKey);
+      const readout = this.readoutEls.get(q);
+      if (input) input.hidden = enabled;
+      if (readout) readout.hidden = !enabled;
+    }
+  }
+
+  public setProbeReadout(values: ProbeReadoutValues): void {
+    const map: Record<FluidQuantity, number> = {
+      velocityX: values.u,
+      velocityY: values.v,
+      velocityZ: values.w,
+      scrdif: values.scrdif,
+      speed: 0,
+      pressure: 0,
+      density: 0,
+      tke: 0,
+      dtke: 0,
+      mhyfd: 0,
+      shrvel: 0,
+      davel: 0,
+      ofvel: 0,
+    };
+    for (const q of FLUID_DASHBOARD_QUANTITIES) {
+      const readout = this.readoutEls.get(q);
+      if (readout) readout.textContent = formatScientific(map[q]);
+    }
+    if (values.t !== undefined && values.rowIndex !== undefined) {
+      this.probeMetaEl.textContent = `t = ${values.t.toFixed(0)}s · 행 ${values.rowIndex + 1}`;
+    } else if (values.t !== undefined) {
+      this.probeMetaEl.textContent = `t = ${values.t.toFixed(0)}s`;
+    } else {
+      this.probeMetaEl.textContent = '';
+    }
+  }
+
+  public isProbeMode(): boolean {
+    return this._probeMode;
   }
 
   public setPointsVisible(visible: boolean): void {

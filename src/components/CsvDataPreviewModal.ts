@@ -1,9 +1,9 @@
 import type { Disposable } from '@/types/disposable';
 import type { CsvDashboardLoadResult } from '@/data/loadCsvDashboard';
 import {
-  FLOW3D_SCRDIF_FIELDS,
-  type Flow3dScrdifColumns,
-} from '@/utils/parseFlow3dScrdifCsv';
+  SAMPLE_PROBE_FIELDS,
+  type SampleProbeColumns,
+} from '@/utils/parseSampleProbeCsv';
 import { computeVirtualWindow } from '@/utils/virtualRows';
 
 const PREVIEW_MAX_COLS = 12;
@@ -74,7 +74,7 @@ export class CsvDataPreviewModal implements Disposable {
   private readonly rowsBody: HTMLElement;
   private readonly cleanups: Array<() => void> = [];
   private loadResult: CsvDashboardLoadResult | null = null;
-  private scrdifColumns: Flow3dScrdifColumns | null = null;
+  private probeColumns: SampleProbeColumns | null = null;
   private scrollFrame: number | null = null;
 
   public constructor() {
@@ -134,7 +134,7 @@ export class CsvDataPreviewModal implements Disposable {
     const rowsHeader = document.createElement('div');
     rowsHeader.className = 'csv-preview-modal__rows-header';
     rowsHeader.setAttribute('role', 'row');
-    for (const label of ['#', ...FLOW3D_SCRDIF_FIELDS]) {
+    for (const label of ['#', ...SAMPLE_PROBE_FIELDS]) {
       const cell = document.createElement('span');
       cell.className = 'csv-preview-modal__rows-cell csv-preview-modal__rows-cell--head';
       cell.textContent = label;
@@ -212,10 +212,10 @@ export class CsvDataPreviewModal implements Disposable {
 
   public open(
     result: CsvDashboardLoadResult,
-    scrdifColumns: Flow3dScrdifColumns | null = null,
+    probeColumns: SampleProbeColumns | null = null,
   ): void {
     this.loadResult = result;
-    this.scrdifColumns = scrdifColumns;
+    this.probeColumns = probeColumns ?? result.columns;
     this.element.hidden = false;
     this.renderSummary();
     this.renderVariables();
@@ -236,7 +236,7 @@ export class CsvDataPreviewModal implements Disposable {
   }
 
   private setupRowsSection(): void {
-    if (!this.scrdifColumns || this.scrdifColumns.count === 0) {
+    if (!this.probeColumns || this.probeColumns.count === 0) {
       this.rowsSection.hidden = true;
       this.rowsBody.replaceChildren();
       this.rowsSpacer.style.height = '0px';
@@ -244,28 +244,25 @@ export class CsvDataPreviewModal implements Disposable {
     }
 
     this.rowsSection.hidden = false;
-    const stats = this.scrdifColumns.stats;
+    const stats = this.probeColumns.stats;
     if (stats) {
       const parts = [
-        `데이터 ${this.scrdifColumns.count.toLocaleString()}행`,
+        `데이터 ${this.probeColumns.count.toLocaleString()}행`,
         `파일 ${stats.fileLineCount.toLocaleString()}줄`,
       ];
       if (stats.skippedLinesAfterHeader > 0) {
         parts.push(`건너뜀 ${stats.skippedLinesAfterHeader.toLocaleString()}줄`);
       }
-      if (stats.truncatedAtSecondBlock) {
-        parts.push('첫 printing 블록만');
-      }
       this.rowsCountEl.textContent = `${parts.join(' · ')} · 가상 스크롤`;
     } else {
-      this.rowsCountEl.textContent = `데이터 ${this.scrdifColumns.count.toLocaleString()}행 · 가상 스크롤`;
+      this.rowsCountEl.textContent = `데이터 ${this.probeColumns.count.toLocaleString()}행 · 가상 스크롤`;
     }
     this.rowsScrollWrap.scrollTop = 0;
-    this.rowsSpacer.style.height = `${this.scrdifColumns.count * ROW_HEIGHT_PX}px`;
+    this.rowsSpacer.style.height = `${this.probeColumns.count * ROW_HEIGHT_PX}px`;
   }
 
   private renderVisibleRows(): void {
-    const columns = this.scrdifColumns;
+    const columns = this.probeColumns;
     if (!columns || columns.count === 0) {
       this.rowsBody.replaceChildren();
       return;
@@ -295,7 +292,7 @@ export class CsvDataPreviewModal implements Disposable {
       indexCell.textContent = String(rowIndex + 1);
       row.appendChild(indexCell);
 
-      for (const field of FLOW3D_SCRDIF_FIELDS) {
+      for (const field of SAMPLE_PROBE_FIELDS) {
         const cell = document.createElement('span');
         cell.className = 'csv-preview-modal__rows-cell';
         cell.textContent = formatNumber(columns[field][rowIndex]!);
@@ -310,61 +307,29 @@ export class CsvDataPreviewModal implements Disposable {
 
   private renderSummary(): void {
     if (!this.loadResult) return;
-    const { scour, fluid, variables } = this.loadResult;
+    const { scour, probeSeries } = this.loadResult;
     const items: Array<[string, string]> = [];
 
-    if (this.scrdifColumns && this.scrdifColumns.count > 0) {
-      const stats = this.scrdifColumns.stats;
+    if (this.probeColumns && this.probeColumns.count > 0) {
+      const stats = this.probeColumns.stats;
       if (stats) {
-        items.push([
-          stats.truncatedAtSecondBlock ? '읽은 줄 수 (첫 블록)' : '파일 줄 수',
-          `${stats.fileLineCount.toLocaleString()}줄`,
-        ]);
+        items.push(['파일 줄 수', `${stats.fileLineCount.toLocaleString()}줄`]);
         items.push(['파싱된 데이터 행', `${stats.dataRowCount.toLocaleString()}행`]);
-        const metaLines =
-          stats.fileLineCount - stats.dataRowCount - stats.skippedLinesAfterHeader - 1;
-        if (metaLines > 0) {
-          items.push(['메타·헤더 줄', `${metaLines.toLocaleString()}줄`]);
-        }
         if (stats.skippedLinesAfterHeader > 0) {
           items.push([
             '건너뛴 데이터 줄',
             `${stats.skippedLinesAfterHeader.toLocaleString()}줄`,
           ]);
         }
-        if (stats.expectedPrintingCells !== null && stats.expectedPrintingCells !== stats.dataRowCount) {
-          items.push([
-            'printing 격자(참고)',
-            `${stats.expectedPrintingCells.toLocaleString()}셀`,
-          ]);
-        }
-        if (stats.truncatedAtSecondBlock) {
-          items.push(['파싱 범위', '첫 printing 블록만 (대용량)']);
-        }
       } else {
-        items.push(['파싱된 데이터 행', `${this.scrdifColumns.count.toLocaleString()}행`]);
-      }
-    }
-    if (variables.length > 0) {
-      items.push(['파싱 변수 수', `${variables.length}개`]);
-    }
-    if (scour) {
-      items.push(['세굴 격자', `${scour.baseTerrain.width} × ${scour.baseTerrain.height}`]);
-      items.push(['세굴 프레임', `${scour.frames.length}개`]);
-    }
-    if (fluid) {
-      items.push([
-        '유체 격자',
-        `${fluid.grid.width} × ${fluid.grid.height} × ${fluid.grid.depth}`,
-      ]);
-      if (fluid.metadata?.simulationId) {
-        items.push(['데이터 출처', fluid.metadata.simulationId]);
+        items.push(['파싱된 데이터 행', `${this.probeColumns.count.toLocaleString()}행`]);
       }
     }
 
-    if (items.length === 0) {
-      items.push(['데이터', '없음']);
-    }
+    items.push(['재생 간격', `${probeSeries.baseIntervalSeconds * probeSeries.stepMultiple}초`]);
+    items.push(['세굴 격자', `${scour.baseTerrain.width} × ${scour.baseTerrain.height}`]);
+    items.push(['세굴 프레임', `${scour.frames.length}개`]);
+    items.push(['총 재생 길이', `${probeSeries.durationSeconds.toFixed(0)}초`]);
 
     this.summaryEl.replaceChildren(
       ...items.map(([label, value]) => {
@@ -383,52 +348,25 @@ export class CsvDataPreviewModal implements Disposable {
   }
 
   private renderVariables(): void {
-    if (!this.loadResult || this.loadResult.variables.length === 0) {
-      this.variablesEl.replaceChildren();
-      return;
-    }
-
-    const table = document.createElement('table');
-    table.className = 'csv-preview-modal__var-table';
-    const head = document.createElement('thead');
-    head.innerHTML = '<tr><th>ID</th><th>물리량</th><th>단위</th><th>값 개수</th></tr>';
-    table.appendChild(head);
-
-    const body = document.createElement('tbody');
-    for (const v of this.loadResult.variables) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${v.id}</td><td>${v.label}</td><td>${v.unit || '—'}</td><td>${v.values.length}</td>`;
-      body.appendChild(tr);
-    }
-    table.appendChild(body);
-    this.variablesEl.replaceChildren(table);
+    this.variablesEl.replaceChildren();
   }
 
   private populateFrameOptions(): void {
     if (!this.loadResult) return;
     const options: HTMLOptionElement[] = [];
-
-    for (const variable of this.loadResult.variables) {
-      const opt = document.createElement('option');
-      opt.value = `var:${variable.id}`;
-      opt.textContent = `${variable.id} — ${variable.label}`;
-      options.push(opt);
-    }
-
     const scour = this.loadResult.scour;
-    if (scour) {
-      const terrainOpt = document.createElement('option');
-      terrainOpt.value = 'terrain';
-      terrainOpt.textContent = '베이스 지형 (표고)';
-      options.push(terrainOpt);
 
-      scour.frames.forEach((frame, i) => {
-        const opt = document.createElement('option');
-        opt.value = String(i);
-        opt.textContent = `프레임 ${i} (t=${frame.timestampSeconds.toFixed(1)}s, Δ표고)`;
-        options.push(opt);
-      });
-    }
+    const terrainOpt = document.createElement('option');
+    terrainOpt.value = 'terrain';
+    terrainOpt.textContent = '베이스 지형 (표고)';
+    options.push(terrainOpt);
+
+    scour.frames.forEach((frame, i) => {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = `프레임 ${i} (t=${frame.timestampSeconds.toFixed(1)}s, Δ표고)`;
+      options.push(opt);
+    });
 
     this.frameSelect.replaceChildren(...options);
     if (options[0]) {
@@ -439,22 +377,7 @@ export class CsvDataPreviewModal implements Disposable {
   private currentValues(): { values: Float32Array; width: number; height: number } | null {
     if (!this.loadResult) return null;
     const sel = this.frameSelect.value;
-
-    if (sel.startsWith('var:')) {
-      const id = sel.slice(4);
-      const variable = this.loadResult.variables.find((v) => v.id === id);
-      if (!variable) return null;
-
-      const gridW =
-        this.loadResult.fluid?.grid.width ??
-        this.loadResult.scour?.baseTerrain.width ??
-        Math.max(1, Math.round(Math.sqrt(variable.values.length)));
-      const gridH = Math.max(1, Math.ceil(variable.values.length / gridW));
-      return { values: variable.values, width: gridW, height: gridH };
-    }
-
     const scour = this.loadResult.scour;
-    if (!scour) return null;
     const { baseTerrain, frames } = scour;
     if (sel === 'terrain') {
       return {

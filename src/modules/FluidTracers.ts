@@ -40,6 +40,19 @@ const MIN_SPEED = 0.012;
 const STUCK_RESPAWN = 0.6;
 const MIN_DEPTH = 0.008;
 
+/** FLOW-3D (u,v,w) → 월드 (vx,vy,vz). x→X, z→Y, y→Z */
+export function probeVelocityToWorld(u: number, v: number, w: number): {
+  vx: number;
+  vy: number;
+  vz: number;
+} {
+  return { vx: u, vy: w, vz: v };
+}
+
+export function probeSpeed(u: number, v: number, w: number): number {
+  return Math.hypot(u, v, w);
+}
+
 export function fluidSeriesHasFlow(series: FluidSeries, threshold = MIN_SPEED): boolean {
   for (const frame of series.frames) {
     const n = frame.velocityX.length;
@@ -72,6 +85,9 @@ export class FluidTracers implements Disposable {
   private userVisible = true;
   private forceHidden = false;
   private readonly hasFlow: boolean;
+  /** CSV 프로브 모드: 단일 u·v·w 로 전체 입자를 이동. null 이면 격자 유속장 사용. */
+  private probeVelocity: { vx: number; vy: number; vz: number } | null = null;
+  private probeSpeedValue = -1;
 
   public constructor(options: FluidTracersOptions) {
     this.scene = options.scene;
@@ -109,7 +125,25 @@ export class FluidTracers implements Disposable {
     }
   }
 
-  /** CSV u·v·w=0 등 외부에서 유속 없음이 확정될 때 mesh 를 강제로 숨긴다. */
+  /** CSV 프로브 u·v·w. null 이면 합성 유속 격자로 복귀. 속도 0이면 입자를 숨긴다. */
+  public setProbeVelocity(sample: { u: number; v: number; w: number } | null): void {
+    if (sample === null) {
+      this.probeVelocity = null;
+      this.probeSpeedValue = -1;
+      this.applyMeshVisibility();
+      return;
+    }
+    const world = probeVelocityToWorld(sample.u, sample.v, sample.w);
+    this.probeVelocity = world;
+    this.probeSpeedValue = probeSpeed(sample.u, sample.v, sample.w);
+    this.applyMeshVisibility();
+  }
+
+  public clearProbeVelocity(): void {
+    this.setProbeVelocity(null);
+  }
+
+  /** @deprecated setProbeVelocity 사용 권장 */
   public setForceHidden(hidden: boolean): void {
     this.forceHidden = hidden;
     this.applyMeshVisibility();
@@ -121,7 +155,11 @@ export class FluidTracers implements Disposable {
   }
 
   private applyMeshVisibility(): void {
-    this.mesh.visible = this.userVisible && this.hasFlow && !this.forceHidden;
+    const flowActive =
+      this.probeSpeedValue >= 0
+        ? this.probeSpeedValue >= MIN_SPEED
+        : this.hasFlow;
+    this.mesh.visible = this.userVisible && flowActive && !this.forceHidden;
   }
 
   public get isVisible(): boolean {
@@ -161,7 +199,14 @@ export class FluidTracers implements Disposable {
   }
 
   public tick(deltaSeconds: number): void {
-    if (this.forceHidden || !this.hasFlow || !this.userVisible || this.fluidFrameIndex < 0) return;
+    if (!this.userVisible || this.fluidFrameIndex < 0) return;
+
+    const usingProbe = this.probeVelocity !== null;
+    if (usingProbe) {
+      if (this.probeSpeedValue < MIN_SPEED) return;
+    } else if (this.forceHidden || !this.hasFlow) {
+      return;
+    }
 
     const frame = this.fluidSeries.frames[this.fluidFrameIndex];
     const delta = this.currentScourDelta();
@@ -170,6 +215,7 @@ export class FluidTracers implements Disposable {
     const dt = Math.min(0.05, Math.max(0, deltaSeconds)) * ADVECTION_BOOST;
     const grid = this.fluidSeries.grid;
     const terrain = this.scourSeries.baseTerrain;
+    const probeVel = this.probeVelocity;
 
     for (let i = 0; i < this.tracers.length; i += 1) {
       const t = this.tracers[i]!;
@@ -177,13 +223,25 @@ export class FluidTracers implements Disposable {
       t.py = t.y;
       t.pz = t.z;
 
-      const vel = sampleFluidVelocityAtWorld(grid, frame, t.x, t.y, t.z);
-      if (!vel) {
-        this.respawnTracer(t);
-        continue;
+      let vx: number;
+      let vy: number;
+      let vz: number;
+      if (probeVel) {
+        vx = probeVel.vx;
+        vy = probeVel.vy;
+        vz = probeVel.vz;
+      } else {
+        const vel = sampleFluidVelocityAtWorld(grid, frame, t.x, t.y, t.z);
+        if (!vel) {
+          this.respawnTracer(t);
+          continue;
+        }
+        vx = vel.vx;
+        vy = vel.vy;
+        vz = vel.vz;
       }
 
-      const speed = Math.hypot(vel.vx, vel.vy, vel.vz);
+      const speed = Math.hypot(vx, vy, vz);
       if (speed < MIN_SPEED) {
         t.stuck += deltaSeconds;
         if (t.stuck >= STUCK_RESPAWN) {
@@ -193,9 +251,9 @@ export class FluidTracers implements Disposable {
       }
       t.stuck = 0;
 
-      t.x += vel.vx * dt;
-      t.y += vel.vy * dt;
-      t.z += vel.vz * dt;
+      t.x += vx * dt;
+      t.y += vy * dt;
+      t.z += vz * dt;
 
       const bed = sampleTerrainBedAtWorld(terrain, delta, t.x, t.z);
       const outOfWater =

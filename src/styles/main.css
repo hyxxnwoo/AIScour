@@ -381,6 +381,21 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.fluid-controls__readout {
+  width: 100%;
+  padding: 3px 6px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: #e8f4fc;
+}
+
+.fluid-controls__probe-meta {
+  display: block;
+  margin: 2px 0 6px;
+  font-size: 10px;
+  color: #9ab0c2;
+}
+
 .fluid-controls__unit {
   color: #9ab0c2;
   font-size: 10px;

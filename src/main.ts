@@ -15,6 +15,7 @@ import { LightManager } from '@/core/LightManager';
 import { RendererManager } from '@/core/RendererManager';
 import { SceneManager } from '@/core/SceneManager';
 import { createDataSource } from '@/data/createDataSource';
+import { probeAtTime, type SampleProbeSeries } from '@/data/buildSampleProbeDashboard';
 import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
 import { BridgeCollapse } from '@/modules/BridgeCollapse';
@@ -110,8 +111,26 @@ interface SimState {
   fluidMaxY: number;
   waterLevelY: number;
   coordinateFluid: boolean;
+  probeSeries: SampleProbeSeries | null;
   durationSeconds: number;
   dispose(): void;
+}
+
+function syncProbeTracers(
+  tracers: FluidTracers,
+  probeSeries: SampleProbeSeries | null,
+  timeSeconds: number,
+): void {
+  if (!probeSeries) {
+    tracers.clearProbeVelocity();
+    return;
+  }
+  const sample = probeAtTime(probeSeries, timeSeconds);
+  if (!sample) {
+    tracers.setProbeVelocity({ u: 0, v: 0, w: 0 });
+    return;
+  }
+  tracers.setProbeVelocity({ u: sample.u, v: sample.v, w: sample.w });
 }
 
 async function buildSimState(
@@ -120,6 +139,7 @@ async function buildSimState(
   baseScourSeries: ScourSeries | null,
   baseFluidSeries: FluidSeries | null = null,
   coordinateFluid = false,
+  probeSeries: SampleProbeSeries | null = null,
 ): Promise<SimState> {
   const geom = paramsToFlumeGeometry(params);
   const terrainDims = terrainGridDims(geom);
@@ -266,6 +286,7 @@ async function buildSimState(
   const durationSeconds = Math.max(
     terrain.durationSeconds,
     fluidSeries.frames.at(-1)?.timestampSeconds ?? 0,
+    probeSeries?.durationSeconds ?? 0,
   );
 
   return {
@@ -285,6 +306,7 @@ async function buildSimState(
     fluidMaxY,
     waterLevelY: initialFluidY,
     coordinateFluid,
+    probeSeries,
     durationSeconds,
     dispose() {
       fluidPoints.dispose();
@@ -475,11 +497,18 @@ async function bootstrap(): Promise<void> {
     baseScour: ScourSeries | null = null,
     baseFluid: FluidSeries | null = null,
     coordinateFluid = false,
+    probeSeries: SampleProbeSeries | null = null,
   ): void => {
     experimentInfoPanel.setLoading(true);
     fluidControls.setLoading(true);
-    void buildSimState(newParams, sceneManager.scene, baseScour, baseFluid, coordinateFluid).then(
-      (next) => {
+    void buildSimState(
+      newParams,
+      sceneManager.scene,
+      baseScour,
+      baseFluid,
+      coordinateFluid,
+      probeSeries,
+    ).then((next) => {
         swapSim(next, newParams);
         experimentInfoPanel.setLoading(false);
         fluidControls.setLoading(false);
@@ -519,6 +548,7 @@ async function bootstrap(): Promise<void> {
     next.arrows.setVisible(false);
     next.tracers.setVisible(fluidControls.isTracersVisible());
     next.tracers.setWaterLevel(next.waterLevelY);
+    syncProbeTracers(next.tracers, next.probeSeries, 0);
     fluidControls.setPointsVisible(false);
     applyFluidPrimaryQuantity(fluidControls.getPrimaryQuantity());
     lastFluidLegendKey = '';
@@ -529,6 +559,20 @@ async function bootstrap(): Promise<void> {
     lastFluidLegendKey = '';
     experimentInfoPanel.setParams(nextParams);
     fluidControls.setParams(nextParams);
+    fluidControls.setProbeMode(next.probeSeries !== null);
+    if (next.probeSeries) {
+      const sample = probeAtTime(next.probeSeries, 0);
+      if (sample) {
+        fluidControls.setProbeReadout({
+          u: sample.u,
+          v: sample.v,
+          w: sample.w,
+          scrdif: sample.scrdif,
+          t: sample.t,
+          rowIndex: sample.rowIndex,
+        });
+      }
+    }
     sim.terrainWater.setOpacity(fluidSliceOpacity);
     loop.start();
   };
@@ -545,8 +589,9 @@ async function bootstrap(): Promise<void> {
         params,
         sceneManager.scene,
         result.scour,
-        result.fluid,
-        result.fluid !== null && result.variables.length > 0,
+        null,
+        false,
+        result.probeSeries,
       );
       await yieldToMain();
       swapSim(next);
@@ -623,11 +668,25 @@ async function bootstrap(): Promise<void> {
     sim.terrainWater.updateAtTime(t);
     sim.terrainWater.tickRipple(elapsed);
     sim.tracers.updateAtTime(t);
+    syncProbeTracers(sim.tracers, sim.probeSeries, t);
     sim.tracers.tick(delta);
     sim.slicePlane.updateAtTime(t);
     sim.arrows.updateAtTime(t);
     sim.fluidPoints.updateAtTime(t);
     cellSeries.setTime(t);
+    if (sim.probeSeries) {
+      const sample = probeAtTime(sim.probeSeries, t);
+      if (sample) {
+        fluidControls.setProbeReadout({
+          u: sample.u,
+          v: sample.v,
+          w: sample.w,
+          scrdif: sample.scrdif,
+          t: sample.t,
+          rowIndex: sample.rowIndex,
+        });
+      }
+    }
     syncFluidFieldLegend();
 
     cameraManager.update();

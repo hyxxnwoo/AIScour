@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { CsvDataPreviewModal } from '@/components/CsvDataPreviewModal';
+import { buildSampleProbeDashboard } from '@/data/buildSampleProbeDashboard';
+import type { SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
 
-function makeScrdifColumns(count: number) {
+function makeProbeColumns(count: number): SampleProbeColumns {
   const x = new Float32Array(count);
   const y = new Float32Array(count);
   const z = new Float32Array(count);
@@ -23,44 +25,38 @@ function makeScrdifColumns(count: number) {
   return { x, y, z, u, v, w, scrdif, count };
 }
 
+function makeLoadResult(columns: SampleProbeColumns) {
+  const built = buildSampleProbeDashboard(columns);
+  return {
+    scour: built.scour,
+    probeSeries: built.probeSeries,
+    columns,
+    stepMultiple: 1,
+  };
+}
+
 describe('CsvDataPreviewModal', () => {
   it('open() 호출 시 모달을 즉시 표시한다', () => {
     const modal = new CsvDataPreviewModal();
     document.body.appendChild(modal.element);
+    const columns = makeProbeColumns(4);
 
-    modal.open({
-      scour: null,
-      fluid: null,
-      variables: [
-        {
-          id: 'ux',
-          label: 'X 속도',
-          unit: 'm/s',
-          values: Float32Array.from([0, 1, 2, 3]),
-        },
-      ],
-    });
+    modal.open(makeLoadResult(columns));
 
     expect(modal.element.hidden).toBe(false);
-    expect(modal.element.querySelector('.csv-preview-modal__summary-value')?.textContent).toBe(
-      '1개',
+    expect(modal.element.querySelector('.csv-preview-modal__summary-value')?.textContent).toContain(
+      '4',
     );
 
     modal.dispose();
   });
 
-  it('scrdifColumns 가 있으면 원본 행 섹션과 초기 가상 행을 렌더한다', () => {
+  it('columns 가 있으면 원본 행 섹션과 초기 가상 행을 렌더한다', () => {
     const modal = new CsvDataPreviewModal();
     document.body.appendChild(modal.element);
+    const columns = makeProbeColumns(120);
 
-    modal.open(
-      {
-        scour: null,
-        fluid: null,
-        variables: [],
-      },
-      makeScrdifColumns(120),
-    );
+    modal.open(makeLoadResult(columns), columns);
 
     const section = modal.element.querySelector('.csv-preview-modal__rows-section');
     expect(section?.hasAttribute('hidden')).toBe(false);
@@ -78,22 +74,6 @@ describe('CsvDataPreviewModal', () => {
     const renderedRows = modal.element.querySelectorAll('.csv-preview-modal__rows-row');
     expect(renderedRows.length).toBeGreaterThan(0);
     expect(renderedRows.length).toBeLessThan(120);
-
-    modal.dispose();
-  });
-
-  it('scrdifColumns 가 없으면 원본 행 섹션을 숨긴다', () => {
-    const modal = new CsvDataPreviewModal();
-    document.body.appendChild(modal.element);
-
-    modal.open({
-      scour: null,
-      fluid: null,
-      variables: [],
-    });
-
-    const section = modal.element.querySelector('.csv-preview-modal__rows-section');
-    expect(section?.hasAttribute('hidden')).toBe(true);
 
     modal.dispose();
   });

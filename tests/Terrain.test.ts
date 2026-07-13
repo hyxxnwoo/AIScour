@@ -64,19 +64,20 @@ describe('Terrain scour coloring', () => {
     const series = await new SyntheticScourSource({
       width: 11,
       height: 11,
-      cellSize: 1,
+      cellSize: 0.1,
       frameCount: 8,
       pierDiameter: 0.2,
+      pier: { x: 0, z: 0 },
     }).load();
     const scene = new Scene();
     const terrain = new Terrain(scene, series);
 
-    terrain.updateAtTime(1e9);
-    const scourCell = terrain.queryAtWorld(0, 0);
+    terrain.updateAtTime(series.frames.at(-1)!.timestampSeconds);
+    const scourCell = terrain.queryAtWorld(-0.2, 0);
     expect(scourCell).not.toBeNull();
     expect(scourCell!.deltaElevation).toBeLessThan(0);
 
-    const farCell = terrain.queryAtWorld(4.5, 4.5);
+    const farCell = terrain.queryAtWorld(0.45, 0.45);
     expect(farCell).not.toBeNull();
     expect(Math.abs(farCell!.deltaElevation)).toBeLessThan(1e-4);
 

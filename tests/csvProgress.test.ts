@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { computeCsvProgressPct } from '@/utils/csvProgress';
-import type { CsvLoadProgress } from '@/data/loadScourFromCsvFiles';
+import type { CsvLoadProgress } from '@/data/loadCsvDashboard';
 
 function base(overrides: Partial<CsvLoadProgress>): CsvLoadProgress {
   return {
-    phase: 'terrain',
+    phase: 'parse',
     message: '',
     fileName: 'a.csv',
     fileIndex: 0,
@@ -36,12 +36,3 @@ describe('computeCsvProgressPct', () => {
     ).toBe(25);
   });
 });
-
-// this.element.appendChild(title);
-// const title = document.createElement('div');
-
-// const quantityGroup = document.createElement('div');
-// quantityGroup.className = 'fluid-controls__group;
-// public readonly element : HTMLElement;
-// private readonly heightSlider : HTMLIpuntElement;
-// private readonly heightLadbel : HTMLSpanElement;l

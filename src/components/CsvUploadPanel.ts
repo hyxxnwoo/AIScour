@@ -1,24 +1,28 @@
 import type { Disposable } from '@/types/disposable';
-import type { CsvDashboardLoadResult, LoadCsvDashboardOptions } from '@/data/loadCsvDashboard';
-import { loadCsvDashboard } from '@/data/loadCsvDashboard';
-import type { CsvLoadProgress } from '@/data/loadScourFromCsvFiles';
+import type { CsvDashboardLoadResult, CsvLoadProgress, LoadCsvDashboardOptions } from '@/data/loadCsvDashboard';
+import { loadCsvDashboard, rebuildCsvDashboard } from '@/data/loadCsvDashboard';
 import { isCsvParseAbortError } from '@/utils/csvParseAbort';
 import { computeCsvProgressPct } from '@/utils/csvProgress';
 import { createInMemoryUploadFile, snapshotUploadFiles, UPLOAD_SNAPSHOT_MAX_BYTES } from '@/utils/readUploadFile';
 import { CsvDataPreviewModal } from '@/components/CsvDataPreviewModal';
-import type { Flow3dScrdifColumns } from '@/utils/parseFlow3dScrdifCsv';
-import { isScrdifTemporalProbe } from '@/utils/scrdifCsvLayout';
+import type { SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
 
 /** dev 서버 public/data/sampledata.csv */
 const SAMPLE_CSV_URL = '/data/sampledata.csv';
 
+/** 재생 간격 UI 옵션: 라벨 → stride(30초 배수). */
+export const SAMPLE_PROBE_INTERVAL_OPTIONS = [
+  { label: '30초', stride: 1 },
+  { label: '1분', stride: 2 },
+  { label: '5분', stride: 10 },
+  { label: '10분', stride: 20 },
+  { label: '30분', stride: 60 },
+] as const;
+
 export interface CsvUploadPanelHandlers {
   onLoaded: (result: CsvDashboardLoadResult) => void | Promise<void>;
   onError?: (message: string) => void;
-  /** CSV 로드 시 수심 등 대시보드 옵션. */
   getLoadOptions?: () => Partial<LoadCsvDashboardOptions>;
-  /** scrdif 행=시각 모드에서 재생 간격(30초 배수) 변경. */
-  onIntervalChange?: (stepMultiple: number) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -35,11 +39,7 @@ function formatProgress(progress: CsvLoadProgress): string {
       ? ` · ${progress.rowsParsed}/${progress.totalRows}행`
       : '';
   const fileLabel = progress.fileName ? basename(progress.fileName) : '';
-  const filePart =
-    progress.fileCount > 1
-      ? ` (${progress.fileIndex + 1}/${progress.fileCount})`
-      : '';
-  return `${progress.message}${fileLabel ? ` ${fileLabel}` : ''}${filePart} · ${pct.toFixed(0)}%${rows}`;
+  return `${progress.message}${fileLabel ? ` ${fileLabel}` : ''} · ${pct.toFixed(0)}%${rows}`;
 }
 
 function basename(path: string): string {
@@ -48,26 +48,42 @@ function basename(path: string): string {
   return idx >= 0 ? normalized.slice(idx + 1) : normalized;
 }
 
+function isFullSampleProbeColumns(columns: SampleProbeColumns): boolean {
+  const total = columns.stats?.dataRowCount ?? columns.count;
+  const parseStride = columns.stats?.parseStepMultiple ?? 1;
+  return parseStride === 1 && columns.count === total;
+}
+
+function formatIntervalLabel(stepMultiple: number, baseIntervalSeconds = 30): string {
+  const seconds = stepMultiple * baseIntervalSeconds;
+  if (seconds < 60) return `${seconds}초`;
+  if (seconds % 60 === 0) return `${seconds / 60}분`;
+  return `${seconds}초`;
+}
+
+function formatAutoAdjustedMessage(
+  result: CsvDashboardLoadResult,
+  baseIntervalSeconds = 30,
+): string {
+  const intervalLabel = formatIntervalLabel(result.stepMultiple, baseIntervalSeconds);
+  return `행이 많아 재생 간격을 ${intervalLabel}로 자동 조정했습니다 · 프레임 ${result.scour.frames.length}개`;
+}
+
 export class CsvUploadPanel implements Disposable {
   public readonly element: HTMLElement;
   private readonly handlers: CsvUploadPanelHandlers;
   private readonly cleanups: Array<() => void> = [];
   private fileInput!: HTMLInputElement;
-  private folderInput!: HTMLInputElement;
   private statusEl!: HTMLElement;
   private progressBar!: HTMLElement;
   private loadBtn!: HTMLButtonElement;
   private cancelBtn!: HTMLButtonElement;
   private previewBtn!: HTMLButtonElement;
   private isLoading = false;
-  /** 파싱용 File 목록. filesInMemory=true 이면 이미 메모리 복사본이다. */
   private parseReadyFiles: File[] = [];
-  /** true 이면 parseReadyFiles 가 디스크 참조 없이 메모리에만 존재한다. */
-  private filesInMemory = false;
-  private selectedFiles: File[] = [];
   private abortController: AbortController | null = null;
   private lastLoadResult: CsvDashboardLoadResult | null = null;
-  private lastScrdifColumns: Flow3dScrdifColumns | null = null;
+  private lastColumns: SampleProbeColumns | null = null;
   private readonly previewModal = new CsvDataPreviewModal();
   private pendingProgress: CsvLoadProgress | null = null;
   private progressFrame: number | null = null;
@@ -77,6 +93,7 @@ export class CsvUploadPanel implements Disposable {
   private readonly blockerDock: HTMLElement;
   private readonly actionRow: HTMLElement;
   private readonly intervalRow: HTMLElement;
+  private autoIntervalOption: HTMLOptionElement | null = null;
   private readonly intervalSelect: HTMLSelectElement;
 
   public constructor(handlers: CsvUploadPanelHandlers) {
@@ -92,7 +109,7 @@ export class CsvUploadPanel implements Disposable {
     const hint = document.createElement('p');
     hint.className = 'csv-upload-panel__hint';
     hint.textContent =
-      'terrain.csv, FLOW-3D flscon 출력(u,v,w,scrdif), 다변수 CSV, x,y,z 좌표 CSV를 업로드합니다. 디스크 읽기 오류 시 「샘플 CSV」를 사용해 보세요.';
+      'sampledata.csv 양식(x y z u v w scrdif)만 업로드합니다. 디스크 읽기 오류 시 「샘플 CSV」를 사용해 보세요.';
     this.element.appendChild(hint);
 
     const fileRow = document.createElement('div');
@@ -100,8 +117,8 @@ export class CsvUploadPanel implements Disposable {
 
     this.fileInput = document.createElement('input');
     this.fileInput.type = 'file';
-    this.fileInput.multiple = true;
-    this.fileInput.accept = '.csv,.json,text/csv,application/json';
+    this.fileInput.multiple = false;
+    this.fileInput.accept = '.csv,text/csv';
     this.fileInput.className = 'csv-upload-panel__file-input';
 
     const fileBtn = document.createElement('button');
@@ -115,23 +132,6 @@ export class CsvUploadPanel implements Disposable {
     fileBtn.addEventListener('click', onFileBtn);
     this.cleanups.push(() => fileBtn.removeEventListener('click', onFileBtn));
 
-    this.folderInput = document.createElement('input');
-    this.folderInput.type = 'file';
-    this.folderInput.multiple = true;
-    this.folderInput.webkitdirectory = true;
-    this.folderInput.className = 'csv-upload-panel__file-input';
-
-    const folderBtn = document.createElement('button');
-    folderBtn.type = 'button';
-    folderBtn.className = 'csv-upload-panel__pick csv-upload-panel__pick--secondary';
-    folderBtn.textContent = '폴더 선택';
-    const onFolderBtn = (): void => {
-      this.folderInput.value = '';
-      this.folderInput.click();
-    };
-    folderBtn.addEventListener('click', onFolderBtn);
-    this.cleanups.push(() => folderBtn.removeEventListener('click', onFolderBtn));
-
     const sampleBtn = document.createElement('button');
     sampleBtn.type = 'button';
     sampleBtn.className = 'csv-upload-panel__pick csv-upload-panel__pick--secondary';
@@ -142,9 +142,9 @@ export class CsvUploadPanel implements Disposable {
     sampleBtn.addEventListener('click', onSampleBtn);
     this.cleanups.push(() => sampleBtn.removeEventListener('click', onSampleBtn));
 
-    fileRow.append(fileBtn, folderBtn, sampleBtn);
+    fileRow.append(fileBtn, sampleBtn);
     this.element.appendChild(fileRow);
-    this.element.append(this.fileInput, this.folderInput);
+    this.element.append(this.fileInput);
 
     this.statusEl = document.createElement('div');
     this.statusEl.className = 'csv-upload-panel__status';
@@ -168,22 +168,14 @@ export class CsvUploadPanel implements Disposable {
 
     this.intervalSelect = document.createElement('select');
     this.intervalSelect.className = 'csv-upload-panel__interval-select';
-    for (const mult of [1, 2, 3, 4, 6, 8, 10]) {
-      const opt = document.createElement('option');
-      opt.value = String(mult);
-      const seconds = mult * 30;
-      if (seconds < 60) {
-        opt.textContent = `${seconds}초 (매 ${mult}행)`;
-      } else if (seconds % 60 === 0) {
-        opt.textContent = `${seconds / 60}분 (매 ${mult}행)`;
-      } else {
-        opt.textContent = `${Math.floor(seconds / 60)}분 ${seconds % 60}초 (매 ${mult}행)`;
-      }
-      this.intervalSelect.appendChild(opt);
+    for (const opt of SAMPLE_PROBE_INTERVAL_OPTIONS) {
+      const el = document.createElement('option');
+      el.value = String(opt.stride);
+      el.textContent = opt.label;
+      this.intervalSelect.appendChild(el);
     }
     const onIntervalChange = (): void => {
-      const mult = Math.max(1, Number(this.intervalSelect.value) || 1);
-      this.handlers.onIntervalChange?.(mult);
+      void this.rebuildWithCurrentInterval();
     };
     this.intervalSelect.addEventListener('change', onIntervalChange);
     this.cleanups.push(() => this.intervalSelect.removeEventListener('change', onIntervalChange));
@@ -221,7 +213,7 @@ export class CsvUploadPanel implements Disposable {
     this.previewBtn.hidden = true;
     const onPreview = (): void => {
       if (this.lastLoadResult) {
-        this.previewModal.open(this.lastLoadResult, this.lastScrdifColumns);
+        this.previewModal.open(this.lastLoadResult, this.lastColumns);
       }
     };
     this.previewBtn.addEventListener('click', onPreview);
@@ -263,33 +255,26 @@ export class CsvUploadPanel implements Disposable {
       void this.handleFilesSelected(ev.target as HTMLInputElement);
     };
     this.fileInput.addEventListener('change', onFiles);
-    this.folderInput.addEventListener('change', onFiles);
     this.cleanups.push(() => this.fileInput.removeEventListener('change', onFiles));
-    this.cleanups.push(() => this.folderInput.removeEventListener('change', onFiles));
   }
 
-  /** 파일 선택 직후 가능하면 메모리로 복사한다. 실패 시 디스크 참조를 유지해 스트리밍 파싱한다. */
   private async handleFilesSelected(input: HTMLInputElement): Promise<void> {
     const raw = Array.from(input.files ?? []);
     if (raw.length === 0) {
       this.parseReadyFiles = [];
-      this.filesInMemory = false;
       this.setSelectedFiles([]);
       return;
     }
 
     this.parseReadyFiles = [];
-    this.filesInMemory = false;
     this.statusEl.textContent = '파일 읽는 중…';
     this.loadBtn.disabled = true;
     this.fileInput.disabled = true;
-    this.folderInput.disabled = true;
 
     try {
       const hasLargeFile = raw.some((f) => f.size > UPLOAD_SNAPSHOT_MAX_BYTES);
       if (hasLargeFile) {
         this.parseReadyFiles = raw;
-        this.filesInMemory = false;
         input.value = '';
         this.setSelectedFiles(raw);
         return;
@@ -297,24 +282,18 @@ export class CsvUploadPanel implements Disposable {
 
       const snapshotted = await snapshotUploadFiles(raw);
       this.parseReadyFiles = snapshotted;
-      this.filesInMemory = true;
       input.value = '';
       this.setSelectedFiles(snapshotted);
     } catch (err: unknown) {
-      // 대용량·잠금 파일: 스냅샷 없이 디스크 File 로 스트리밍 파싱
       this.parseReadyFiles = raw;
-      this.filesInMemory = false;
-      this.selectedFiles = raw;
       this.previewBtn.hidden = true;
       this.intervalRow.hidden = true;
       this.lastLoadResult = null;
-      this.lastScrdifColumns = null;
+      this.lastColumns = null;
 
-      const csvCount = raw.filter((f) => /\.csv$/i.test(f.name)).length;
       const totalBytes = raw.reduce((sum, f) => sum + f.size, 0);
-      const hint =
-        totalBytes > 2 * 1024 * 1024 ? ' · 대용량(스트리밍 파싱)' : ' · 스트리밍 파싱';
-      this.statusEl.textContent = `${raw.length}개 파일 · CSV ${csvCount}개 · ${formatBytes(totalBytes)}${hint}`;
+      const hint = totalBytes > 2 * 1024 * 1024 ? ' · 대용량(스트리밍 파싱)' : ' · 스트리밍 파싱';
+      this.statusEl.textContent = `${raw.length}개 파일 · ${formatBytes(totalBytes)}${hint}`;
       this.loadBtn.disabled = false;
 
       if (err instanceof Error) {
@@ -323,16 +302,13 @@ export class CsvUploadPanel implements Disposable {
     } finally {
       if (!this.isLoading) {
         this.fileInput.disabled = false;
-        this.folderInput.disabled = false;
       }
     }
   }
 
-  /** dev 서버에 있는 sampledata.csv 를 fetch 로 불러온다 (디스크 잠금 우회). */
   private async loadSampleData(): Promise<void> {
     if (this.isLoading) return;
     this.fileInput.disabled = true;
-    this.folderInput.disabled = true;
     this.statusEl.textContent = '샘플 CSV 불러오는 중…';
     this.loadBtn.disabled = true;
 
@@ -344,16 +320,12 @@ export class CsvUploadPanel implements Disposable {
       const text = await res.text();
       const file = createInMemoryUploadFile(text, 'sampledata.csv');
       this.parseReadyFiles = [file];
-      this.filesInMemory = true;
       this.fileInput.value = '';
-      this.folderInput.value = '';
       this.setSelectedFiles([file]);
     } catch (err: unknown) {
       this.parseReadyFiles = [];
-      this.filesInMemory = false;
-      this.selectedFiles = [];
       this.lastLoadResult = null;
-      this.lastScrdifColumns = null;
+      this.lastColumns = null;
       const message =
         err instanceof Error ? err.message : '샘플 CSV를 불러올 수 없습니다.';
       this.statusEl.textContent = message;
@@ -365,27 +337,137 @@ export class CsvUploadPanel implements Disposable {
     } finally {
       if (!this.isLoading) {
         this.fileInput.disabled = false;
-        this.folderInput.disabled = false;
       }
     }
   }
 
   private setSelectedFiles(files: File[]): void {
-    this.selectedFiles = files;
     this.previewBtn.hidden = true;
     this.intervalRow.hidden = true;
     this.lastLoadResult = null;
-    this.lastScrdifColumns = null;
+    this.lastColumns = null;
     if (files.length === 0) {
       this.statusEl.textContent = '선택된 파일 없음';
       this.loadBtn.disabled = true;
       return;
     }
 
-    const csvCount = files.filter((f) => /\.csv$/i.test(f.name)).length;
     const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-    this.statusEl.textContent = `${files.length}개 파일 · CSV ${csvCount}개 · ${formatBytes(totalBytes)}`;
+    this.statusEl.textContent = `${files[0]?.name ?? 'CSV'} · ${formatBytes(totalBytes)}`;
     this.loadBtn.disabled = false;
+  }
+
+  private syncIntervalSelect(stepMultiple: number, baseIntervalSeconds = 30): void {
+    const stride = String(stepMultiple);
+    const existing = Array.from(this.intervalSelect.options).find((opt) => opt.value === stride);
+    if (existing) {
+      if (this.autoIntervalOption) {
+        this.autoIntervalOption.remove();
+        this.autoIntervalOption = null;
+      }
+      this.intervalSelect.value = stride;
+      return;
+    }
+
+    if (!this.autoIntervalOption) {
+      this.autoIntervalOption = document.createElement('option');
+      this.intervalSelect.appendChild(this.autoIntervalOption);
+    }
+    this.autoIntervalOption.value = stride;
+    this.autoIntervalOption.textContent = `자동 (${formatIntervalLabel(stepMultiple, baseIntervalSeconds)})`;
+    this.intervalSelect.value = stride;
+  }
+
+  private formatLoadCompleteStatus(result: CsvDashboardLoadResult): string {
+    const base = `완료 · ${result.scour.baseTerrain.width}×${result.scour.baseTerrain.height} · 프레임 ${result.scour.frames.length}개`;
+    if (!result.autoAdjusted) return base;
+    const intervalLabel = formatIntervalLabel(
+      result.stepMultiple,
+      result.probeSeries.baseIntervalSeconds,
+    );
+    return `${base} · 간격 ${intervalLabel} 자동 조정`;
+  }
+
+  private async rebuildWithCurrentInterval(): Promise<void> {
+    if (!this.lastColumns && !this.lastLoadResult) return;
+    const stepMultiple = this.getStepMultiple();
+    const lastStep = this.lastLoadResult?.stepMultiple ?? 1;
+    if (stepMultiple === lastStep) return;
+
+    if (this.lastColumns && isFullSampleProbeColumns(this.lastColumns)) {
+      const result = rebuildCsvDashboard(this.lastColumns, stepMultiple);
+      this.lastLoadResult = result;
+      this.syncIntervalSelect(result.stepMultiple, result.probeSeries.baseIntervalSeconds);
+      const applyMessage = result.autoAdjusted
+        ? `${formatAutoAdjustedMessage(result, result.probeSeries.baseIntervalSeconds)} · 3D 적용 중…`
+        : `재생 간격 변경 · 프레임 ${result.scour.frames.length}개 · 3D 적용 중…`;
+      this.statusEl.textContent = applyMessage;
+      try {
+        await Promise.resolve(this.handlers.onLoaded(result));
+        this.statusEl.textContent = this.formatLoadCompleteStatus(result);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : '간격 변경 적용에 실패했습니다.';
+        this.statusEl.textContent = message;
+        this.handlers.onError?.(message);
+      }
+      return;
+    }
+
+    await this.reparseWithStepMultiple(stepMultiple);
+  }
+
+  private async reparseWithStepMultiple(stepMultiple: number): Promise<void> {
+    if (this.isLoading || this.parseReadyFiles.length === 0) return;
+    this.abortController = new AbortController();
+    const { signal } = this.abortController;
+    this.setLoading(true);
+    this.progressBar.style.width = '0%';
+    this.blockerProgressBar.style.width = '0%';
+    this.applyProgress({
+      phase: 'parse',
+      message: '재생 간격 변경 · CSV 재파싱 중…',
+      fileName: this.parseReadyFiles[0]?.name ?? '',
+      fileIndex: 0,
+      fileCount: this.parseReadyFiles.length,
+      bytesRead: 0,
+      fileSize: this.parseReadyFiles.reduce((s, f) => s + f.size, 0),
+    });
+
+    try {
+      const result = await loadCsvDashboard(this.parseReadyFiles, {
+        ...this.handlers.getLoadOptions?.(),
+        stepMultiple,
+        signal,
+        onProgress: (p) => this.setProgress(p, p.phase === 'classify'),
+      });
+
+      this.flushProgressFrame();
+      this.lastColumns = result.columns;
+      this.lastLoadResult = result;
+      this.syncIntervalSelect(result.stepMultiple, result.probeSeries.baseIntervalSeconds);
+      this.progressBar.style.width = '100%';
+      this.blockerProgressBar.style.width = '100%';
+      const applyMessage = result.autoAdjusted
+        ? `${formatAutoAdjustedMessage(result, result.probeSeries.baseIntervalSeconds)} · 3D 적용 중…`
+        : `재생 간격 변경 · 프레임 ${result.scour.frames.length}개 · 3D 적용 중…`;
+      this.statusEl.textContent = applyMessage;
+      await Promise.resolve(this.handlers.onLoaded(result));
+      this.statusEl.textContent = this.formatLoadCompleteStatus(result);
+    } catch (err: unknown) {
+      if (isCsvParseAbortError(err)) {
+        this.statusEl.textContent = err.message;
+        this.progressBar.style.width = '0%';
+        return;
+      }
+      const message = err instanceof Error ? err.message : '간격 변경 재파싱에 실패했습니다.';
+      this.statusEl.textContent = message;
+      this.progressBar.style.width = '0%';
+      this.handlers.onError?.(message);
+    } finally {
+      this.flushProgressFrame();
+      this.abortController = null;
+      this.setLoading(false);
+    }
   }
 
   private setParseBlocker(visible: boolean): void {
@@ -406,7 +488,6 @@ export class CsvUploadPanel implements Disposable {
     this.loadBtn.hidden = loading;
     this.loadBtn.disabled = loading || this.parseReadyFiles.length === 0;
     this.fileInput.disabled = loading;
-    this.folderInput.disabled = loading;
     this.setParseBlocker(loading);
   }
 
@@ -440,13 +521,11 @@ export class CsvUploadPanel implements Disposable {
     this.progressFrame = requestAnimationFrame(() => {
       this.progressFrame = null;
       const pending = this.pendingProgress;
-      // 로딩이 끝난 뒤 늦게 실행된 프레임이 최종 상태 메시지를 덮어쓰지 않도록 한다.
       if (!pending || !this.isLoading) return;
       this.applyProgress(pending);
     });
   }
 
-  /** 대기 중인 진행률 프레임을 취소한다(최종 상태를 스테일 메시지가 덮어쓰지 못하게 함). */
   private flushProgressFrame(): void {
     if (this.progressFrame !== null) {
       cancelAnimationFrame(this.progressFrame);
@@ -462,7 +541,7 @@ export class CsvUploadPanel implements Disposable {
     this.previewBtn.hidden = true;
     this.intervalRow.hidden = true;
     this.lastLoadResult = null;
-    this.lastScrdifColumns = null;
+    this.lastColumns = null;
     this.setLoading(true);
     this.progressBar.style.width = '0%';
     this.blockerProgressBar.style.width = '0%';
@@ -479,42 +558,30 @@ export class CsvUploadPanel implements Disposable {
     try {
       const result = await loadCsvDashboard(this.parseReadyFiles, {
         ...this.handlers.getLoadOptions?.(),
+        stepMultiple: this.getStepMultiple(),
         signal,
         onProgress: (p) => this.setProgress(p, p.phase === 'classify'),
       });
 
-      // 파싱이 끝났으므로 대기 중인 진행률 프레임을 취소해 이후 상태 메시지를 보존한다.
       this.flushProgressFrame();
 
-      this.lastScrdifColumns = result.scrdifColumns ?? null;
-      this.intervalRow.hidden =
-        !this.lastScrdifColumns || !isScrdifTemporalProbe(this.lastScrdifColumns);
-
-      const varCount = result.variables.length;
-      const scourInfo = result.scour
-        ? `${result.scour.baseTerrain.width}×${result.scour.baseTerrain.height}`
-        : '—';
-      const fluidInfo = result.fluid
-        ? `${result.fluid.grid.width}×${result.fluid.grid.height}×${result.fluid.grid.depth}`
-        : '—';
+      this.lastColumns = result.columns;
+      this.intervalRow.hidden = false;
+      this.syncIntervalSelect(result.stepMultiple, result.probeSeries.baseIntervalSeconds);
 
       this.progressBar.style.width = '100%';
       this.blockerProgressBar.style.width = '100%';
       this.lastLoadResult = result;
       this.previewBtn.hidden = false;
-      // 파싱이 끝나면 미리보기·UI 조작을 허용하고, 3D 적용은 백그라운드로 진행한다.
       this.setParseBlocker(false);
-      this.statusEl.textContent =
-        varCount > 0
-          ? `파싱 완료 · 변수 ${varCount}개 · 3D 장면 적용 중…`
-          : `파싱 완료 · 3D 장면 적용 중…`;
+      if (result.autoAdjusted) {
+        this.statusEl.textContent = `${formatAutoAdjustedMessage(result, result.probeSeries.baseIntervalSeconds)} · 3D 적용 중…`;
+      } else {
+        this.statusEl.textContent = '파싱 완료 · 3D 장면 적용 중…';
+      }
       await Promise.resolve(this.handlers.onLoaded(result));
-      this.statusEl.textContent =
-        varCount > 0
-          ? `완료 · 변수 ${varCount}개 · 세굴 ${scourInfo} · 유체 ${fluidInfo}`
-          : `완료 · ${scourInfo} · 프레임 ${result.scour?.frames.length ?? 0}개`;
+      this.statusEl.textContent = this.formatLoadCompleteStatus(result);
       this.fileInput.value = '';
-      this.folderInput.value = '';
     } catch (err: unknown) {
       if (isCsvParseAbortError(err)) {
         this.statusEl.textContent = err.message;

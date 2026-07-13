@@ -1,0 +1,407 @@
+import { terrainGridDims } from '@/constants/experiment';
+import type { ScourFrame, ScourSeries, TerrainGrid } from '@/types/terrain';
+import type { SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
+import { terrainGridToWorldXZ, worldXZToTerrainGrid } from '@/utils/fluidWorld';
+
+export interface SampleProbeBounds {
+  minDataX: number;
+  maxDataX: number;
+  minDataY: number;
+  maxDataY: number;
+  minDataZ: number;
+  maxDataZ: number;
+  centerDataX: number;
+  centerDataY: number;
+  centerDataZ: number;
+  minScrdif: number;
+  maxScrdif: number;
+}
+
+export interface SampleProbeSample {
+  t: number;
+  rowIndex: number;
+  dataX: number;
+  dataY: number;
+  dataZ: number;
+  worldX: number;
+  worldY: number;
+  worldZ: number;
+  u: number;
+  v: number;
+  w: number;
+  scrdif: number;
+}
+
+export interface SampleProbeSeries {
+  samples: SampleProbeSample[];
+  rowCount: number;
+  baseIntervalSeconds: number;
+  stepMultiple: number;
+  durationSeconds: number;
+  bounds: SampleProbeBounds;
+}
+
+export interface SampleProbeDashboard {
+  scour: ScourSeries;
+  probeSeries: SampleProbeSeries;
+}
+
+export interface BuildSampleProbeDashboardOptions {
+  baseIntervalSeconds?: number;
+  stepMultiple?: number;
+}
+
+const SCRDIF_EPS = 1e-12;
+export const MAX_SCOUR_FRAMES = 4096;
+const MAX_SCOUR_FRAME_BYTES = 256 * 1024 * 1024;
+
+/** 세굴 프레임 한도 안에 들어오도록 stride 를 올린다. */
+export function resolveSafeStepMultiple(
+  requestedStep: number,
+  totalDataRows: number,
+  maxFrames = MAX_SCOUR_FRAMES,
+): number {
+  const requested = Math.max(1, Math.floor(requestedStep));
+  if (totalDataRows <= 0) return requested;
+  const minStep = Math.ceil(totalDataRows / maxFrames);
+  return Math.max(requested, minStep);
+}
+
+function resolveTerrainGrid(): TerrainGrid {
+  const dims = terrainGridDims();
+  const vertexCount = dims.width * dims.height;
+  return {
+    width: dims.width,
+    height: dims.height,
+    cellSize: dims.cellSize,
+    elevations: new Float32Array(vertexCount),
+    metadata: {
+      elevationUnit: 'm',
+      simulationId: 'sample-probe-csv',
+    },
+  };
+}
+
+function countNonZeroScrdifFrames(
+  columns: SampleProbeColumns,
+  loopStep: number,
+): number {
+  let count = 0;
+  for (let i = 0; i < columns.count; i += loopStep) {
+    if (Math.abs(columns.scrdif[i]!) >= SCRDIF_EPS) count += 1;
+  }
+  return count;
+}
+
+function assertScourMemoryBudget(
+  columns: SampleProbeColumns,
+  terrain: TerrainGrid,
+  loopStep: number,
+): void {
+  const frameCount = Math.ceil(columns.count / loopStep);
+  if (frameCount > MAX_SCOUR_FRAMES) {
+    throw new Error(
+      '세굴 프레임 메모리가 너무 큽니다. 재생 간격을 늘리거나 행 수가 적은 CSV를 사용해 주세요.',
+    );
+  }
+
+  const vertexCount = terrain.width * terrain.height;
+  const nonZeroFrames = countNonZeroScrdifFrames(columns, loopStep);
+  const estimatedBytes = nonZeroFrames * vertexCount * Float32Array.BYTES_PER_ELEMENT;
+  if (estimatedBytes > MAX_SCOUR_FRAME_BYTES) {
+    throw new Error(
+      '세굴 프레임 메모리가 너무 큽니다. 재생 간격을 늘리거나 행 수가 적은 CSV를 사용해 주세요.',
+    );
+  }
+}
+
+function resolveBuildStride(
+  columns: SampleProbeColumns,
+  requestedStep: number,
+): { loopStep: number; seriesStepMultiple: number; totalRows: number; parseStride: number } {
+  const parseStride = Math.max(1, columns.stats?.parseStepMultiple ?? 1);
+  const buildStep = Math.max(1, Math.floor(requestedStep));
+  const totalRows = columns.stats?.dataRowCount ?? columns.count;
+  const parseStrided = parseStride > 1 && columns.count < totalRows;
+
+  if (parseStrided) {
+    return { loopStep: 1, seriesStepMultiple: parseStride, totalRows, parseStride };
+  }
+
+  return { loopStep: buildStep, seriesStepMultiple: buildStep, totalRows, parseStride: 1 };
+}
+
+function sourceRowIndex(storedIndex: number, parseStride: number, loopStep: number): number {
+  if (parseStride > 1 && loopStep === 1) return storedIndex * parseStride;
+  return storedIndex;
+}
+
+export function computeBounds(columns: SampleProbeColumns): SampleProbeBounds {
+  let minDataX = Infinity;
+  let maxDataX = -Infinity;
+  let minDataY = Infinity;
+  let maxDataY = -Infinity;
+  let minDataZ = Infinity;
+  let maxDataZ = -Infinity;
+  let minScrdif = Infinity;
+  let maxScrdif = -Infinity;
+
+  for (let i = 0; i < columns.count; i += 1) {
+    const x = columns.x[i]!;
+    const y = columns.y[i]!;
+    const z = columns.z[i]!;
+    const s = columns.scrdif[i]!;
+    if (x < minDataX) minDataX = x;
+    if (x > maxDataX) maxDataX = x;
+    if (y < minDataY) minDataY = y;
+    if (y > maxDataY) maxDataY = y;
+    if (z < minDataZ) minDataZ = z;
+    if (z > maxDataZ) maxDataZ = z;
+    if (s < minScrdif) minScrdif = s;
+    if (s > maxScrdif) maxScrdif = s;
+  }
+
+  if (!isFinite(minDataX)) {
+    minDataX = maxDataX = minDataY = maxDataY = minDataZ = maxDataZ = 0;
+    minScrdif = maxScrdif = 0;
+  }
+
+  return {
+    minDataX,
+    maxDataX,
+    minDataY,
+    maxDataY,
+    minDataZ,
+    maxDataZ,
+    centerDataX: (minDataX + maxDataX) / 2,
+    centerDataY: (minDataY + maxDataY) / 2,
+    centerDataZ: (minDataZ + maxDataZ) / 2,
+    minScrdif,
+    maxScrdif,
+  };
+}
+
+/** FLOW-3D 데이터 좌표 → Three.js 월드 좌표. */
+export function dataToWorld(
+  dataX: number,
+  dataY: number,
+  dataZ: number,
+  bounds: SampleProbeBounds,
+): { x: number; y: number; z: number } {
+  return {
+    x: dataX - bounds.centerDataX,
+    y: dataZ - bounds.centerDataZ,
+    z: dataY - bounds.centerDataY,
+  };
+}
+
+export function probeDurationSeconds(rowCount: number, intervalSeconds = 30): number {
+  return Math.max(0, rowCount) * intervalSeconds;
+}
+
+export function rowIndexAtTime(
+  rowCount: number,
+  timeSeconds: number,
+  intervalSeconds = 30,
+): number {
+  if (rowCount <= 0) return 0;
+  return Math.min(rowCount - 1, Math.max(0, Math.floor(timeSeconds / intervalSeconds)));
+}
+
+function medianPositiveDelta(values: Float32Array): number | null {
+  const deltas: number[] = [];
+  for (let i = 1; i < values.length; i += 1) {
+    const d = Math.abs(values[i]! - values[i - 1]!);
+    if (d > 1e-12) deltas.push(d);
+  }
+  if (deltas.length === 0) return null;
+  deltas.sort((a, b) => a - b);
+  const mid = Math.floor(deltas.length / 2);
+  return deltas.length % 2 === 0
+    ? (deltas[mid - 1]! + deltas[mid]!) / 2
+    : deltas[mid]!;
+}
+
+export function estimateInfluenceRadius(columns: SampleProbeColumns, cellSize: number): number {
+  const medianDx = medianPositiveDelta(columns.x);
+  if (medianDx !== null && medianDx > 0) return medianDx * 2;
+  return cellSize * 2;
+}
+
+function splatScrdif(
+  delta: Float32Array,
+  terrain: TerrainGrid,
+  worldX: number,
+  worldZ: number,
+  scrdifValue: number,
+  radius: number,
+): void {
+  if (!Number.isFinite(scrdifValue) || Math.abs(scrdifValue) < 1e-12) return;
+
+  const { gx: centerGx, gy: centerGy } = worldXZToTerrainGrid(worldX, worldZ, terrain);
+  const rCells = Math.ceil((radius * 2) / terrain.cellSize);
+
+  const minGx = Math.max(0, Math.floor(centerGx - rCells));
+  const maxGx = Math.min(terrain.width - 1, Math.ceil(centerGx + rCells));
+  const minGy = Math.max(0, Math.floor(centerGy - rCells));
+  const maxGy = Math.min(terrain.height - 1, Math.ceil(centerGy + rCells));
+
+  for (let gy = minGy; gy <= maxGy; gy += 1) {
+    for (let gx = minGx; gx <= maxGx; gx += 1) {
+      const { x, z } = terrainGridToWorldXZ(gx, gy, terrain);
+      const r = Math.hypot(x - worldX, z - worldZ);
+      if (r > radius * 2) continue;
+      const weight = Math.exp(-Math.pow(r / radius, 2));
+      const idx = gy * terrain.width + gx;
+      delta[idx] = scrdifValue * weight;
+    }
+  }
+}
+
+function buildScourFrames(
+  columns: SampleProbeColumns,
+  terrain: TerrainGrid,
+  bounds: SampleProbeBounds,
+  baseIntervalSeconds: number,
+  loopStep: number,
+  parseStride: number,
+  influenceRadius: number,
+): ScourFrame[] {
+  const frames: ScourFrame[] = [];
+  const vertexCount = terrain.width * terrain.height;
+  const sharedZero = new Float32Array(vertexCount);
+
+  for (let i = 0; i < columns.count; i += loopStep) {
+    const rowIndex = sourceRowIndex(i, parseStride, loopStep);
+    const scrdifValue = columns.scrdif[i]!;
+    let delta: Float32Array;
+    if (Math.abs(scrdifValue) < SCRDIF_EPS) {
+      delta = sharedZero;
+    } else {
+      delta = new Float32Array(vertexCount);
+      const world = dataToWorld(
+        columns.x[i]!,
+        columns.y[i]!,
+        columns.z[i]!,
+        bounds,
+      );
+      splatScrdif(
+        delta,
+        terrain,
+        world.x,
+        world.z,
+        scrdifValue,
+        influenceRadius,
+      );
+    }
+    frames.push({
+      timestampSeconds: rowIndex * baseIntervalSeconds,
+      deltaElevations: delta,
+    });
+  }
+
+  return frames;
+}
+
+function buildProbeSamples(
+  columns: SampleProbeColumns,
+  bounds: SampleProbeBounds,
+  baseIntervalSeconds: number,
+  loopStep: number,
+  parseStride: number,
+): SampleProbeSample[] {
+  const samples: SampleProbeSample[] = [];
+
+  for (let i = 0; i < columns.count; i += loopStep) {
+    const rowIndex = sourceRowIndex(i, parseStride, loopStep);
+    const dataX = columns.x[i]!;
+    const dataY = columns.y[i]!;
+    const dataZ = columns.z[i]!;
+    const world = dataToWorld(dataX, dataY, dataZ, bounds);
+    samples.push({
+      t: rowIndex * baseIntervalSeconds,
+      rowIndex,
+      dataX,
+      dataY,
+      dataZ,
+      worldX: world.x,
+      worldY: world.y,
+      worldZ: world.z,
+      u: columns.u[i]!,
+      v: columns.v[i]!,
+      w: columns.w[i]!,
+      scrdif: columns.scrdif[i]!,
+    });
+  }
+
+  return samples;
+}
+
+/** CSV 열 데이터를 세굴 시리즈 + 프로브 시리즈로 변환한다. */
+export function buildSampleProbeDashboard(
+  columns: SampleProbeColumns,
+  options: BuildSampleProbeDashboardOptions = {},
+): SampleProbeDashboard {
+  const baseIntervalSeconds = options.baseIntervalSeconds ?? 30;
+  const requestedStep = Math.max(1, Math.floor(options.stepMultiple ?? 1));
+  const { loopStep, seriesStepMultiple, totalRows, parseStride } = resolveBuildStride(
+    columns,
+    requestedStep,
+  );
+  const bounds = computeBounds(columns);
+  const baseTerrain = resolveTerrainGrid();
+  const influenceRadius = estimateInfluenceRadius(columns, baseTerrain.cellSize);
+
+  assertScourMemoryBudget(columns, baseTerrain, loopStep);
+
+  const frames = buildScourFrames(
+    columns,
+    baseTerrain,
+    bounds,
+    baseIntervalSeconds,
+    loopStep,
+    parseStride,
+    influenceRadius,
+  );
+
+  const samples = buildProbeSamples(
+    columns,
+    bounds,
+    baseIntervalSeconds,
+    loopStep,
+    parseStride,
+  );
+
+  return {
+    scour: { baseTerrain, frames },
+    probeSeries: {
+      samples,
+      rowCount: totalRows,
+      baseIntervalSeconds,
+      stepMultiple: seriesStepMultiple,
+      durationSeconds: probeDurationSeconds(totalRows, baseIntervalSeconds),
+      bounds,
+    },
+  };
+}
+
+/** 시각 t 에 맞는 프로브 샘플(보간 없음, stride 정렬). */
+export function probeAtTime(
+  series: SampleProbeSeries,
+  timeSeconds: number,
+): SampleProbeSample | null {
+  const { samples, baseIntervalSeconds, stepMultiple, rowCount } = series;
+  if (samples.length === 0 || rowCount <= 0) return null;
+
+  let rowIndex = rowIndexAtTime(rowCount, timeSeconds, baseIntervalSeconds);
+  rowIndex -= rowIndex % stepMultiple;
+
+  let sample = samples[0]!;
+  for (let i = 0; i < samples.length; i += 1) {
+    const s = samples[i]!;
+    if (s.rowIndex <= rowIndex) sample = s;
+    else break;
+  }
+
+  return sample;
+}

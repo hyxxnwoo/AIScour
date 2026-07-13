@@ -1,4 +1,4 @@
-import type { CsvLoadProgress } from '@/data/loadScourFromCsvFiles';
+import type { CsvLoadProgress } from '@/data/loadCsvDashboard';
 
 /** 파일/행 기준으로 0–100 진행률을 계산한다. */
 export function computeCsvProgressPct(progress: CsvLoadProgress): number {
