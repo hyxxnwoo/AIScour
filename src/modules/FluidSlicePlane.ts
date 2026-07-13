@@ -1,4 +1,5 @@
 import {
+  BufferAttribute,
   DataTexture,
   DoubleSide,
   Mesh,
@@ -13,19 +14,18 @@ import {
 import type { Disposable } from '@/types/disposable';
 import type { FluidFrame, FluidGrid3D, FluidQuantity, FluidSeries } from '@/types/fluid';
 import { sampleFluidQuantity } from '@/types/fluid';
+import { fluidCellWorldPosition, fluidGridOrigin, fluidHeightRange } from '@/utils/fluidWorld';
 import { sampleFluidColor } from '@/utils/fluidColorRamp';
+import { waterSurfaceWave } from '@/utils/waterSurfaceWave';
 
 export interface FluidSlicePlaneOptions {
   scene: Scene;
   series: FluidSeries;
-  // 초기 슬라이스 높이(미터, Y). 기본은 도메인 중간.
   initialHeight?: number;
-  // 초기 표시 양
   initialQuantity?: FluidQuantity;
 }
 
-// FluidSlicePlane: 도메인 내 수평 단면(Y = const) 을 DataTexture(W×D) 로 색칠해 표시한다.
-// 양 변경 / 높이 변경 시 텍스처를 다시 채운다.
+// FluidSlicePlane: 수평 단면 유체장 + 수면 찰랑임.
 export class FluidSlicePlane implements Disposable {
   private readonly scene: Scene;
   private readonly grid: FluidGrid3D;
@@ -35,10 +35,11 @@ export class FluidSlicePlane implements Disposable {
   private readonly material: MeshBasicMaterial;
   private readonly texture: DataTexture;
   private readonly pixels: Uint8Array;
+  private readonly basePositions: Float32Array;
+  private readonly waveAmp: number;
   private readonly tmpColor = { r: 0, g: 0, b: 0 };
   private currentFrameIndex = -1;
   private currentQuantity: FluidQuantity;
-  // 슬라이스가 위치한 Y 격자 인덱스
   private currentYi: number;
   private currentRange: { min: number; max: number } = { min: 0, max: 1 };
 
@@ -48,10 +49,13 @@ export class FluidSlicePlane implements Disposable {
     this.frames = options.series.frames;
     this.currentQuantity = options.initialQuantity ?? 'speed';
 
-    const initialY = options.initialHeight ?? ((this.grid.height - 1) * this.grid.cellSize) / 2;
+    const initialY = options.initialHeight ?? fluidHeightRange(this.grid).max * 0.4;
     this.currentYi = this.heightToIndex(initialY);
 
     const { width: W, depth: D, cellSize: cs } = this.grid;
+    const origin = fluidGridOrigin(this.grid);
+    this.waveAmp = Math.max(0.03, cs * 0.07);
+
     this.pixels = new Uint8Array(W * D * 4);
     this.texture = new DataTexture(this.pixels, W, D, RGBAFormat, UnsignedByteType);
     this.texture.minFilter = LinearFilter;
@@ -60,18 +64,29 @@ export class FluidSlicePlane implements Disposable {
     this.texture.wrapT = ClampToEdgeWrapping;
     this.texture.needsUpdate = true;
 
-    this.geometry = new PlaneGeometry((W - 1) * cs, (D - 1) * cs, 1, 1);
-    this.geometry.rotateX(-Math.PI / 2); // X-Z 평면이 되도록
+    const segW = Math.min(48, Math.max(12, W));
+    const segD = Math.min(48, Math.max(12, D));
+    this.geometry = new PlaneGeometry((W - 1) * cs, (D - 1) * cs, segW, segD);
+    this.geometry.rotateX(-Math.PI / 2);
+
+    const posAttr = this.geometry.attributes['position'] as BufferAttribute;
+    this.basePositions = new Float32Array(posAttr.array.length);
+    this.basePositions.set(posAttr.array);
 
     this.material = new MeshBasicMaterial({
       map: this.texture,
       side: DoubleSide,
       transparent: true,
       opacity: 0.85,
+      depthWrite: false,
     });
 
     this.mesh = new Mesh(this.geometry, this.material);
-    this.mesh.position.y = initialY;
+    this.mesh.position.set(
+      origin.x + ((W - 1) * cs) / 2,
+      initialY,
+      origin.z + ((D - 1) * cs) / 2,
+    );
     this.scene.add(this.mesh);
 
     if (this.frames.length > 0) {
@@ -81,6 +96,27 @@ export class FluidSlicePlane implements Disposable {
 
   public setVisible(visible: boolean): void {
     this.mesh.visible = visible;
+  }
+
+  public setOpacity(opacity: number): void {
+    const o = Math.min(1, Math.max(0.05, opacity));
+    this.material.opacity = o;
+    this.material.transparent = o < 1 - 1e-6;
+    this.material.needsUpdate = true;
+  }
+
+  /** 수면 찰랑임 애니메이션. */
+  public tickRipple(elapsedSeconds: number): void {
+    if (!this.mesh.visible) return;
+    const posAttr = this.geometry.attributes['position'] as BufferAttribute;
+    const arr = posAttr.array as Float32Array;
+    for (let i = 0; i < posAttr.count; i += 1) {
+      const x = this.basePositions[i * 3];
+      const z = this.basePositions[i * 3 + 2];
+      arr[i * 3 + 1] =
+        this.basePositions[i * 3 + 1] + waterSurfaceWave(x, z, elapsedSeconds, this.waveAmp);
+    }
+    posAttr.needsUpdate = true;
   }
 
   public setQuantity(q: FluidQuantity): void {
@@ -94,7 +130,6 @@ export class FluidSlicePlane implements Disposable {
   public setHeight(yMeters: number): void {
     const yi = this.heightToIndex(yMeters);
     if (yi === this.currentYi) {
-      // 위치만 부드럽게 이동
       this.mesh.position.y = this.indexToHeight(yi);
       return;
     }
@@ -113,7 +148,10 @@ export class FluidSlicePlane implements Disposable {
     return this.currentQuantity;
   }
 
-  // 외부 시계로부터 절대 시간(초) 을 받아 가장 가까운 프레임을 적용한다.
+  public get currentSliceIndex(): number {
+    return this.currentYi;
+  }
+
   public updateAtTime(timeSeconds: number): void {
     if (this.frames.length === 0) return;
     let idx = 0;
@@ -138,7 +176,6 @@ export class FluidSlicePlane implements Disposable {
     const { width: W, depth: D } = this.grid;
     const yi = this.currentYi;
 
-    // 현재 슬라이스의 min/max 를 먼저 구해 정규화 기준으로 사용
     let vMin = Infinity;
     let vMax = -Infinity;
     for (let zi = 0; zi < D; zi += 1) {
@@ -169,13 +206,14 @@ export class FluidSlicePlane implements Disposable {
   }
 
   private heightToIndex(y: number): number {
+    const o = fluidGridOrigin(this.grid);
     const cs = this.grid.cellSize;
-    const yi = Math.round(y / cs);
+    const yi = Math.round((y - o.y) / cs);
     return Math.max(0, Math.min(this.grid.height - 1, yi));
   }
 
   private indexToHeight(yi: number): number {
-    return yi * this.grid.cellSize;
+    return fluidCellWorldPosition(this.grid, 0, yi, 0).y;
   }
 
   public dispose(): void {

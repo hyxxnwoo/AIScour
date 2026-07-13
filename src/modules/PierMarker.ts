@@ -1,4 +1,5 @@
 import {
+  BoxGeometry,
   CylinderGeometry,
   Group,
   Mesh,
@@ -7,6 +8,7 @@ import {
   type Scene,
 } from 'three';
 import type { Disposable } from '@/types/disposable';
+import type { StructureShape } from '@/types/simParams';
 
 export interface PierDefinition {
   id: string;
@@ -17,6 +19,8 @@ export interface PierDefinition {
   diameter?: number;
   // 교각 높이(미터). 기본 6.0 — 지형 위로 솟는다.
   height?: number;
+  // 단면 형상. 기본 원형.
+  shape?: StructureShape;
   // (선택) 표시 라벨/색상
   color?: number;
 }
@@ -27,8 +31,7 @@ export interface PierMarkerOptions {
   baseElevation?: number;
 }
 
-// PierMarker: 교각 위치를 단순한 원기둥(샤프트) + 상부 캡(beam) 으로 표시한다.
-// 향후 GLB 모델 로딩 등 더 정교한 표시는 별도 모듈로 분리.
+// PierMarker: 교각 위치를 원기둥/사각기둥(샤프트)으로 표시한다. 원형은 상단에 얇은 뚜껑을 덮는다.
 export class PierMarker implements Disposable {
   private readonly scene: Scene;
   private readonly group = new Group();
@@ -49,24 +52,41 @@ export class PierMarker implements Disposable {
     const diameter = pier.diameter ?? 1.0;
     const height = pier.height ?? 6.0;
     const radius = diameter / 2;
+    const shape = pier.shape ?? 'circle';
     const color = pier.color ?? 0xb0bcc9;
 
-    const shaftGeom = new CylinderGeometry(radius, radius, height, 24);
     const shaftMat = new MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.05 });
-    const shaft = new Mesh(shaftGeom, shaftMat);
-    shaft.position.set(pier.x, this.baseElevation + height / 2, pier.z);
-    shaft.name = `pier-${pier.id}`;
 
-    const capGeom = new CylinderGeometry(radius * 1.4, radius * 1.4, 0.5, 24);
-    const capMat = new MeshStandardMaterial({ color: 0x3aa6c9, roughness: 0.5, metalness: 0.1 });
-    const cap = new Mesh(capGeom, capMat);
-    cap.position.set(pier.x, this.baseElevation + height + 0.25, pier.z);
-    cap.name = `pier-${pier.id}-cap`;
+    let shaft: Mesh;
 
-    this.group.add(shaft);
-    this.group.add(cap);
-    this.disposables.push({ geom: shaftGeom, mat: shaftMat });
-    this.disposables.push({ geom: capGeom, mat: capMat });
+    if (shape === 'square') {
+      const shaftGeom = new BoxGeometry(diameter, height, diameter);
+      shaft = new Mesh(shaftGeom, shaftMat);
+      this.disposables.push({ geom: shaftGeom, mat: shaftMat });
+      shaft.position.set(pier.x, this.baseElevation + height / 2, pier.z);
+      shaft.name = `pier-${pier.id}`;
+      this.group.add(shaft);
+    } else {
+      const shaftGeom = new CylinderGeometry(radius, radius, height, 24);
+      shaft = new Mesh(shaftGeom, shaftMat);
+      this.disposables.push({ geom: shaftGeom, mat: shaftMat });
+      shaft.position.set(pier.x, this.baseElevation + height / 2, pier.z);
+      shaft.name = `pier-${pier.id}`;
+
+      const lidThick = Math.max(diameter * 0.05, 0.003);
+      const lidGeom = new CylinderGeometry(radius, radius, lidThick, 24);
+      const lidMat = new MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 });
+      const lid = new Mesh(lidGeom, lidMat);
+      this.disposables.push({ geom: lidGeom, mat: lidMat });
+      lid.position.set(pier.x, this.baseElevation + height + lidThick / 2, pier.z);
+      lid.name = `pier-${pier.id}-lid`;
+
+      this.group.add(shaft, lid);
+    }
+  }
+
+  public setVisible(visible: boolean): void {
+    this.group.visible = visible;
   }
 
   public dispose(): void {

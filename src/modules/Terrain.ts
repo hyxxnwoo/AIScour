@@ -12,7 +12,7 @@ import type { Disposable } from '@/types/disposable';
 import { sampleColorRamp } from '@/utils/colorRamp';
 
 // Terrain: 베이스 지형 + 시간에 따른 세굴 변화를 단일 Mesh 로 렌더링한다.
-// PlaneGeometry 의 정점 z 와 vertex color 를 매 프레임 갱신하여 깊이/색을 함께 표현한다.
+// 정점 높이는 Δ표고, vertex color 는 초기 지반 대비 세굴/퇴적 변화량(Δ) 컬러맵.
 export class Terrain implements Disposable {
   private readonly scene: Scene;
   private readonly grid: TerrainGrid;
@@ -22,6 +22,8 @@ export class Terrain implements Disposable {
   private readonly baseZ: Float32Array;
   private readonly colors: Float32Array;
   private readonly tmpColor = { r: 0, g: 0, b: 0 };
+  /** 세굴 Δ표고만 과장 (물리량·컬러맵 정규화는 원본 Δ 기준). */
+  private verticalExaggeration = 1;
   private currentFrameIndex = -1;
   private currentAbsMax = 0;
   private readonly frameListeners = new Set<(info: { index: number; absMax: number }) => void>();
@@ -82,6 +84,10 @@ export class Terrain implements Disposable {
     return this.grid.cellSize;
   }
 
+  public setVisible(visible: boolean): void {
+    this.mesh.visible = visible;
+  }
+
   // 월드 좌표(x, z) → 격자 셀 정보. 격자 밖이면 null.
   public queryAtWorld(
     worldX: number,
@@ -111,7 +117,7 @@ export class Terrain implements Disposable {
       gridY: gy,
       baseElevation,
       deltaElevation,
-      elevation: baseElevation + deltaElevation,
+      elevation: baseElevation + deltaElevation * this.verticalExaggeration,
     };
   }
 
@@ -119,6 +125,20 @@ export class Terrain implements Disposable {
   public get durationSeconds(): number {
     if (this.frames.length === 0) return 0;
     return this.frames[this.frames.length - 1].timestampSeconds;
+  }
+
+  /** 세굴 깊이(Δ) 만 스케일 — 메시 형상과 HUD 픽 정보에 동시 반영. */
+  public setVerticalExaggeration(factor: number): void {
+    const f = Math.min(20, Math.max(0.1, factor));
+    if (Math.abs(f - this.verticalExaggeration) < 1e-9) return;
+    this.verticalExaggeration = f;
+    if (this.currentFrameIndex >= 0) {
+      this.applyFrame(this.currentFrameIndex);
+    }
+  }
+
+  public getVerticalExaggeration(): number {
+    return this.verticalExaggeration;
   }
 
   // 절대 시간(초)을 받아 가장 가까운 프레임을 적용한다. 루프/일시정지 등은 외부 컨트롤러가 담당한다.
@@ -147,7 +167,7 @@ export class Terrain implements Disposable {
     const positions = this.geometry.attributes['position'] as BufferAttribute;
     const delta = frame.deltaElevations;
 
-    // 깊이 변화의 절댓값 최댓값을 컬러 정규화 기준으로 사용 (프레임마다 가시성 확보)
+    // Δ표고 절댓값 최댓값 — 컬러맵·범례 정규화 기준 (음수=세굴, 양수=퇴적)
     let absMax = 0;
     for (let i = 0; i < delta.length; i += 1) {
       const a = Math.abs(delta[i]);
@@ -156,7 +176,7 @@ export class Terrain implements Disposable {
     if (absMax === 0) absMax = 1;
 
     for (let i = 0; i < delta.length; i += 1) {
-      const z = this.baseZ[i] + delta[i];
+      const z = this.baseZ[i] + delta[i] * this.verticalExaggeration;
       positions.setY(i, z);
       sampleColorRamp(delta[i], -absMax, absMax, this.tmpColor);
       const j = i * 3;

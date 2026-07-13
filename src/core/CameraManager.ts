@@ -18,8 +18,9 @@ export interface CameraPresetView {
 
 // 프리셋 카메라 위치. reset 은 CAMERA_DEFAULTS 와 동기화된다.
 const PRESETS: Record<CameraPreset, (radius: number) => CameraPresetView> = {
-  reset: () => ({
-    position: CAMERA_DEFAULTS.initialPosition,
+  // reset 도 씬 반경에 비례하여 배치한다(스케일 무관 프레이밍).
+  reset: (r) => ({
+    position: { x: r * 0.85, y: r * 0.65, z: r * 0.85 },
     target: CAMERA_DEFAULTS.target,
   }),
   // 위에서 거의 수직으로 내려다본다 (Y 축 양의 방향). y=0 정확히는 OrbitControls 가 싫어하므로 살짝 기울인다.
@@ -43,14 +44,21 @@ export class CameraManager implements Disposable {
     this.controls.target.set(target.x, target.y, target.z);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
-    this.controls.minDistance = 1;
-    this.controls.maxDistance = 1000;
+    this.controls.minDistance = 0.05;
+    this.controls.maxDistance = 50;
     this.controls.update();
   }
 
   // 종횡비 갱신: RendererManager 의 리사이즈 콜백에서 호출한다.
   public updateAspect(aspect: number): void {
     this.camera.aspect = aspect;
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** 시야각(도). 즉시 투영 행렬 갱신. */
+  public setFovDegrees(degrees: number): void {
+    const d = Math.min(100, Math.max(15, degrees));
+    this.camera.fov = d;
     this.camera.updateProjectionMatrix();
   }
 
@@ -61,6 +69,14 @@ export class CameraManager implements Disposable {
 
   public lookAt(target: Vector3): void {
     this.controls.target.copy(target);
+    this.controls.update();
+  }
+
+  /** 유체/세굴 도메인 중심으로 카메라를 맞춘다. */
+  public focusOnDomain(center: Vector3, radius: number): void {
+    const r = Math.max(1, radius);
+    this.controls.target.copy(center);
+    this.camera.position.set(center.x + r * 0.85, center.y + r * 0.65, center.z + r * 0.85);
     this.controls.update();
   }
 

@@ -1,4 +1,4 @@
-import { Color, Scene } from 'three';
+import { Color, type ColorRepresentation, Scene } from 'three';
 import { SCENE_BACKGROUND_COLOR } from '@/constants/scene';
 import type { Disposable } from '@/types/disposable';
 
@@ -10,6 +10,16 @@ export class SceneManager implements Disposable {
   public constructor(backgroundColor: number = SCENE_BACKGROUND_COLOR) {
     this.scene = new Scene();
     this.scene.background = new Color(backgroundColor);
+  }
+
+  /** CSS 색 문자열(#rgb / #rrggbb) 또는 숫자 hex 로 배경 즉시 변경 */
+  public setBackground(color: ColorRepresentation): void {
+    const bg = this.scene.background;
+    if (bg instanceof Color) {
+      bg.set(color);
+    } else {
+      this.scene.background = new Color(color);
+    }
   }
 
   public add(...objects: Parameters<Scene['add']>): void {

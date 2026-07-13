@@ -1,49 +1,103 @@
 import type { FluidQuantity } from '@/types/fluid';
 import type { Disposable } from '@/types/disposable';
 import { fluidColorRampToCss } from '@/utils/fluidColorRamp';
+import { legendGradientForFluidQuantity } from '@/utils/fluidQuantityColor';
+import {
+  FLUID_FIELD_META,
+  FLUID_QUANTITY_PARAM_KEYS,
+  type NumericSimParamKey,
+  type SimParams,
+} from '@/types/simParams';
 
 export interface FluidControlsHandlers {
-  onQuantityChange: (q: FluidQuantity) => void;
+  onQuantitiesChange: (selected: FluidQuantity[], primary: FluidQuantity) => void;
+  onApply: (params: SimParams) => void;
   onSliceHeightChange: (yMeters: number) => void;
   onSliceVisibilityChange: (visible: boolean) => void;
-  onArrowsVisibilityChange: (visible: boolean) => void;
+  onTracersVisibilityChange: (visible: boolean) => void;
+  onPointsVisibilityChange: (visible: boolean) => void;
 }
 
 export interface FluidControlsOptions {
-  initialQuantity: FluidQuantity;
-  // 슬라이스 높이 범위(미터)
+  initialParams: SimParams;
+  initialQuantities?: FluidQuantity[];
+  initialPrimary?: FluidQuantity;
   minHeight: number;
   maxHeight: number;
   initialHeight: number;
-  // 단위 표시
-  units: { speed: string; pressure: string; density: string };
+  liveApplyDebounceMs?: number;
+  /** 유체 추적 입자(흐름 스트릭) 기본값 (기본 true) */
+  initialTracersVisible?: boolean;
+  /** x·y·z 좌표 점 표시 기본값 */
+  initialPointsVisible?: boolean;
+  velocityUnit?: string;
+  scrdifUnit?: string;
+}
+
+export interface FluidRangeEntry {
+  quantity: FluidQuantity;
+  label: string;
+  min: number;
+  max: number;
+  unit: string;
+  primary?: boolean;
 }
 
 const QUANTITY_LABELS: Record<FluidQuantity, string> = {
   speed: '속도 |U|',
   pressure: '압력 P',
   density: '밀도 ρ',
-  velocityX: 'U_x',
-  velocityY: 'U_y',
-  velocityZ: 'U_z',
+  velocityX: 'u (x 방향 유속)',
+  velocityY: 'v (y 방향 유속)',
+  velocityZ: 'w (z 방향 유속)',
+  tke: 'TKE',
+  dtke: 'dTKE',
+  mhyfd: '수리깊이',
+  shrvel: '전단속도',
+  davel: '깊이평균유속',
+  ofvel: '표면유속',
+  scrdif: 'scrdif (초기 지반 대비 세굴/퇴적 변화량)',
 };
 
+/** 유체 필드 대시보드에 표시할 물리량 */
+export const FLUID_DASHBOARD_QUANTITIES: FluidQuantity[] = [
+  'velocityX',
+  'velocityY',
+  'velocityZ',
+  'scrdif',
+];
+
 // FluidControls: 유체 시각화 옵션 패널 (좌측 중간).
-// - 표시 양 라디오 (speed / pressure / density / Ux/Uy/Uz)
+// - 표시 양 체크박스 + u/v/w/scrdif 값 입력
 // - 슬라이스 가시성 + 높이 슬라이더
-// - 화살표 가시성
 // - 컬러 범례 + 현재 데이터 범위 표시
 export class FluidControls implements Disposable {
   public readonly element: HTMLElement;
+  private readonly values: SimParams;
+  private readonly handlers: FluidControlsHandlers;
+  private readonly debounceMs: number;
   private readonly heightSlider: HTMLInputElement;
   private readonly heightLabel: HTMLSpanElement;
   private readonly rangeLabel: HTMLSpanElement;
-  private readonly quantityInputs: HTMLInputElement[] = [];
+  private readonly legendBar: HTMLElement;
+  private readonly quantityInputs = new Map<FluidQuantity, HTMLInputElement>();
+  private readonly valueInputs = new Map<NumericSimParamKey, HTMLInputElement>();
+  private selectedQuantities!: Set<FluidQuantity>;
+  private primaryQuantity!: FluidQuantity;
   private readonly sliceToggle: HTMLInputElement;
-  private readonly arrowsToggle: HTMLInputElement;
+  private readonly tracersToggle: HTMLInputElement;
+  private readonly pointsToggle: HTMLInputElement;
+  private readonly applyBtn: HTMLButtonElement;
+  private readonly liveCheckbox: HTMLInputElement;
   private readonly listenerCleanups: Array<() => void> = [];
+  private isLoading = false;
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   public constructor(options: FluidControlsOptions, handlers: FluidControlsHandlers) {
+    this.values = { ...options.initialParams };
+    this.handlers = handlers;
+    this.debounceMs = Math.max(0, options.liveApplyDebounceMs ?? 380);
+
     this.element = document.createElement('section');
     this.element.className = 'fluid-controls';
 
@@ -52,40 +106,125 @@ export class FluidControls implements Disposable {
     title.textContent = '유체 필드';
     this.element.appendChild(title);
 
-    // ── Quantity 라디오 그룹
+    const initialSelected = new Set(
+      options.initialQuantities?.length
+        ? options.initialQuantities
+        : [FLUID_DASHBOARD_QUANTITIES[0]!],
+    );
+    if (initialSelected.size === 0) {
+      initialSelected.add(FLUID_DASHBOARD_QUANTITIES[0]!);
+    }
+    this.selectedQuantities = new Set(initialSelected);
+    this.primaryQuantity =
+      options.initialPrimary && initialSelected.has(options.initialPrimary)
+        ? options.initialPrimary
+        : FLUID_DASHBOARD_QUANTITIES.find((q) => initialSelected.has(q))!;
+
     const quantityGroup = document.createElement('div');
-    quantityGroup.className = 'fluid-controls__group';
-    const quantities: FluidQuantity[] = [
-      'speed',
-      'pressure',
-      'density',
-      'velocityX',
-      'velocityY',
-      'velocityZ',
-    ];
-    for (const q of quantities) {
+    quantityGroup.className = 'fluid-controls__fields';
+    for (const q of FLUID_DASHBOARD_QUANTITIES) {
+      const paramKey = FLUID_QUANTITY_PARAM_KEYS[q];
+      const meta = FLUID_FIELD_META.find((m) => m.key === paramKey)!;
+      const row = document.createElement('div');
+      row.className = 'fluid-controls__field-row';
+
       const id = `fluid-q-${q}`;
       const wrap = document.createElement('label');
       wrap.htmlFor = id;
-      wrap.className = 'fluid-controls__radio';
+      wrap.className = 'fluid-controls__check';
+      wrap.dataset.quantity = q;
       const input = document.createElement('input');
-      input.type = 'radio';
-      input.name = 'fluid-quantity';
+      input.type = 'checkbox';
       input.id = id;
       input.value = q;
-      input.checked = q === options.initialQuantity;
+      input.checked = this.selectedQuantities.has(q);
       const onChange = (): void => {
-        if (input.checked) handlers.onQuantityChange(q);
+        this.handleQuantityToggle(q, input, handlers);
       };
       input.addEventListener('change', onChange);
       this.listenerCleanups.push(() => input.removeEventListener('change', onChange));
-      this.quantityInputs.push(input);
+      this.quantityInputs.set(q, input);
       const text = document.createElement('span');
       text.textContent = QUANTITY_LABELS[q];
       wrap.append(input, text);
-      quantityGroup.appendChild(wrap);
+      row.appendChild(wrap);
+
+      const numInput = document.createElement('input');
+      numInput.type = 'number';
+      numInput.className = 'fluid-controls__value-input';
+      numInput.min = String(meta.min);
+      numInput.max = String(meta.max);
+      numInput.step = String(meta.step);
+      numInput.value = String(this.values[paramKey]);
+      this.valueInputs.set(paramKey, numInput);
+
+      const applyNumValue = (): void => {
+        if (numInput.value.trim() === '') return;
+        const raw = Number(numInput.value);
+        if (!Number.isFinite(raw)) return;
+        const clamped = Math.min(meta.max, Math.max(meta.min, raw));
+        this.values[paramKey] = clamped;
+        numInput.value = String(clamped);
+        this.scheduleLiveApply();
+      };
+      numInput.addEventListener('change', applyNumValue);
+      this.listenerCleanups.push(() => numInput.removeEventListener('change', applyNumValue));
+      numInput.addEventListener('input', applyNumValue);
+      this.listenerCleanups.push(() => numInput.removeEventListener('input', applyNumValue));
+
+      const unitEl = document.createElement('span');
+      unitEl.className = 'fluid-controls__unit';
+      unitEl.textContent = meta.unit;
+      row.append(numInput, unitEl);
+      quantityGroup.appendChild(row);
     }
+    this.syncPrimaryMarkers();
     this.element.appendChild(quantityGroup);
+
+    const liveRow = document.createElement('label');
+    liveRow.className = 'fluid-controls__live';
+    this.liveCheckbox = document.createElement('input');
+    this.liveCheckbox.type = 'checkbox';
+    this.liveCheckbox.checked = this.debounceMs > 0;
+    if (this.debounceMs <= 0) {
+      this.liveCheckbox.checked = false;
+      this.liveCheckbox.disabled = true;
+    }
+    const liveText = document.createElement('span');
+    liveText.textContent =
+      this.debounceMs > 0
+        ? `값 변경 시 자동 재생성 (${this.debounceMs}ms 디바운스)`
+        : '자동 재생성 비활성 — 적용 버튼만 사용';
+    liveRow.append(this.liveCheckbox, liveText);
+    const onLiveChange = (): void => {
+      if (!this.liveCheckbox.checked && this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = null;
+      }
+    };
+    this.liveCheckbox.addEventListener('change', onLiveChange);
+    this.listenerCleanups.push(() => this.liveCheckbox.removeEventListener('change', onLiveChange));
+    this.element.appendChild(liveRow);
+
+    this.applyBtn = document.createElement('button');
+    this.applyBtn.className = 'fluid-controls__apply';
+    this.applyBtn.textContent = '적용 (재시뮬레이션)';
+    const onApplyClick = (): void => {
+      if (this.isLoading) return;
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = null;
+      }
+      this.handlers.onApply({ ...this.values });
+    };
+    this.applyBtn.addEventListener('click', onApplyClick);
+    this.listenerCleanups.push(() => this.applyBtn.removeEventListener('click', onApplyClick));
+    this.element.appendChild(this.applyBtn);
+
+    const hint = document.createElement('div');
+    hint.className = 'fluid-controls__hint';
+    hint.textContent = '● 표시 항목이 수면 색상에 사용됩니다';
+    this.element.appendChild(hint);
 
     // ── 슬라이스 토글 + 높이 슬라이더
     const sliceRow = document.createElement('div');
@@ -96,7 +235,7 @@ export class FluidControls implements Disposable {
     this.sliceToggle.type = 'checkbox';
     this.sliceToggle.checked = true;
     const sliceText = document.createElement('span');
-    sliceText.textContent = '수평 슬라이스';
+    sliceText.textContent = '지형 위 수면';
     sliceLabel.append(this.sliceToggle, sliceText);
     sliceRow.appendChild(sliceLabel);
     {
@@ -130,30 +269,47 @@ export class FluidControls implements Disposable {
     heightRow.append(this.heightSlider, this.heightLabel);
     this.element.appendChild(heightRow);
 
-    // ── 화살표 토글
-    const arrowsRow = document.createElement('div');
-    arrowsRow.className = 'fluid-controls__row';
-    const arrowsLabel = document.createElement('label');
-    arrowsLabel.className = 'fluid-controls__toggle';
-    this.arrowsToggle = document.createElement('input');
-    this.arrowsToggle.type = 'checkbox';
-    this.arrowsToggle.checked = true;
-    const arrowsText = document.createElement('span');
-    arrowsText.textContent = '속도 벡터 화살표';
-    arrowsLabel.append(this.arrowsToggle, arrowsText);
-    arrowsRow.appendChild(arrowsLabel);
+    const tracersRow = document.createElement('div');
+    tracersRow.className = 'fluid-controls__row';
+    const tracersLabel = document.createElement('label');
+    tracersLabel.className = 'fluid-controls__toggle';
+    this.tracersToggle = document.createElement('input');
+    this.tracersToggle.type = 'checkbox';
+    this.tracersToggle.checked = options.initialTracersVisible ?? true;
+    const tracersText = document.createElement('span');
+    tracersText.textContent = '유체 추적 입자 (흐름)';
+    tracersLabel.append(this.tracersToggle, tracersText);
+    tracersRow.appendChild(tracersLabel);
     {
-      const onChange = (): void => handlers.onArrowsVisibilityChange(this.arrowsToggle.checked);
-      this.arrowsToggle.addEventListener('change', onChange);
-      this.listenerCleanups.push(() => this.arrowsToggle.removeEventListener('change', onChange));
+      const onChange = (): void => handlers.onTracersVisibilityChange(this.tracersToggle.checked);
+      this.tracersToggle.addEventListener('change', onChange);
+      this.listenerCleanups.push(() => this.tracersToggle.removeEventListener('change', onChange));
     }
-    this.element.appendChild(arrowsRow);
+    this.element.appendChild(tracersRow);
 
-    // ── 범례 (viridis) + 현재 범위
-    const legendBar = document.createElement('div');
-    legendBar.className = 'fluid-controls__legend';
-    legendBar.style.background = fluidColorRampToCss('to right');
-    this.element.appendChild(legendBar);
+    const pointsRow = document.createElement('div');
+    pointsRow.className = 'fluid-controls__row';
+    const pointsLabel = document.createElement('label');
+    pointsLabel.className = 'fluid-controls__toggle';
+    this.pointsToggle = document.createElement('input');
+    this.pointsToggle.type = 'checkbox';
+    this.pointsToggle.checked = options.initialPointsVisible ?? false;
+    const pointsText = document.createElement('span');
+    pointsText.textContent = 'x·y·z 좌표 점';
+    pointsLabel.append(this.pointsToggle, pointsText);
+    pointsRow.appendChild(pointsLabel);
+    {
+      const onChange = (): void => handlers.onPointsVisibilityChange(this.pointsToggle.checked);
+      this.pointsToggle.addEventListener('change', onChange);
+      this.listenerCleanups.push(() => this.pointsToggle.removeEventListener('change', onChange));
+    }
+    this.element.appendChild(pointsRow);
+
+    // ── 범례 + 현재 범위
+    this.legendBar = document.createElement('div');
+    this.legendBar.className = 'fluid-controls__legend';
+    this.legendBar.style.background = fluidColorRampToCss('to right');
+    this.element.appendChild(this.legendBar);
 
     this.rangeLabel = document.createElement('span');
     this.rangeLabel.className = 'fluid-controls__range';
@@ -163,18 +319,137 @@ export class FluidControls implements Disposable {
     // 단위 메모
     const unitsLine = document.createElement('div');
     unitsLine.className = 'fluid-controls__units';
-    unitsLine.textContent = `|U| ${options.units.speed} · P ${options.units.pressure} · ρ ${options.units.density}`;
+    unitsLine.textContent = `u,v,w ${options.velocityUnit ?? 'm/s'} · scrdif ${options.scrdifUnit ?? 'm'}`;
     this.element.appendChild(unitsLine);
   }
 
-  public setRange(min: number, max: number, unit: string): void {
-    this.rangeLabel.textContent = `${formatScientific(min)} ~ ${formatScientific(max)} ${unit}`;
+  private scheduleLiveApply(): void {
+    if (!this.liveCheckbox.checked || this.debounceMs <= 0 || this.isLoading) return;
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null;
+      if (!this.isLoading) this.handlers.onApply({ ...this.values });
+    }, this.debounceMs);
+  }
+
+  private handleQuantityToggle(
+    q: FluidQuantity,
+    input: HTMLInputElement,
+    handlers: FluidControlsHandlers,
+  ): void {
+    if (input.checked) {
+      this.selectedQuantities.add(q);
+      this.primaryQuantity = q;
+    } else {
+      if (this.selectedQuantities.size <= 1) {
+        input.checked = true;
+        return;
+      }
+      this.selectedQuantities.delete(q);
+      if (this.primaryQuantity === q) {
+        this.primaryQuantity = FLUID_DASHBOARD_QUANTITIES.find((item) =>
+          this.selectedQuantities.has(item),
+        )!;
+      }
+    }
+    this.syncPrimaryMarkers();
+    handlers.onQuantitiesChange(this.getSelectedQuantities(), this.primaryQuantity);
+  }
+
+  private syncPrimaryMarkers(): void {
+    for (const q of FLUID_DASHBOARD_QUANTITIES) {
+      const input = this.quantityInputs.get(q);
+      const wrap = input?.closest('.fluid-controls__check');
+      if (!wrap) continue;
+      wrap.classList.toggle('fluid-controls__check--primary', q === this.primaryQuantity);
+    }
+  }
+
+  public getSelectedQuantities(): FluidQuantity[] {
+    return FLUID_DASHBOARD_QUANTITIES.filter((q) => this.selectedQuantities.has(q));
+  }
+
+  public setLegendForQuantity(q: FluidQuantity): void {
+    this.legendBar.style.background = legendGradientForFluidQuantity(q, 'to right');
+  }
+
+  public getPrimaryQuantity(): FluidQuantity {
+    return this.primaryQuantity;
+  }
+
+  public getParams(): SimParams {
+    return { ...this.values };
+  }
+
+  public setParams(params: SimParams): void {
+    Object.assign(this.values, params);
+    for (const meta of FLUID_FIELD_META) {
+      const input = this.valueInputs.get(meta.key);
+      if (input) input.value = String(this.values[meta.key]);
+    }
+  }
+
+  public setLoading(loading: boolean): void {
+    if (loading && this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.isLoading = loading;
+    this.applyBtn.disabled = loading;
+    this.applyBtn.textContent = loading ? '시뮬레이션 생성 중…' : '적용 (재시뮬레이션)';
+  }
+
+  public setRanges(entries: FluidRangeEntry[]): void {
+    if (entries.length === 0) {
+      this.rangeLabel.textContent = '— / —';
+      return;
+    }
+    this.rangeLabel.textContent = entries
+      .map((e) => {
+        const marker = e.primary ? ' ●' : '';
+        return `${e.label}: ${formatScientific(e.min)} ~ ${formatScientific(e.max)} ${e.unit}${marker}`;
+      })
+      .join('\n');
+  }
+
+  public setRange(min: number, max: number, unit: string, label = ''): void {
+    this.setRanges([{ quantity: this.primaryQuantity, label, min, max, unit, primary: true }]);
+  }
+
+  public setHeightRange(min: number, max: number): void {
+    this.heightSlider.min = String(min);
+    this.heightSlider.max = String(max);
+  }
+
+  public setSliceHeight(yMeters: number): void {
+    this.heightSlider.value = String(yMeters);
+    this.heightLabel.textContent = `Y = ${yMeters.toFixed(1)} m`;
+  }
+
+  public setPointsVisible(visible: boolean): void {
+    this.pointsToggle.checked = visible;
+  }
+
+  public setTracersVisible(visible: boolean): void {
+    this.tracersToggle.checked = visible;
+  }
+
+  public isTracersVisible(): boolean {
+    return this.tracersToggle.checked;
   }
 
   public dispose(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
     for (const cleanup of this.listenerCleanups) cleanup();
     this.element.remove();
   }
+}
+
+export function fluidDashboardLabel(q: FluidQuantity): string {
+  return QUANTITY_LABELS[q];
 }
 
 function formatScientific(v: number): string {

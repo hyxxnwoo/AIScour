@@ -35,4 +35,59 @@ describe('Terrain.queryAtWorld', () => {
     expect(terrain.queryAtWorld(0, -100)).toBeNull();
     terrain.dispose();
   });
+
+  it('setVerticalExaggeration 은 세굴 Δ 만 배율 적용하고 극값은 클램프된다', async () => {
+    const series = await new SyntheticScourSource({
+      width: 11,
+      height: 11,
+      cellSize: 1,
+      frameCount: 8,
+    }).load();
+    const scene = new Scene();
+    const terrain = new Terrain(scene, series);
+
+    terrain.updateAtTime(1e9);
+    terrain.setVerticalExaggeration(2);
+    const cell = terrain.queryAtWorld(0, 0);
+    expect(cell).not.toBeNull();
+    expect(cell!.elevation).toBeCloseTo(cell!.baseElevation + cell!.deltaElevation * 2);
+
+    terrain.setVerticalExaggeration(500);
+    expect(terrain.getVerticalExaggeration()).toBe(20);
+
+    terrain.dispose();
+  });
+});
+
+describe('Terrain scour coloring', () => {
+  it('세굴(음수 Δ) 구역은 퇴적 없음(0) 구역보다 청색 계열(b)이 크다', async () => {
+    const series = await new SyntheticScourSource({
+      width: 11,
+      height: 11,
+      cellSize: 1,
+      frameCount: 8,
+      pierDiameter: 0.2,
+    }).load();
+    const scene = new Scene();
+    const terrain = new Terrain(scene, series);
+
+    terrain.updateAtTime(1e9);
+    const scourCell = terrain.queryAtWorld(0, 0);
+    expect(scourCell).not.toBeNull();
+    expect(scourCell!.deltaElevation).toBeLessThan(0);
+
+    const farCell = terrain.queryAtWorld(4.5, 4.5);
+    expect(farCell).not.toBeNull();
+    expect(Math.abs(farCell!.deltaElevation)).toBeLessThan(1e-4);
+
+    const mesh = scene.children[0] as import('three').Mesh;
+    const colors = mesh.geometry.getAttribute('color') as import('three').BufferAttribute;
+    const scourIdx = scourCell!.gridY * series.baseTerrain.width + scourCell!.gridX;
+    const farIdx = farCell!.gridY * series.baseTerrain.width + farCell!.gridX;
+    const scourR = colors.getX(scourIdx);
+    const farR = colors.getX(farIdx);
+    expect(scourR).toBeLessThan(farR);
+
+    terrain.dispose();
+  });
 });

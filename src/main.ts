@@ -3,12 +3,11 @@ import '@/styles/main.css';
 import { CameraPresets } from '@/components/CameraPresets';
 import { CellTimeSeries } from '@/components/CellTimeSeries';
 import { ColorLegend } from '@/components/ColorLegend';
-import { FluidControls } from '@/components/FluidControls';
-import { HudOverlay } from '@/components/HudOverlay';
+import { CsvUploadPanel } from '@/components/CsvUploadPanel';
+import { DashboardCustomizePanel } from '@/components/DashboardCustomizePanel';
+import { FluidControls, fluidDashboardLabel, type FluidRangeEntry } from '@/components/FluidControls';
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts';
-import { MetadataPanel } from '@/components/MetadataPanel';
 import { ScourWarning } from '@/components/ScourWarning';
-import { SimParamPanel } from '@/components/SimParamPanel';
 import { TimeControls } from '@/components/TimeControls';
 import { AnimationLoop } from '@/core/AnimationLoop';
 import { CameraManager } from '@/core/CameraManager';
@@ -20,18 +19,78 @@ import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
 import { BridgeCollapse } from '@/modules/BridgeCollapse';
 import { FluidSlicePlane } from '@/modules/FluidSlicePlane';
+import { FluidQuantityPoints } from '@/modules/FluidQuantityPoints';
+import { FluidTracers } from '@/modules/FluidTracers';
 import { Picking } from '@/modules/Picking';
 import { PierMarker, type PierDefinition } from '@/modules/PierMarker';
+import { SedimentLayer } from '@/modules/SedimentLayer';
 import { Terrain } from '@/modules/Terrain';
+import { TerrainWater } from '@/modules/TerrainWater';
 import { VelocityArrows } from '@/modules/VelocityArrows';
+import { Vector3 } from 'three';
 import type { Scene } from 'three';
-import type { FluidSeries } from '@/types/fluid';
+import { ExperimentInfoPanel } from '@/components/ExperimentInfoPanel';
+import { FlowDirectionBadge } from '@/components/FlowDirectionBadge';
+import {
+  fluidGridDims,
+  paramsToFlumeGeometry,
+  structureCenterX,
+  terrainGridDims,
+} from '@/constants/experiment';
+import type { FluidQuantity, FluidSeries } from '@/types/fluid';
 import type { ScourSeries } from '@/types/terrain';
-import { DEFAULT_SIM_PARAMS, type SimParams } from '@/types/simParams';
+import { DEFAULT_SIM_PARAMS, frameIntervalSeconds, mergePanelParams, type SimParams } from '@/types/simParams';
 import { createFpsMeter } from '@/utils/fpsMeter';
 import { captureSceneScreenshot } from '@/utils/screenshot';
+import { injectScrdifFromScour } from '@/utils/injectScrdifFluid';
+import { yieldToMain } from '@/utils/yieldToMain';
+import {
+  alignFluidSeriesToTerrain,
+  defaultFluidSliceHeight,
+  fluidHeightRange,
+  fluidYiAtWorldY,
+  sceneViewRadius,
+  waterSurfaceElevation,
+} from '@/utils/fluidWorld';
 
 const MANIFEST_URL = '/data/flow3d/processed/demo/manifest.json';
+
+function fluidUnitForQuantity(q: FluidQuantity, meta?: FluidSeries['metadata']): string {
+  if (q === 'scrdif') return meta?.scalarUnits?.scrdif ?? 'm';
+  if (q === 'velocityX' || q === 'velocityY' || q === 'velocityZ') {
+    return meta?.velocityUnit ?? 'm/s';
+  }
+  if (q === 'pressure') return meta?.pressureUnit ?? 'Pa';
+  if (q === 'density') return meta?.densityUnit ?? 'kg/m^3';
+  if (q === 'speed') return meta?.velocityUnit ?? 'm/s';
+  return meta?.scalarUnits?.[q] ?? meta?.scalarLabels?.[q] ?? '';
+}
+
+function buildFluidRangeEntries(
+  state: SimState,
+  selected: FluidQuantity[],
+  primary: FluidQuantity,
+): FluidRangeEntry[] {
+  const meta = state.fluidSeries.metadata;
+  const usePoints = state.fluidPoints.isVisible;
+  return selected.map((q) => {
+    const range = usePoints
+      ? state.fluidPoints.computeRangeForQuantity(q)
+      : state.terrainWater.computeRangeForQuantity(q);
+    return {
+      quantity: q,
+      label: fluidDashboardLabel(q),
+      min: range.min,
+      max: range.max,
+      unit: fluidUnitForQuantity(q, meta),
+      primary: q === primary,
+    };
+  });
+}
+
+function fluidRangeLegendKey(entries: FluidRangeEntry[]): string {
+  return entries.map((e) => `${e.quantity}|${e.min}|${e.max}|${e.unit}`).join(';');
+}
 
 // 파라미터에 의존하는 모듈 묶음. Apply 시 통째로 교체.
 interface SimState {
@@ -39,11 +98,18 @@ interface SimState {
   fluidSeries: FluidSeries;
   pierDefs: PierDefinition[];
   terrain: Terrain;
+  sedimentLayer: SedimentLayer;
   pierMarker: PierMarker;
   bridgeCollapse: BridgeCollapse;
   slicePlane: FluidSlicePlane;
+  terrainWater: TerrainWater;
   arrows: VelocityArrows;
+  tracers: FluidTracers;
+  fluidPoints: FluidQuantityPoints;
+  fluidMinY: number;
   fluidMaxY: number;
+  waterLevelY: number;
+  coordinateFluid: boolean;
   durationSeconds: number;
   dispose(): void;
 }
@@ -51,23 +117,36 @@ interface SimState {
 async function buildSimState(
   params: SimParams,
   scene: Scene,
-  baseScourSeries: ScourSeries | null, // manifest 에서 받은 베이스 (없으면 합성)
+  baseScourSeries: ScourSeries | null,
+  baseFluidSeries: FluidSeries | null = null,
+  coordinateFluid = false,
 ): Promise<SimState> {
+  const geom = paramsToFlumeGeometry(params);
+  const terrainDims = terrainGridDims(geom);
+  const fluidDims = fluidGridDims(geom);
+  const pierX = structureCenterX(geom);
+  const interval = frameIntervalSeconds(params);
+
   // ── 세굴 데이터
   const scourSrc = new SyntheticScourSource({
-    width: 96,
-    height: 96,
-    cellSize: 0.5,
+    width: terrainDims.width,
+    height: terrainDims.height,
+    cellSize: terrainDims.cellSize,
     frameCount: params.frameCount,
-    frameIntervalSeconds: params.frameIntervalSeconds,
+    frameIntervalSeconds: interval,
     pierDiameter: params.pierDiameter,
-    scourRate: params.scourRate,
+    scourRate: params.scourRate * (params.scrdifMax / 0.12),
+    sandGrainSizeMm: params.sandGrainSizeMm,
+    tankHeightY: params.tankHeightY,
+    permeable: params.structurePermeable,
+    inflowSpeed: params.inflowSpeed,
+    pier: { x: pierX, z: 0 },
   });
-  const series = baseScourSeries ?? (await scourSrc.load());
-  // manifest 를 쓰더라도 파라미터가 바뀌면 합성으로 교체
-  const activeSeries = baseScourSeries === null ? series : await scourSrc.load();
+  const activeSeries = baseScourSeries ?? (await scourSrc.load());
 
-  const pierDefs: PierDefinition[] = (activeSeries.baseTerrain.metadata?.piers ?? []).map((p) => ({
+  const pierDefs: PierDefinition[] = (
+    activeSeries.baseTerrain.metadata?.piers ?? []
+  ).map((p) => ({
     id: p.id,
     x: p.x,
     z: p.z,
@@ -75,39 +154,114 @@ async function buildSimState(
     ...(p.height !== undefined ? { height: p.height } : {}),
   }));
 
+  const pierHeight = params.tankHeightY + 0.03;
+  const resolvedPierDefs: PierDefinition[] =
+    pierDefs.length > 0
+      ? pierDefs.map((p) => ({
+          ...p,
+          shape: p.shape ?? params.structureShape,
+        }))
+      : [
+          {
+            id: 'P1',
+            x: pierX,
+            z: 0,
+            diameter: params.pierDiameter,
+            height: pierHeight,
+            shape: params.structureShape,
+          },
+        ];
+
   const terrain = new Terrain(scene, activeSeries);
-  const pierMarker = new PierMarker({ scene, baseElevation: -1.5 }, pierDefs);
+  const sedimentLayer = new SedimentLayer({
+    scene,
+    series: activeSeries,
+    thicknessM: params.sedimentThickness,
+  });
+  const pierMarker = new PierMarker({ scene, baseElevation: 0 }, resolvedPierDefs);
 
   const bridgeCollapse = new BridgeCollapse({
     scene,
     series: activeSeries,
-    piers: pierDefs,
+    piers: resolvedPierDefs,
     criticalScourDepth: params.criticalScourDepth,
-    baseElevation: -1.5,
+    baseElevation: 0,
   });
 
   // ── 유체 데이터
-  const fluidSource = new SyntheticFluidSource({
-    width: 48,
-    height: 12,
-    depth: 32,
-    cellSize: 0.5,
-    frameCount: params.frameCount,
-    inflowSpeed: params.inflowSpeed,
-    pier: pierDefs[0]
-      ? { x: pierDefs[0].x, z: pierDefs[0].z, radius: params.pierDiameter / 2 }
-      : { x: 0, z: 0, radius: params.pierDiameter / 2 },
-  });
-  const fluidSeries = await fluidSource.load();
-  const fluidMaxY = (fluidSeries.grid.height - 1) * fluidSeries.grid.cellSize;
+  let fluidSeries =
+    baseFluidSeries ??
+    (await new SyntheticFluidSource({
+      width: fluidDims.width,
+      height: fluidDims.height,
+      depth: fluidDims.depth,
+      cellSize: fluidDims.cellSize,
+      frameCount: params.frameCount,
+      frameIntervalSeconds: interval,
+      fluidU: params.fluidU,
+      fluidV: params.fluidV,
+      fluidW: params.fluidW,
+      permeable: params.structurePermeable,
+      pier: resolvedPierDefs[0]
+        ? { x: resolvedPierDefs[0].x, z: resolvedPierDefs[0].z, radius: params.pierDiameter / 2 }
+        : { x: pierX, z: 0, radius: params.pierDiameter / 2 },
+    }).load());
+
+  if (baseFluidSeries) {
+    fluidSeries = alignFluidSeriesToTerrain(fluidSeries, activeSeries.baseTerrain);
+  }
+
+  const { min: fluidMinY, max: fluidMaxY } = fluidHeightRange(fluidSeries.grid);
+  // 합성 데이터: 하상 표고 + 수심 = 수면. 유체 격자 Y 범위 안으로 클램프.
+  const initialFluidY = baseFluidSeries
+    ? defaultFluidSliceHeight(fluidSeries, activeSeries.baseTerrain)
+    : Math.max(
+        fluidMinY,
+        Math.min(fluidMaxY, waterSurfaceElevation(activeSeries.baseTerrain, params.waterDepth)),
+      );
+
+  if (!baseFluidSeries) {
+    injectScrdifFromScour(fluidSeries, activeSeries, initialFluidY);
+  }
 
   const slicePlane = new FluidSlicePlane({
     scene,
     series: fluidSeries,
-    initialQuantity: 'speed',
-    initialHeight: fluidMaxY * 0.4,
+    initialQuantity: 'velocityX',
+    initialHeight: initialFluidY,
   });
-  const arrows = new VelocityArrows({ scene, series: fluidSeries, stride: 4 });
+  slicePlane.setVisible(false);
+
+  const terrainWater = new TerrainWater({
+    scene,
+    scourSeries: activeSeries,
+    fluidSeries,
+    waterLevel: initialFluidY,
+    initialQuantity: 'velocityX',
+  });
+  const arrows = new VelocityArrows({
+    scene,
+    series: fluidSeries,
+    stride: 3,
+    ySliceIndex: fluidYiAtWorldY(fluidSeries.grid, initialFluidY),
+    maxArrowLength: fluidDims.cellSize * 4.5,
+  });
+  arrows.setVisible(false);
+  const tracers = new FluidTracers({
+    scene,
+    fluidSeries,
+    scourSeries: activeSeries,
+    waterLevel: initialFluidY,
+  });
+  tracers.setVisible(true);
+  const fluidPoints = new FluidQuantityPoints({
+    scene,
+    series: fluidSeries,
+    stride: coordinateFluid ? 4 : 2,
+    initialQuantity: 'velocityX',
+  });
+  // 지형·교량과 함께 볼 때는 수평 슬라이스·화살표가 겹침에 유리하다.
+  fluidPoints.setVisible(false);
 
   const durationSeconds = Math.max(
     terrain.durationSeconds,
@@ -117,19 +271,30 @@ async function buildSimState(
   return {
     series: activeSeries,
     fluidSeries,
-    pierDefs,
+    pierDefs: resolvedPierDefs,
     terrain,
+    sedimentLayer,
     pierMarker,
     bridgeCollapse,
     slicePlane,
+    terrainWater,
     arrows,
+    tracers,
+    fluidPoints,
+    fluidMinY,
     fluidMaxY,
+    waterLevelY: initialFluidY,
+    coordinateFluid,
     durationSeconds,
     dispose() {
+      fluidPoints.dispose();
+      tracers.dispose();
       arrows.dispose();
+      terrainWater.dispose();
       slicePlane.dispose();
       bridgeCollapse.dispose();
       pierMarker.dispose();
+      sedimentLayer.dispose();
       terrain.dispose();
     },
   };
@@ -138,9 +303,12 @@ async function buildSimState(
 async function bootstrap(): Promise<void> {
   const canvas = document.getElementById('scene-canvas') as HTMLCanvasElement | null;
   const appRoot = document.getElementById('app');
-  const hudEl = document.getElementById('hud');
-  if (!canvas || !appRoot || !hudEl) {
-    throw new Error('필수 DOM (#scene-canvas, #app, #hud) 을 찾을 수 없습니다.');
+  const dockLeft = document.getElementById('dock-left');
+  const dockRight = document.getElementById('dock-right');
+  if (!canvas || !appRoot || !dockLeft || !dockRight) {
+    throw new Error(
+      '필수 DOM (#scene-canvas, #app, #dock-left, #dock-right) 을 찾을 수 없습니다.',
+    );
   }
 
   const sceneManager = new SceneManager();
@@ -150,34 +318,28 @@ async function bootstrap(): Promise<void> {
     aspect: canvas.clientWidth / canvas.clientHeight,
   });
   const lightManager = new LightManager(sceneManager.scene);
-  const fpsMeter = createFpsMeter(appRoot);
+  const fpsMeter = createFpsMeter(appRoot, { rightInsetPx: 300 });
   const loop = new AnimationLoop();
 
   // ── 최초 베이스 데이터 (manifest 있으면 사용, 없으면 null → buildSimState 내부에서 합성)
-  const { origin } = await createDataSource({
-    manifestUrl: MANIFEST_URL,
-    syntheticOptions: { width: 96, height: 96, frameCount: 90 },
-  });
+  await createDataSource({ manifestUrl: MANIFEST_URL });
 
   let params: SimParams = { ...DEFAULT_SIM_PARAMS };
   let sim = await buildSimState(params, sceneManager.scene, null);
+
+  /** 사용자화 패널에서 유지되는 값 (재시뮬 후에도 동일하게 적용) */
+  let fluidSliceOpacity = 0.92;
 
   const sceneRadius =
     (Math.hypot(sim.series.baseTerrain.width, sim.series.baseTerrain.height) *
       sim.series.baseTerrain.cellSize) /
     2;
 
-  // ── 파라미터 독립적인 UI
-  const hud = new HudOverlay(hudEl, {
-    initial: {
-      Source: origin === 'manifest' ? `manifest (${MANIFEST_URL})` : 'synthetic (fallback)',
-      Grid: `${sim.series.baseTerrain.width}×${sim.series.baseTerrain.height} (cell ${sim.series.baseTerrain.cellSize}m)`,
-      Frames: `${sim.terrain.frameCount} (duration ${sim.terrain.durationSeconds.toFixed(1)}s)`,
-      Fluid: `${sim.fluidSeries.grid.width}×${sim.fluidSeries.grid.height}×${sim.fluidSeries.grid.depth} · ${sim.fluidSeries.frames.length}f`,
-      Pick: '— (마우스를 지형 위로 이동)',
-      Keys: 'Space=Play · ←/→=Seek · R/T/F/X=Camera · P=PNG',
-    },
-  });
+  // 씬 크기에 맞춰 초기 카메라를 도메인 중심으로 프레이밍한다(실험실 스케일 대응).
+  cameraManager.focusOnDomain(
+    new Vector3(0, sim.waterLevelY * 0.5, 0),
+    sceneViewRadius(sim.series.baseTerrain, sim.fluidSeries),
+  );
 
   const timeControls = new TimeControls({
     durationSeconds: sim.durationSeconds,
@@ -186,140 +348,235 @@ async function bootstrap(): Promise<void> {
   });
   appRoot.appendChild(timeControls.element);
 
+  const flowDirectionBadge = new FlowDirectionBadge();
+  appRoot.appendChild(flowDirectionBadge.element);
+
   const legend = new ColorLegend({
-    title: '세굴 ↔ 퇴적 (Δ elevation)',
+    title: '지반 변화량 (세굴 ↔ 퇴적)',
     unit: 'm',
     initialAbsMax: sim.terrain.absMax,
   });
-  appRoot.appendChild(legend.element);
 
-  const fluidControls = new FluidControls(
+  let lastFluidLegendKey = '';
+
+  const applyFluidPrimaryQuantity = (primary: FluidQuantity): void => {
+    sim.slicePlane.setQuantity(primary);
+    sim.terrainWater.setQuantity(primary);
+    sim.fluidPoints.setQuantity(primary);
+    fluidControls.setLegendForQuantity(primary);
+  };
+
+  const syncFluidFieldLegend = (): void => {
+    const entries = buildFluidRangeEntries(
+      sim,
+      fluidControls.getSelectedQuantities(),
+      fluidControls.getPrimaryQuantity(),
+    );
+    const key = fluidRangeLegendKey(entries);
+    if (key !== lastFluidLegendKey) {
+      lastFluidLegendKey = key;
+      fluidControls.setRanges(entries);
+    }
+  };
+
+  let fluidControls!: FluidControls;
+
+  fluidControls = new FluidControls(
     {
-      initialQuantity: 'speed',
-      minHeight: 0,
+      initialParams: params,
+      initialQuantities: ['velocityX'],
+      initialPrimary: 'velocityX',
+      minHeight: sim.fluidMinY,
       maxHeight: sim.fluidMaxY,
-      initialHeight: sim.fluidMaxY * 0.4,
-      units: {
-        speed: sim.fluidSeries.metadata?.velocityUnit ?? 'm/s',
-        pressure: sim.fluidSeries.metadata?.pressureUnit ?? 'Pa',
-        density: sim.fluidSeries.metadata?.densityUnit ?? 'kg/m^3',
-      },
+      initialHeight: sim.waterLevelY,
+      initialTracersVisible: true,
+      initialPointsVisible: false,
+      velocityUnit: sim.fluidSeries.metadata?.velocityUnit ?? 'm/s',
+      scrdifUnit: sim.fluidSeries.metadata?.scalarUnits?.scrdif ?? 'm',
     },
     {
-      onQuantityChange: (q) => {
-        sim.slicePlane.setQuantity(q);
-        const r = sim.slicePlane.currentRangeForLegend;
-        const unit =
-          q === 'pressure'
-            ? (sim.fluidSeries.metadata?.pressureUnit ?? 'Pa')
-            : q === 'density'
-              ? (sim.fluidSeries.metadata?.densityUnit ?? 'kg/m^3')
-              : (sim.fluidSeries.metadata?.velocityUnit ?? 'm/s');
-        fluidControls.setRange(r.min, r.max, unit);
+      onQuantitiesChange: (_selected, primary) => {
+        applyFluidPrimaryQuantity(primary);
+        lastFluidLegendKey = '';
+        syncFluidFieldLegend();
       },
-      onSliceHeightChange: (y) => sim.slicePlane.setHeight(y),
-      onSliceVisibilityChange: (v) => sim.slicePlane.setVisible(v),
-      onArrowsVisibilityChange: (v) => sim.arrows.setVisible(v),
+      onApply: () => {
+        applyParams(collectParams());
+      },
+      onSliceHeightChange: (y) => {
+        sim.slicePlane.setHeight(y);
+        sim.terrainWater.setWaterLevel(y);
+        sim.tracers.setWaterLevel(y);
+        lastFluidLegendKey = '';
+        syncFluidFieldLegend();
+      },
+      onSliceVisibilityChange: (v) => {
+        sim.terrainWater.setVisible(v);
+        sim.slicePlane.setVisible(false);
+      },
+      onTracersVisibilityChange: (v) => sim.tracers.setVisible(v),
+      onPointsVisibilityChange: (v) => {
+        sim.fluidPoints.setVisible(v);
+        lastFluidLegendKey = '';
+        syncFluidFieldLegend();
+      },
     },
   );
-  appRoot.appendChild(fluidControls.element);
-  {
-    const r = sim.slicePlane.currentRangeForLegend;
-    fluidControls.setRange(r.min, r.max, sim.fluidSeries.metadata?.velocityUnit ?? 'm/s');
-  }
-
-  const scourWarning = new ScourWarning({
-    pierCount: sim.pierDefs.length,
-    pierIds: sim.pierDefs.map((p) => p.id),
-    criticalDepthM: params.criticalScourDepth,
-  });
-  appRoot.appendChild(scourWarning.element);
-
-  sim.bridgeCollapse.onCollapse((evt) => {
-    scourWarning.showCollapse(evt);
-    hud.set('Pick', `⚠ 교각 ${evt.pierId} 붕괴 (t=${evt.timestampSeconds.toFixed(1)}s)`);
-  });
-
-  const metadataPanel = new MetadataPanel({
-    metadata: sim.series.baseTerrain.metadata,
-    extra: {
-      Source: origin,
-      Grid: `${sim.series.baseTerrain.width} × ${sim.series.baseTerrain.height}`,
-      Cell: `${sim.series.baseTerrain.cellSize} m`,
-      Frames: String(sim.terrain.frameCount),
-      Duration: `${sim.terrain.durationSeconds.toFixed(1)} s`,
-      Piers: String(sim.pierDefs.length),
-    },
-  });
-  appRoot.appendChild(metadataPanel.element);
-
-  const cellSeries = new CellTimeSeries({ series: sim.series });
-  appRoot.appendChild(cellSeries.element);
-
-  // ── 파라미터 패널
-  const simParamPanel = new SimParamPanel(params, {
-    onApply: (newParams) => {
-      simParamPanel.setLoading(true);
-      loop.stop();
-      const old = sim;
-
-      void buildSimState(newParams, sceneManager.scene, null).then((next) => {
-        old.dispose();
-        // ScourWarning 리셋
-        scourWarning.element.remove();
-        // ScourWarning 은 pierCount 고정(P1) 이므로 재사용하되 내부 상태 리셋
-        const newScourWarning = new ScourWarning({
-          pierCount: next.pierDefs.length,
-          pierIds: next.pierDefs.map((p) => p.id),
-          criticalDepthM: newParams.criticalScourDepth,
-        });
-        // ScourWarning 재삽입 (simParamPanel 앞에)
-        appRoot.insertBefore(newScourWarning.element, simParamPanel.element);
-
-        next.bridgeCollapse.onCollapse((evt) => {
-          newScourWarning.showCollapse(evt);
-          hud.set('Pick', `⚠ 교각 ${evt.pierId} 붕괴 (t=${evt.timestampSeconds.toFixed(1)}s)`);
-        });
-
-        // Picking 은 terrain 메쉬가 바뀌므로 새 terrain 의 pickables 로 갱신
-        picking.updatePickables(next.terrain.pickables);
-
-        // CellTimeSeries 는 series 교체
-        cellSeries.updateSeries(next.series);
-
-        // ColorLegend 범위 리셋
-        legend.setRange(next.terrain.absMax);
-        next.terrain.onFrameApplied(({ absMax }) => legend.setRange(absMax));
-
-        // TimeControls 기간 갱신
-        timeControls.setDuration(next.durationSeconds);
-        timeControls.setTime(0);
-
-        // HUD 갱신
-        hud.set(
-          'Frames',
-          `${next.terrain.frameCount} (duration ${next.terrain.durationSeconds.toFixed(1)}s)`,
-        );
-        hud.set(
-          'Fluid',
-          `${next.fluidSeries.grid.width}×${next.fluidSeries.grid.height}×${next.fluidSeries.grid.depth} · ${next.fluidSeries.frames.length}f`,
-        );
-
-        params = newParams;
-        sim = next;
-        simParamPanel.setLoading(false);
-        loop.start();
-      });
-    },
-  });
-  appRoot.appendChild(simParamPanel.element);
-
-  sim.terrain.onFrameApplied(({ absMax }) => legend.setRange(absMax));
+  dockLeft.appendChild(fluidControls.element);
+  applyFluidPrimaryQuantity(fluidControls.getPrimaryQuantity());
+  syncFluidFieldLegend();
 
   const cameraPresets = new CameraPresets({
     onSelect: (preset) => cameraManager.applyPreset(preset, sceneRadius),
   });
-  appRoot.appendChild(cameraPresets.element);
+  dockRight.appendChild(cameraPresets.element);
+  dockRight.appendChild(legend.element);
+
+  let activeScourWarning = new ScourWarning({
+    pierCount: sim.pierDefs.length,
+    pierIds: sim.pierDefs.map((p) => p.id),
+    criticalDepthM: params.criticalScourDepth,
+  });
+  dockRight.insertBefore(activeScourWarning.element, legend.element);
+
+  sim.bridgeCollapse.onCollapse((evt) => {
+    activeScourWarning.showCollapse(evt);
+  });
+
+  const cellSeries = new CellTimeSeries({ series: sim.series });
+  appRoot.appendChild(cellSeries.element);
+
+  const picking = new Picking({
+    canvas,
+    camera: cameraManager.camera,
+    pickables: sim.terrain.pickables,
+    emitOnHover: false,
+  });
+  picking.onClick((hit) => {
+    if (!hit) {
+      cellSeries.clear();
+      cellSeries.element.classList.remove('is-active');
+      return;
+    }
+    const cell = sim.terrain.queryAtWorld(hit.worldX, hit.worldZ);
+    if (!cell) return;
+    cellSeries.setCell(cell.gridX, cell.gridY);
+    cellSeries.element.classList.add('is-active');
+  });
+
+  let customizePanel: DashboardCustomizePanel;
+  let experimentInfoPanel!: ExperimentInfoPanel;
+
+  const collectParams = (): SimParams =>
+    mergePanelParams(params, experimentInfoPanel.getParams(), fluidControls.getParams(), params);
+
+  const applyParams = (
+    newParams: SimParams,
+    baseScour: ScourSeries | null = null,
+    baseFluid: FluidSeries | null = null,
+    coordinateFluid = false,
+  ): void => {
+    experimentInfoPanel.setLoading(true);
+    fluidControls.setLoading(true);
+    void buildSimState(newParams, sceneManager.scene, baseScour, baseFluid, coordinateFluid).then(
+      (next) => {
+        swapSim(next, newParams);
+        experimentInfoPanel.setLoading(false);
+        fluidControls.setLoading(false);
+      },
+    );
+  };
+
+  const swapSim = (next: SimState, nextParams: SimParams = params): void => {
+    loop.stop();
+    const old = sim;
+    old.dispose();
+    activeScourWarning.dispose();
+    activeScourWarning = new ScourWarning({
+      pierCount: next.pierDefs.length,
+      pierIds: next.pierDefs.map((p) => p.id),
+      criticalDepthM: nextParams.criticalScourDepth,
+    });
+    dockRight.insertBefore(activeScourWarning.element, legend.element);
+
+    next.bridgeCollapse.onCollapse((evt) => {
+      activeScourWarning.showCollapse(evt);
+    });
+
+    picking.updatePickables(next.terrain.pickables);
+    cellSeries.updateSeries(next.series);
+    legend.setRange(next.terrain.absMax);
+    next.terrain.onFrameApplied(({ absMax }) => legend.setRange(absMax));
+    timeControls.setDuration(next.durationSeconds);
+    timeControls.setTime(0);
+
+    fluidControls.setHeightRange(next.fluidMinY, next.fluidMaxY);
+    fluidControls.setSliceHeight(next.waterLevelY);
+    next.slicePlane.setHeight(next.waterLevelY);
+    next.terrainWater.setWaterLevel(next.waterLevelY);
+    next.slicePlane.setVisible(false);
+    next.terrainWater.setVisible(true);
+    next.arrows.setVisible(false);
+    next.tracers.setVisible(fluidControls.isTracersVisible());
+    next.tracers.setWaterLevel(next.waterLevelY);
+    fluidControls.setPointsVisible(false);
+    applyFluidPrimaryQuantity(fluidControls.getPrimaryQuantity());
+    lastFluidLegendKey = '';
+    syncFluidFieldLegend();
+
+    params = nextParams;
+    sim = next;
+    lastFluidLegendKey = '';
+    experimentInfoPanel.setParams(nextParams);
+    fluidControls.setParams(nextParams);
+    sim.terrainWater.setOpacity(fluidSliceOpacity);
+    loop.start();
+  };
+
+  experimentInfoPanel = new ExperimentInfoPanel(params, {
+    onApply: () => applyParams(collectParams()),
+  });
+  dockRight.appendChild(experimentInfoPanel.element);
+
+  const csvUploadPanel = new CsvUploadPanel({
+    onLoaded: async (result) => {
+      await yieldToMain();
+      const next = await buildSimState(
+        params,
+        sceneManager.scene,
+        result.scour,
+        result.fluid,
+        result.fluid !== null && result.variables.length > 0,
+      );
+      await yieldToMain();
+      swapSim(next);
+      cameraManager.applyPreset(
+        'reset',
+        sceneViewRadius(next.series.baseTerrain, next.fluidSeries),
+      );
+    },
+    onError: (message) => {
+      console.error('CSV 적용 실패:', message);
+    },
+  });
+  dockLeft.prepend(csvUploadPanel.element);
+
+  customizePanel = new DashboardCustomizePanel({
+    onBackgroundHex: (hex) => {
+      sceneManager.setBackground(hex);
+    },
+    onFluidSliceOpacity: (v) => {
+      fluidSliceOpacity = v;
+      sim.terrainWater.setOpacity(v);
+      sim.slicePlane.setOpacity(v);
+    },
+  });
+  dockLeft.appendChild(customizePanel.element);
+
+  sim.terrainWater.setOpacity(fluidSliceOpacity);
+  sim.slicePlane.setOpacity(fluidSliceOpacity);
+
+  sim.terrain.onFrameApplied(({ absMax }) => legend.setRange(absMax));
 
   const banner = document.createElement('div');
   banner.className = 'context-banner';
@@ -332,38 +589,6 @@ async function bootstrap(): Promise<void> {
   rendererManager.onContextRestoredEvent(() => {
     banner.classList.remove('is-visible');
     loop.start();
-  });
-
-  const picking = new Picking({
-    canvas,
-    camera: cameraManager.camera,
-    pickables: sim.terrain.pickables,
-  });
-  picking.onHover((hit) => {
-    if (!hit) {
-      hud.set('Pick', '— (지형 밖)');
-      return;
-    }
-    const cell = sim.terrain.queryAtWorld(hit.worldX, hit.worldZ);
-    if (!cell) {
-      hud.set('Pick', '— (지형 밖)');
-      return;
-    }
-    hud.set(
-      'Pick',
-      `cell (${cell.gridX}, ${cell.gridY}) · base ${cell.baseElevation.toFixed(2)}m · Δ ${cell.deltaElevation.toFixed(2)}m · z ${cell.elevation.toFixed(2)}m`,
-    );
-  });
-  picking.onClick((hit) => {
-    if (!hit) {
-      cellSeries.clear();
-      cellSeries.element.classList.remove('is-active');
-      return;
-    }
-    const cell = sim.terrain.queryAtWorld(hit.worldX, hit.worldZ);
-    if (!cell) return;
-    cellSeries.setCell(cell.gridX, cell.gridY);
-    cellSeries.element.classList.add('is-active');
   });
 
   const shortcuts = new KeyboardShortcuts({
@@ -385,29 +610,25 @@ async function bootstrap(): Promise<void> {
     cameraManager.updateAspect(width / height);
   });
 
-  loop.add((delta) => {
+  loop.add((delta, elapsed) => {
     fpsMeter.begin();
     timeControls.tick(delta);
     const t = timeControls.time;
 
     sim.terrain.updateAtTime(t);
+    sim.sedimentLayer.updateAtTime(t);
     sim.bridgeCollapse.updateAtTime(t);
-    scourWarning.update(sim.bridgeCollapse.getScourRatios(t), params.criticalScourDepth);
+    sim.pierMarker.setVisible(!sim.bridgeCollapse.isAnyPierCollapsedAt(t));
+    activeScourWarning.update(sim.bridgeCollapse.getScourRatios(t), params.criticalScourDepth);
+    sim.terrainWater.updateAtTime(t);
+    sim.terrainWater.tickRipple(elapsed);
+    sim.tracers.updateAtTime(t);
+    sim.tracers.tick(delta);
     sim.slicePlane.updateAtTime(t);
     sim.arrows.updateAtTime(t);
+    sim.fluidPoints.updateAtTime(t);
     cellSeries.setTime(t);
-
-    {
-      const r = sim.slicePlane.currentRangeForLegend;
-      const q = sim.slicePlane.currentQuantityName;
-      const unit =
-        q === 'pressure'
-          ? (sim.fluidSeries.metadata?.pressureUnit ?? 'Pa')
-          : q === 'density'
-            ? (sim.fluidSeries.metadata?.densityUnit ?? 'kg/m^3')
-            : (sim.fluidSeries.metadata?.velocityUnit ?? 'm/s');
-      fluidControls.setRange(r.min, r.max, unit);
-    }
+    syncFluidFieldLegend();
 
     cameraManager.update();
     rendererManager.renderer.render(sceneManager.scene, cameraManager.camera);
@@ -422,13 +643,14 @@ async function bootstrap(): Promise<void> {
     picking.dispose();
     cameraPresets.dispose();
     cellSeries.dispose();
-    metadataPanel.dispose();
-    simParamPanel.dispose();
+    experimentInfoPanel.dispose();
+    csvUploadPanel.dispose();
+    customizePanel.dispose();
     fluidControls.dispose();
     legend.dispose();
     timeControls.dispose();
-    hud.dispose();
-    scourWarning.dispose();
+    activeScourWarning.dispose();
+    flowDirectionBadge.dispose();
     sim.dispose();
     lightManager.dispose();
     cameraManager.dispose();

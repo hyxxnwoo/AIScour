@@ -1,4 +1,6 @@
+import { FLUME, structureCenterX, terrainGridDims } from '@/constants/experiment';
 import type { ScourDataSource, ScourFrame, ScourSeries, TerrainGrid } from '@/types/terrain';
+import { flowScourDelta } from '@/utils/scourShape';
 
 export interface SyntheticScourOptions {
   width?: number;
@@ -7,28 +9,44 @@ export interface SyntheticScourOptions {
   frameCount?: number;
   frameIntervalSeconds?: number;
   seed?: number;
-  // 교각 직경(미터). 세굴공 폭과 초기 반경에 영향.
   pierDiameter?: number;
-  // 세굴 진행 속도 배율 (1.0 = 기본). 클수록 빠르게 깊어짐.
   scourRate?: number;
+  sandGrainSizeMm?: number;
+  pier?: { x: number; z: number };
+  tankHeightY?: number;
+  permeable?: boolean;
+  /** 상류 유속(m/s). 클수록 세굴이 강해진다. */
+  inflowSpeed?: number;
 }
 
-const DEFAULTS: Required<SyntheticScourOptions> = {
-  width: 96,
-  height: 96,
-  cellSize: 0.5,
-  frameCount: 60,
-  frameIntervalSeconds: 1,
+const flumeTerrain = terrainGridDims();
+
+const DEFAULTS: Required<Omit<SyntheticScourOptions, 'pier'>> = {
+  width: flumeTerrain.width,
+  height: flumeTerrain.height,
+  cellSize: flumeTerrain.cellSize,
+  frameCount: 90,
+  frameIntervalSeconds: FLUME.totalTimeSeconds / 90,
   seed: 1337,
-  pierDiameter: 1.5,
+  pierDiameter: FLUME.structure.diameterM,
   scourRate: 1.0,
+  sandGrainSizeMm: FLUME.sandGrainSizeMm,
+  tankHeightY: FLUME.tank.heightY,
+  permeable: false,
+  inflowSpeed: 0.25,
 };
 
 export class SyntheticScourSource implements ScourDataSource {
-  private readonly options: Required<SyntheticScourOptions>;
+  private readonly options: Required<Omit<SyntheticScourOptions, 'pier'>> & {
+    pier: NonNullable<SyntheticScourOptions['pier']>;
+  };
 
   public constructor(options: SyntheticScourOptions = {}) {
-    this.options = { ...DEFAULTS, ...options };
+    const merged: Required<Omit<SyntheticScourOptions, 'pier'>> = { ...DEFAULTS, ...options };
+    this.options = {
+      ...merged,
+      pier: options.pier ?? { x: structureCenterX(), z: 0 },
+    };
   }
 
   public load(): Promise<ScourSeries> {
@@ -38,19 +56,17 @@ export class SyntheticScourSource implements ScourDataSource {
   }
 
   private buildBaseTerrain(): TerrainGrid {
-    const { width, height, cellSize, pierDiameter } = this.options;
+    const { width, height, cellSize, pierDiameter, pier, tankHeightY } = this.options;
     const elevations = new Float32Array(width * height);
 
-    const halfW = (width - 1) / 2;
+    const rippleAmp = 0.002;
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
-        const dx = (x - halfW) / halfW;
-        const channel = -1.5 * Math.exp(-3 * dx * dx);
-        const slope = -0.01 * y;
-        const ripple = 0.05 * Math.sin(0.3 * x) * Math.cos(0.3 * y);
-        elevations[y * width + x] = channel + slope + ripple;
+        elevations[y * width + x] = rippleAmp * Math.sin(0.6 * x) * Math.cos(0.6 * y);
       }
     }
+
+    const pierHeight = tankHeightY + 0.03;
 
     return {
       width,
@@ -59,37 +75,59 @@ export class SyntheticScourSource implements ScourDataSource {
       elevations,
       metadata: {
         elevationUnit: 'm',
-        simulationId: 'synthetic-demo',
+        simulationId: 'flume-synthetic-demo',
         capturedAt: new Date().toISOString(),
-        piers: [{ id: 'P1', x: 0, z: 0, diameter: pierDiameter, height: 8 }],
+        piers: [{ id: 'P1', x: pier.x, z: pier.z, diameter: pierDiameter, height: pierHeight }],
       },
     };
   }
 
   private buildFrames(): ScourFrame[] {
-    const { width, height, frameCount, frameIntervalSeconds, pierDiameter, scourRate, cellSize } =
-      this.options;
-    const cx = (width - 1) / 2;
-    const cy = (height - 1) / 2;
-    const diag = Math.hypot(width, height);
-    // 교각 반경(격자 단위). 세굴공 초기 크기의 기준.
-    const pierRadiusCells = pierDiameter / 2 / cellSize;
+    const {
+      width,
+      height,
+      cellSize,
+      frameCount,
+      frameIntervalSeconds,
+      pierDiameter,
+      scourRate,
+      sandGrainSizeMm,
+      pier,
+      permeable,
+      inflowSpeed,
+    } = this.options;
+
+    const halfW = ((width - 1) * cellSize) / 2;
+    const halfH = ((height - 1) * cellSize) / 2;
+    const pierRadius = pierDiameter / 2;
+
+    const grainFactor = Math.min(
+      1.4,
+      Math.max(0.7, Math.pow(FLUME.sandGrainSizeMm / Math.max(0.05, sandGrainSizeMm), 0.2)),
+    );
+    const speedFactor = Math.min(1.5, Math.max(0.6, inflowSpeed / 0.25));
+    const permeabilityFactor = permeable ? 0.6 : 1.0;
+    const equilibriumDepth =
+      1.3 * pierDiameter * scourRate * grainFactor * permeabilityFactor * speedFactor;
 
     const frames: ScourFrame[] = [];
     for (let f = 0; f < frameCount; f += 1) {
-      const t = frameCount === 1 ? 1 : f / (frameCount - 1);
-      // scourRate 로 진행 속도 조절 (로그 곡선 → 빠를수록 초반 급상승)
-      const maxDepth = -1.2 * scourRate * Math.log1p(3 * t);
-      // 세굴공 반경: 교각 크기 + 시간 확장 성분
-      const radius = pierRadiusCells * 1.5 + 0.18 * diag * t;
-
+      const timeProgress = frameCount === 1 ? 1 : f / (frameCount - 1);
       const delta = new Float32Array(width * height);
-      for (let y = 0; y < height; y += 1) {
-        for (let x = 0; x < width; x += 1) {
-          const r = Math.hypot(x - cx, y - cy);
-          if (r > radius) continue;
-          const k = (r / radius) * 2.5;
-          delta[y * width + x] = maxDepth * Math.exp(-k * k);
+
+      for (let gy = 0; gy < height; gy += 1) {
+        for (let gx = 0; gx < width; gx += 1) {
+          const worldX = gx * cellSize - halfW;
+          const worldZ = gy * cellSize - halfH;
+          delta[gy * width + gx] = flowScourDelta(
+            worldX,
+            worldZ,
+            pier.x,
+            pier.z,
+            pierRadius,
+            equilibriumDepth,
+            timeProgress,
+          );
         }
       }
 

@@ -57,3 +57,17 @@ export function sampleColorRamp(
   out.g = clamp.g / 255;
   out.b = clamp.b / 255;
 }
+
+/** 하상 모래색 — 표고가 낮을수록(세굴공) 어둡고 습한 색. */
+export function sampleSandBedColor(
+  elevation: number,
+  surfaceRef: number,
+  deepestRef: number,
+  out: { r: number; g: number; b: number },
+): void {
+  const span = Math.max(0.003, surfaceRef - deepestRef);
+  const t = Math.max(0, Math.min(1, (elevation - deepestRef) / span));
+  out.r = 0.42 + t * 0.28;
+  out.g = 0.3 + t * 0.24;
+  out.b = 0.16 + t * 0.14;
+}

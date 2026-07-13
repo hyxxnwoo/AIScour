@@ -16,7 +16,7 @@ const BUTTONS: readonly PresetButton[] = [
   { preset: 'reset', label: 'Reset', ariaLabel: '카메라 초기 위치로' },
   { preset: 'top', label: 'Top', ariaLabel: '탑뷰' },
   { preset: 'side', label: 'Side', ariaLabel: '사이드뷰' },
-  { preset: 'front', label: 'Front', ariaLabel: '프론트뷰' },
+  { preset: 'front', label: 'Flow', ariaLabel: '흐름 방향 뷰 (좌→우, +X)' },
 ];
 
 // CameraPresets: 카메라 프리셋 버튼 그룹. 클릭 시 onSelect 콜백 호출.

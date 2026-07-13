@@ -5,6 +5,15 @@ import type {
   TerrainGrid,
   TerrainMetadata,
 } from '@/types/terrain';
+import {
+  firstColumnToken,
+  isColumnarDataRow,
+  isMatrixDataRow,
+  isNumericDataRow,
+  normalizeRowTokens,
+  tokenizeGridLine,
+} from '@/utils/gridCsvTokens';
+import { resolveColumnarGridSize } from '@/utils/streamGridCsv';
 
 /**
  * Flow3dCsvSource — FLOW-3D 후처리 결과(CSV) 어댑터 스텁.
@@ -58,27 +67,70 @@ export class Flow3dCsvSource implements ScourDataSource {
   }
 }
 
-// 행/열 구분자(쉼표/세미콜론/공백/탭) 모두 허용하는 단순 CSV 파서.
-// 빈 줄과 # 으로 시작하는 주석은 무시한다.
+// 행/열 구분자(쉼표/세미콜론/공백/탭) 모두 허용.
+// matrix: 각 행이 x 방향 격자 / columnar: A열 값을 y*width+x 순서로 reshape.
 export function parseGridCsv(text: string, width: number, height: number): Float32Array {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'));
+
+  let columnarRows = 0;
+  let matrixRows = 0;
+  for (const line of lines) {
+    const tokens = tokenizeGridLine(line);
+    if (isColumnarDataRow(tokens)) columnarRows += 1;
+    else if (isMatrixDataRow(tokens)) matrixRows += 1;
+  }
+  const columnar = matrixRows === 0 && columnarRows > 0;
+
+  if (columnar) {
+    const out = new Float32Array(width * height);
+    let cell = 0;
+    for (const line of lines) {
+      const tokens = tokenizeGridLine(line);
+      if (!isColumnarDataRow(tokens)) continue;
+      const token = firstColumnToken(tokens);
+      if (token === null) continue;
+      if (cell >= out.length) break;
+      const v = Number(token);
+      if (Number.isNaN(v)) {
+        throw new Error(`parseGridCsv: 셀 ${cell} 의 값이 숫자가 아닙니다: "${token}"`);
+      }
+      out[cell] = v;
+      cell += 1;
+    }
+    const expected = resolveColumnarGridSize(cell, { width, height });
+    if (expected.width !== width || expected.height !== height) {
+      throw new Error(
+        `parseGridCsv: A열 값 ${cell}개와 격자 ${width}×${height}가 일치하지 않습니다.`,
+      );
+    }
+    if (cell < width * height) {
+      throw new Error(`parseGridCsv: A열 값 개수가 부족합니다. expected ${width * height}, got ${cell}`);
+    }
+    return out;
+  }
+
   const out = new Float32Array(width * height);
-  const lines = text.split(/\r?\n/);
   let row = 0;
-  for (const raw of lines) {
+  for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
     if (row >= height) break;
-    const tokens = line.split(/[\s,;]+/);
-    if (tokens.length < width) {
+    const tokens = tokenizeGridLine(line);
+    if (!isNumericDataRow(tokens)) continue;
+    if (tokens.length > width + 1) {
       throw new Error(
-        `parseGridCsv: row ${row} 의 열 수가 부족합니다. expected ${width}, got ${tokens.length}`,
+        `parseGridCsv: row ${row} 의 열 수가 너무 많습니다. expected ${width}, got ${tokens.length}`,
       );
     }
+    const normalized = normalizeRowTokens(tokens, row, width);
     for (let col = 0; col < width; col += 1) {
-      const v = Number(tokens[col]);
+      const v = Number(normalized[col]);
       if (Number.isNaN(v)) {
         throw new Error(
-          `parseGridCsv: row ${row} col ${col} 의 값이 숫자가 아닙니다: "${tokens[col]}"`,
+          `parseGridCsv: row ${row} col ${col} 의 값이 숫자가 아닙니다: "${normalized[col]}"`,
         );
       }
       out[row * width + col] = v;

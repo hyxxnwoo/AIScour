@@ -53,4 +53,45 @@ describe('SyntheticFluidSource', () => {
     const speed = sampleFluidQuantity(series.grid, frame, 'speed', 10, 2, 10);
     expect(speed).toBeLessThan(0.5);
   });
+
+  it('투과 구조물은 교각 내부에서도 일부 유속이 남는다', async () => {
+    const impermeable = await new SyntheticFluidSource({
+      width: 21,
+      height: 6,
+      depth: 21,
+      cellSize: 1,
+      frameCount: 1,
+      inflowSpeed: 2.0,
+      pier: { x: 0, z: 0, radius: 1.5 },
+      permeable: false,
+    }).load();
+    const permeable = await new SyntheticFluidSource({
+      width: 21,
+      height: 6,
+      depth: 21,
+      cellSize: 1,
+      frameCount: 1,
+      inflowSpeed: 2.0,
+      pier: { x: 0, z: 0, radius: 1.5 },
+      permeable: true,
+    }).load();
+    const impermeableSpeed = sampleFluidQuantity(
+      impermeable.grid,
+      impermeable.frames[0],
+      'speed',
+      10,
+      2,
+      10,
+    );
+    const permeableSpeed = sampleFluidQuantity(
+      permeable.grid,
+      permeable.frames[0],
+      'speed',
+      10,
+      2,
+      10,
+    );
+    expect(impermeableSpeed).toBeLessThan(0.5);
+    expect(permeableSpeed).toBeGreaterThan(impermeableSpeed);
+  });
 });

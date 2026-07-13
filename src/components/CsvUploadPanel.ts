@@ -1,0 +1,551 @@
+import type { Disposable } from '@/types/disposable';
+import type { CsvDashboardLoadResult, LoadCsvDashboardOptions } from '@/data/loadCsvDashboard';
+import { loadCsvDashboard } from '@/data/loadCsvDashboard';
+import type { CsvLoadProgress } from '@/data/loadScourFromCsvFiles';
+import { isCsvParseAbortError } from '@/utils/csvParseAbort';
+import { computeCsvProgressPct } from '@/utils/csvProgress';
+import { createInMemoryUploadFile, snapshotUploadFiles, UPLOAD_SNAPSHOT_MAX_BYTES } from '@/utils/readUploadFile';
+import { CsvDataPreviewModal } from '@/components/CsvDataPreviewModal';
+import type { Flow3dScrdifColumns } from '@/utils/parseFlow3dScrdifCsv';
+import { isScrdifTemporalProbe } from '@/utils/scrdifCsvLayout';
+
+/** dev 서버 public/data/sampledata.csv */
+const SAMPLE_CSV_URL = '/data/sampledata.csv';
+
+export interface CsvUploadPanelHandlers {
+  onLoaded: (result: CsvDashboardLoadResult) => void | Promise<void>;
+  onError?: (message: string) => void;
+  /** CSV 로드 시 수심 등 대시보드 옵션. */
+  getLoadOptions?: () => Partial<LoadCsvDashboardOptions>;
+  /** scrdif 행=시각 모드에서 재생 간격(30초 배수) 변경. */
+  onIntervalChange?: (stepMultiple: number) => void;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatProgress(progress: CsvLoadProgress): string {
+  const pct = computeCsvProgressPct(progress);
+  const rows =
+    progress.rowsParsed !== undefined && progress.totalRows !== undefined
+      ? ` · ${progress.rowsParsed}/${progress.totalRows}행`
+      : '';
+  const fileLabel = progress.fileName ? basename(progress.fileName) : '';
+  const filePart =
+    progress.fileCount > 1
+      ? ` (${progress.fileIndex + 1}/${progress.fileCount})`
+      : '';
+  return `${progress.message}${fileLabel ? ` ${fileLabel}` : ''}${filePart} · ${pct.toFixed(0)}%${rows}`;
+}
+
+function basename(path: string): string {
+  const normalized = path.replace(/\\/g, '/');
+  const idx = normalized.lastIndexOf('/');
+  return idx >= 0 ? normalized.slice(idx + 1) : normalized;
+}
+
+export class CsvUploadPanel implements Disposable {
+  public readonly element: HTMLElement;
+  private readonly handlers: CsvUploadPanelHandlers;
+  private readonly cleanups: Array<() => void> = [];
+  private fileInput!: HTMLInputElement;
+  private folderInput!: HTMLInputElement;
+  private statusEl!: HTMLElement;
+  private progressBar!: HTMLElement;
+  private loadBtn!: HTMLButtonElement;
+  private cancelBtn!: HTMLButtonElement;
+  private previewBtn!: HTMLButtonElement;
+  private isLoading = false;
+  /** 파싱용 File 목록. filesInMemory=true 이면 이미 메모리 복사본이다. */
+  private parseReadyFiles: File[] = [];
+  /** true 이면 parseReadyFiles 가 디스크 참조 없이 메모리에만 존재한다. */
+  private filesInMemory = false;
+  private selectedFiles: File[] = [];
+  private abortController: AbortController | null = null;
+  private lastLoadResult: CsvDashboardLoadResult | null = null;
+  private lastScrdifColumns: Flow3dScrdifColumns | null = null;
+  private readonly previewModal = new CsvDataPreviewModal();
+  private pendingProgress: CsvLoadProgress | null = null;
+  private progressFrame: number | null = null;
+  private readonly blockerEl: HTMLElement;
+  private readonly blockerStatusEl: HTMLElement;
+  private readonly blockerProgressBar: HTMLElement;
+  private readonly blockerDock: HTMLElement;
+  private readonly actionRow: HTMLElement;
+  private readonly intervalRow: HTMLElement;
+  private readonly intervalSelect: HTMLSelectElement;
+
+  public constructor(handlers: CsvUploadPanelHandlers) {
+    this.handlers = handlers;
+    this.element = document.createElement('div');
+    this.element.className = 'csv-upload-panel';
+
+    const title = document.createElement('div');
+    title.className = 'csv-upload-panel__title';
+    title.textContent = 'CSV 데이터 업로드';
+    this.element.appendChild(title);
+
+    const hint = document.createElement('p');
+    hint.className = 'csv-upload-panel__hint';
+    hint.textContent =
+      'terrain.csv, FLOW-3D flscon 출력(u,v,w,scrdif), 다변수 CSV, x,y,z 좌표 CSV를 업로드합니다. 디스크 읽기 오류 시 「샘플 CSV」를 사용해 보세요.';
+    this.element.appendChild(hint);
+
+    const fileRow = document.createElement('div');
+    fileRow.className = 'csv-upload-panel__file-row';
+
+    this.fileInput = document.createElement('input');
+    this.fileInput.type = 'file';
+    this.fileInput.multiple = true;
+    this.fileInput.accept = '.csv,.json,text/csv,application/json';
+    this.fileInput.className = 'csv-upload-panel__file-input';
+
+    const fileBtn = document.createElement('button');
+    fileBtn.type = 'button';
+    fileBtn.className = 'csv-upload-panel__pick';
+    fileBtn.textContent = '파일 선택';
+    const onFileBtn = (): void => {
+      this.fileInput.value = '';
+      this.fileInput.click();
+    };
+    fileBtn.addEventListener('click', onFileBtn);
+    this.cleanups.push(() => fileBtn.removeEventListener('click', onFileBtn));
+
+    this.folderInput = document.createElement('input');
+    this.folderInput.type = 'file';
+    this.folderInput.multiple = true;
+    this.folderInput.webkitdirectory = true;
+    this.folderInput.className = 'csv-upload-panel__file-input';
+
+    const folderBtn = document.createElement('button');
+    folderBtn.type = 'button';
+    folderBtn.className = 'csv-upload-panel__pick csv-upload-panel__pick--secondary';
+    folderBtn.textContent = '폴더 선택';
+    const onFolderBtn = (): void => {
+      this.folderInput.value = '';
+      this.folderInput.click();
+    };
+    folderBtn.addEventListener('click', onFolderBtn);
+    this.cleanups.push(() => folderBtn.removeEventListener('click', onFolderBtn));
+
+    const sampleBtn = document.createElement('button');
+    sampleBtn.type = 'button';
+    sampleBtn.className = 'csv-upload-panel__pick csv-upload-panel__pick--secondary';
+    sampleBtn.textContent = '샘플 CSV';
+    const onSampleBtn = (): void => {
+      void this.loadSampleData();
+    };
+    sampleBtn.addEventListener('click', onSampleBtn);
+    this.cleanups.push(() => sampleBtn.removeEventListener('click', onSampleBtn));
+
+    fileRow.append(fileBtn, folderBtn, sampleBtn);
+    this.element.appendChild(fileRow);
+    this.element.append(this.fileInput, this.folderInput);
+
+    this.statusEl = document.createElement('div');
+    this.statusEl.className = 'csv-upload-panel__status';
+    this.statusEl.textContent = '선택된 파일 없음';
+    this.element.appendChild(this.statusEl);
+
+    const progressTrack = document.createElement('div');
+    progressTrack.className = 'csv-upload-panel__progress-track';
+    this.progressBar = document.createElement('div');
+    this.progressBar.className = 'csv-upload-panel__progress-bar';
+    progressTrack.appendChild(this.progressBar);
+    this.element.appendChild(progressTrack);
+
+    this.intervalRow = document.createElement('div');
+    this.intervalRow.className = 'csv-upload-panel__interval-row';
+    this.intervalRow.hidden = true;
+
+    const intervalLabel = document.createElement('label');
+    intervalLabel.className = 'csv-upload-panel__interval-label';
+    intervalLabel.textContent = '재생 간격';
+
+    this.intervalSelect = document.createElement('select');
+    this.intervalSelect.className = 'csv-upload-panel__interval-select';
+    for (const mult of [1, 2, 3, 4, 6, 8, 10]) {
+      const opt = document.createElement('option');
+      opt.value = String(mult);
+      const seconds = mult * 30;
+      if (seconds < 60) {
+        opt.textContent = `${seconds}초 (매 ${mult}행)`;
+      } else if (seconds % 60 === 0) {
+        opt.textContent = `${seconds / 60}분 (매 ${mult}행)`;
+      } else {
+        opt.textContent = `${Math.floor(seconds / 60)}분 ${seconds % 60}초 (매 ${mult}행)`;
+      }
+      this.intervalSelect.appendChild(opt);
+    }
+    const onIntervalChange = (): void => {
+      const mult = Math.max(1, Number(this.intervalSelect.value) || 1);
+      this.handlers.onIntervalChange?.(mult);
+    };
+    this.intervalSelect.addEventListener('change', onIntervalChange);
+    this.cleanups.push(() => this.intervalSelect.removeEventListener('change', onIntervalChange));
+
+    intervalLabel.appendChild(this.intervalSelect);
+    this.intervalRow.appendChild(intervalLabel);
+    this.element.appendChild(this.intervalRow);
+
+    this.loadBtn = document.createElement('button');
+    this.loadBtn.type = 'button';
+    this.loadBtn.className = 'csv-upload-panel__load';
+    this.loadBtn.textContent = 'CSV 파싱 및 적용';
+    this.loadBtn.disabled = true;
+    const onLoad = (): void => {
+      void this.startLoad();
+    };
+    this.loadBtn.addEventListener('click', onLoad);
+    this.cleanups.push(() => this.loadBtn.removeEventListener('click', onLoad));
+
+    this.cancelBtn = document.createElement('button');
+    this.cancelBtn.type = 'button';
+    this.cancelBtn.className = 'csv-upload-panel__cancel';
+    this.cancelBtn.textContent = '파싱 중지';
+    this.cancelBtn.hidden = true;
+    const onCancel = (): void => {
+      this.cancelLoad();
+    };
+    this.cancelBtn.addEventListener('click', onCancel);
+    this.cleanups.push(() => this.cancelBtn.removeEventListener('click', onCancel));
+
+    this.previewBtn = document.createElement('button');
+    this.previewBtn.type = 'button';
+    this.previewBtn.className = 'csv-upload-panel__preview';
+    this.previewBtn.textContent = '데이터 확인';
+    this.previewBtn.hidden = true;
+    const onPreview = (): void => {
+      if (this.lastLoadResult) {
+        this.previewModal.open(this.lastLoadResult, this.lastScrdifColumns);
+      }
+    };
+    this.previewBtn.addEventListener('click', onPreview);
+    this.cleanups.push(() => this.previewBtn.removeEventListener('click', onPreview));
+
+    const actionRow = document.createElement('div');
+    actionRow.className = 'csv-upload-panel__actions';
+    actionRow.append(this.loadBtn, this.cancelBtn, this.previewBtn);
+    this.element.appendChild(actionRow);
+    this.actionRow = actionRow;
+
+    this.blockerEl = document.createElement('div');
+    this.blockerEl.className = 'csv-parse-blocker';
+    this.blockerEl.hidden = true;
+
+    const blockerPanel = document.createElement('div');
+    blockerPanel.className = 'csv-parse-blocker__panel';
+
+    this.blockerStatusEl = document.createElement('p');
+    this.blockerStatusEl.className = 'csv-parse-blocker__status';
+    this.blockerStatusEl.textContent = 'CSV 파싱 중…';
+
+    const blockerProgressTrack = document.createElement('div');
+    blockerProgressTrack.className = 'csv-parse-blocker__progress-track';
+    this.blockerProgressBar = document.createElement('div');
+    this.blockerProgressBar.className = 'csv-parse-blocker__progress-bar';
+    blockerProgressTrack.appendChild(this.blockerProgressBar);
+
+    this.blockerDock = document.createElement('div');
+    this.blockerDock.className = 'csv-parse-blocker__dock';
+
+    blockerPanel.append(this.blockerStatusEl, blockerProgressTrack, this.blockerDock);
+    this.blockerEl.appendChild(blockerPanel);
+    document.body.appendChild(this.blockerEl);
+
+    document.body.appendChild(this.previewModal.element);
+
+    const onFiles = (ev: Event): void => {
+      void this.handleFilesSelected(ev.target as HTMLInputElement);
+    };
+    this.fileInput.addEventListener('change', onFiles);
+    this.folderInput.addEventListener('change', onFiles);
+    this.cleanups.push(() => this.fileInput.removeEventListener('change', onFiles));
+    this.cleanups.push(() => this.folderInput.removeEventListener('change', onFiles));
+  }
+
+  /** 파일 선택 직후 가능하면 메모리로 복사한다. 실패 시 디스크 참조를 유지해 스트리밍 파싱한다. */
+  private async handleFilesSelected(input: HTMLInputElement): Promise<void> {
+    const raw = Array.from(input.files ?? []);
+    if (raw.length === 0) {
+      this.parseReadyFiles = [];
+      this.filesInMemory = false;
+      this.setSelectedFiles([]);
+      return;
+    }
+
+    this.parseReadyFiles = [];
+    this.filesInMemory = false;
+    this.statusEl.textContent = '파일 읽는 중…';
+    this.loadBtn.disabled = true;
+    this.fileInput.disabled = true;
+    this.folderInput.disabled = true;
+
+    try {
+      const hasLargeFile = raw.some((f) => f.size > UPLOAD_SNAPSHOT_MAX_BYTES);
+      if (hasLargeFile) {
+        this.parseReadyFiles = raw;
+        this.filesInMemory = false;
+        input.value = '';
+        this.setSelectedFiles(raw);
+        return;
+      }
+
+      const snapshotted = await snapshotUploadFiles(raw);
+      this.parseReadyFiles = snapshotted;
+      this.filesInMemory = true;
+      input.value = '';
+      this.setSelectedFiles(snapshotted);
+    } catch (err: unknown) {
+      // 대용량·잠금 파일: 스냅샷 없이 디스크 File 로 스트리밍 파싱
+      this.parseReadyFiles = raw;
+      this.filesInMemory = false;
+      this.selectedFiles = raw;
+      this.previewBtn.hidden = true;
+      this.intervalRow.hidden = true;
+      this.lastLoadResult = null;
+      this.lastScrdifColumns = null;
+
+      const csvCount = raw.filter((f) => /\.csv$/i.test(f.name)).length;
+      const totalBytes = raw.reduce((sum, f) => sum + f.size, 0);
+      const hint =
+        totalBytes > 2 * 1024 * 1024 ? ' · 대용량(스트리밍 파싱)' : ' · 스트리밍 파싱';
+      this.statusEl.textContent = `${raw.length}개 파일 · CSV ${csvCount}개 · ${formatBytes(totalBytes)}${hint}`;
+      this.loadBtn.disabled = false;
+
+      if (err instanceof Error) {
+        console.warn('CSV 메모리 복사 건너뜀 — 스트리밍으로 파싱합니다:', err.message);
+      }
+    } finally {
+      if (!this.isLoading) {
+        this.fileInput.disabled = false;
+        this.folderInput.disabled = false;
+      }
+    }
+  }
+
+  /** dev 서버에 있는 sampledata.csv 를 fetch 로 불러온다 (디스크 잠금 우회). */
+  private async loadSampleData(): Promise<void> {
+    if (this.isLoading) return;
+    this.fileInput.disabled = true;
+    this.folderInput.disabled = true;
+    this.statusEl.textContent = '샘플 CSV 불러오는 중…';
+    this.loadBtn.disabled = true;
+
+    try {
+      const res = await fetch(SAMPLE_CSV_URL);
+      if (!res.ok) {
+        throw new Error(`샘플 CSV를 불러올 수 없습니다 (HTTP ${res.status}).`);
+      }
+      const text = await res.text();
+      const file = createInMemoryUploadFile(text, 'sampledata.csv');
+      this.parseReadyFiles = [file];
+      this.filesInMemory = true;
+      this.fileInput.value = '';
+      this.folderInput.value = '';
+      this.setSelectedFiles([file]);
+    } catch (err: unknown) {
+      this.parseReadyFiles = [];
+      this.filesInMemory = false;
+      this.selectedFiles = [];
+      this.lastLoadResult = null;
+      this.lastScrdifColumns = null;
+      const message =
+        err instanceof Error ? err.message : '샘플 CSV를 불러올 수 없습니다.';
+      this.statusEl.textContent = message;
+      this.loadBtn.disabled = true;
+      this.previewBtn.hidden = true;
+      this.intervalRow.hidden = true;
+      this.handlers.onError?.(message);
+      console.error('샘플 CSV 불러오기 실패:', err);
+    } finally {
+      if (!this.isLoading) {
+        this.fileInput.disabled = false;
+        this.folderInput.disabled = false;
+      }
+    }
+  }
+
+  private setSelectedFiles(files: File[]): void {
+    this.selectedFiles = files;
+    this.previewBtn.hidden = true;
+    this.intervalRow.hidden = true;
+    this.lastLoadResult = null;
+    this.lastScrdifColumns = null;
+    if (files.length === 0) {
+      this.statusEl.textContent = '선택된 파일 없음';
+      this.loadBtn.disabled = true;
+      return;
+    }
+
+    const csvCount = files.filter((f) => /\.csv$/i.test(f.name)).length;
+    const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+    this.statusEl.textContent = `${files.length}개 파일 · CSV ${csvCount}개 · ${formatBytes(totalBytes)}`;
+    this.loadBtn.disabled = false;
+  }
+
+  private setParseBlocker(visible: boolean): void {
+    this.blockerEl.hidden = !visible;
+    if (visible) {
+      this.blockerDock.appendChild(this.cancelBtn);
+      this.cancelBtn.hidden = false;
+      return;
+    }
+
+    this.actionRow.appendChild(this.cancelBtn);
+    this.cancelBtn.hidden = true;
+    this.blockerProgressBar.style.width = '0%';
+  }
+
+  private setLoading(loading: boolean): void {
+    this.isLoading = loading;
+    this.loadBtn.hidden = loading;
+    this.loadBtn.disabled = loading || this.parseReadyFiles.length === 0;
+    this.fileInput.disabled = loading;
+    this.folderInput.disabled = loading;
+    this.setParseBlocker(loading);
+  }
+
+  private cancelLoad(): void {
+    this.abortController?.abort();
+    this.statusEl.textContent = '파싱 중지 요청됨…';
+    this.blockerStatusEl.textContent = '파싱 중지 요청됨…';
+  }
+
+  private applyProgress(progress: CsvLoadProgress): void {
+    const pct = computeCsvProgressPct(progress);
+    const width = `${pct}%`;
+    const message = formatProgress(progress);
+    this.progressBar.style.width = width;
+    this.blockerProgressBar.style.width = width;
+    this.statusEl.textContent = message;
+    this.blockerStatusEl.textContent = message;
+  }
+
+  private setProgress(progress: CsvLoadProgress, immediate = false): void {
+    this.pendingProgress = progress;
+    if (immediate) {
+      if (this.progressFrame !== null) {
+        cancelAnimationFrame(this.progressFrame);
+        this.progressFrame = null;
+      }
+      this.applyProgress(progress);
+      return;
+    }
+    if (this.progressFrame !== null) return;
+    this.progressFrame = requestAnimationFrame(() => {
+      this.progressFrame = null;
+      const pending = this.pendingProgress;
+      // 로딩이 끝난 뒤 늦게 실행된 프레임이 최종 상태 메시지를 덮어쓰지 않도록 한다.
+      if (!pending || !this.isLoading) return;
+      this.applyProgress(pending);
+    });
+  }
+
+  /** 대기 중인 진행률 프레임을 취소한다(최종 상태를 스테일 메시지가 덮어쓰지 못하게 함). */
+  private flushProgressFrame(): void {
+    if (this.progressFrame !== null) {
+      cancelAnimationFrame(this.progressFrame);
+      this.progressFrame = null;
+    }
+    this.pendingProgress = null;
+  }
+
+  private async startLoad(): Promise<void> {
+    if (this.isLoading || this.parseReadyFiles.length === 0) return;
+    this.abortController = new AbortController();
+    const { signal } = this.abortController;
+    this.previewBtn.hidden = true;
+    this.intervalRow.hidden = true;
+    this.lastLoadResult = null;
+    this.lastScrdifColumns = null;
+    this.setLoading(true);
+    this.progressBar.style.width = '0%';
+    this.blockerProgressBar.style.width = '0%';
+    this.applyProgress({
+      phase: 'classify',
+      message: '파싱 준비 중…',
+      fileName: this.parseReadyFiles[0]?.name ?? '',
+      fileIndex: 0,
+      fileCount: this.parseReadyFiles.length,
+      bytesRead: 0,
+      fileSize: this.parseReadyFiles.reduce((s, f) => s + f.size, 0),
+    });
+
+    try {
+      const result = await loadCsvDashboard(this.parseReadyFiles, {
+        ...this.handlers.getLoadOptions?.(),
+        signal,
+        onProgress: (p) => this.setProgress(p, p.phase === 'classify'),
+      });
+
+      // 파싱이 끝났으므로 대기 중인 진행률 프레임을 취소해 이후 상태 메시지를 보존한다.
+      this.flushProgressFrame();
+
+      this.lastScrdifColumns = result.scrdifColumns ?? null;
+      this.intervalRow.hidden =
+        !this.lastScrdifColumns || !isScrdifTemporalProbe(this.lastScrdifColumns);
+
+      const varCount = result.variables.length;
+      const scourInfo = result.scour
+        ? `${result.scour.baseTerrain.width}×${result.scour.baseTerrain.height}`
+        : '—';
+      const fluidInfo = result.fluid
+        ? `${result.fluid.grid.width}×${result.fluid.grid.height}×${result.fluid.grid.depth}`
+        : '—';
+
+      this.progressBar.style.width = '100%';
+      this.blockerProgressBar.style.width = '100%';
+      this.lastLoadResult = result;
+      this.previewBtn.hidden = false;
+      // 파싱이 끝나면 미리보기·UI 조작을 허용하고, 3D 적용은 백그라운드로 진행한다.
+      this.setParseBlocker(false);
+      this.statusEl.textContent =
+        varCount > 0
+          ? `파싱 완료 · 변수 ${varCount}개 · 3D 장면 적용 중…`
+          : `파싱 완료 · 3D 장면 적용 중…`;
+      await Promise.resolve(this.handlers.onLoaded(result));
+      this.statusEl.textContent =
+        varCount > 0
+          ? `완료 · 변수 ${varCount}개 · 세굴 ${scourInfo} · 유체 ${fluidInfo}`
+          : `완료 · ${scourInfo} · 프레임 ${result.scour?.frames.length ?? 0}개`;
+      this.fileInput.value = '';
+      this.folderInput.value = '';
+    } catch (err: unknown) {
+      if (isCsvParseAbortError(err)) {
+        this.statusEl.textContent = err.message;
+        this.progressBar.style.width = '0%';
+        return;
+      }
+      const message = err instanceof Error ? err.message : 'CSV 파싱에 실패했습니다.';
+      this.statusEl.textContent = message;
+      this.progressBar.style.width = '0%';
+      this.handlers.onError?.(message);
+      console.error('CSV 업로드 실패:', err);
+    } finally {
+      this.flushProgressFrame();
+      this.abortController = null;
+      this.setLoading(false);
+    }
+  }
+
+  public getStepMultiple(): number {
+    return Math.max(1, Number(this.intervalSelect.value) || 1);
+  }
+
+  public dispose(): void {
+    this.abortController?.abort();
+    if (this.progressFrame !== null) {
+      cancelAnimationFrame(this.progressFrame);
+      this.progressFrame = null;
+    }
+    this.previewModal.dispose();
+    this.blockerEl.remove();
+    for (const fn of this.cleanups) fn();
+    this.element.remove();
+  }
+}

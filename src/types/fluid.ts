@@ -11,6 +11,12 @@ export interface FluidGrid3D {
   height: number; // Y 방향(연직) 셀 수
   depth: number; // Z 방향 셀 수
   cellSize: number; // 셀 한 변(미터). 등방 격자 가정.
+  /** 셀 (0,0,0) 의 월드 x. 미지정 시 도메인 중앙 하단 정렬. */
+  originX?: number;
+  /** 셀 (0,0,0) 의 월드 y. */
+  originY?: number;
+  /** 셀 (0,0,0) 의 월드 z. */
+  originZ?: number;
 }
 
 // 단일 시점의 물리량 스냅샷. 각 배열 길이 = width * height * depth.
@@ -21,12 +27,16 @@ export interface FluidFrame {
   velocityZ: Float32Array; // m/s
   pressure: Float32Array; // Pa (또는 psi 등 메타에 정의)
   density: Float32Array; // kg/m^3
+  /** FLOW-3D 추가 스칼라 (tke, dtke, mhyfd, shrvel, davel, ofvel, scrdif 등) */
+  scalars?: Record<string, Float32Array>;
 }
 
 export interface FluidSeriesMetadata {
   velocityUnit?: string; // 'm/s'
   pressureUnit?: string; // 'Pa'
   densityUnit?: string; // 'kg/m^3'
+  scalarUnits?: Record<string, string>;
+  scalarLabels?: Record<string, string>;
   simulationId?: string;
   capturedAt?: string;
 }
@@ -44,7 +54,14 @@ export type FluidQuantity =
   | 'density'
   | 'velocityX'
   | 'velocityY'
-  | 'velocityZ';
+  | 'velocityZ'
+  | 'tke'
+  | 'dtke'
+  | 'mhyfd'
+  | 'shrvel'
+  | 'davel'
+  | 'ofvel'
+  | 'scrdif';
 
 // 유체 데이터 소스 추상화.
 export interface FluidDataSource {
@@ -83,6 +100,14 @@ export function sampleFluidQuantity(
       return frame.velocityY[i] ?? 0;
     case 'velocityZ':
       return frame.velocityZ[i] ?? 0;
+    case 'tke':
+    case 'dtke':
+    case 'mhyfd':
+    case 'shrvel':
+    case 'davel':
+    case 'ofvel':
+    case 'scrdif':
+      return frame.scalars?.[quantity]?.[i] ?? 0;
     default:
       return 0;
   }

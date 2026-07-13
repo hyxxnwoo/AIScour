@@ -5,9 +5,10 @@ export const SCENE_BACKGROUND_COLOR = 0x0b1d33;
 
 export const CAMERA_DEFAULTS = {
   fov: 60,
-  near: 0.1,
-  far: 5000,
-  initialPosition: { x: 12, y: 10, z: 18 },
+  // 실험실(플룸) 스케일(~1m)에 맞춘 근/원 평면. 부트스트랩 후 도메인 크기에 맞춰 재배치된다.
+  near: 0.005,
+  far: 100,
+  initialPosition: { x: 0.9, y: 0.7, z: 1.3 },
   target: { x: 0, y: 0, z: 0 },
 } as const;
 

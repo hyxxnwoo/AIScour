@@ -25,6 +25,14 @@ export class LightManager implements Disposable {
     this.scene.add(this.directional);
   }
 
+  public setAmbientIntensity(intensity: number): void {
+    this.ambient.intensity = Math.min(3, Math.max(0, intensity));
+  }
+
+  public setDirectionalIntensity(intensity: number): void {
+    this.directional.intensity = Math.min(3, Math.max(0, intensity));
+  }
+
   public dispose(): void {
     this.scene.remove(this.ambient);
     this.scene.remove(this.directional);
