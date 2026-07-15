@@ -13,13 +13,13 @@ export function flowScourIntensity(
   const dz = worldZ - pierZ;
   const r = Math.hypot(dx, dz);
 
-  const holeRadius = pierRadius * 3.2;
+  const holeRadius = pierRadius * 3.5;
   if (r <= pierRadius || r > holeRadius) return 0;
 
   const ang = Math.atan2(dz, dx);
   const upstreamW = (1 - Math.cos(ang)) * 0.5;
   const sideW = Math.abs(Math.sin(ang));
-  let dirAmp = 0.1 + 0.58 * upstreamW + 0.4 * sideW;
+  let dirAmp = 0.12 + 0.64 * upstreamW + 0.44 * sideW;
 
   // 하류(+X) 반쪽은 유속 약화·퇴적 경향으로 세굴을 크게 억제
   if (dx > 0) {

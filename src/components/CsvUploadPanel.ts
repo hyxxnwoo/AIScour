@@ -380,12 +380,18 @@ export class CsvUploadPanel implements Disposable {
 
   private formatLoadCompleteStatus(result: CsvDashboardLoadResult): string {
     const base = `완료 · ${result.scour.baseTerrain.width}×${result.scour.baseTerrain.height} · 프레임 ${result.scour.frames.length}개`;
-    if (!result.autoAdjusted) return base;
-    const intervalLabel = formatIntervalLabel(
-      result.stepMultiple,
-      result.probeSeries.baseIntervalSeconds,
-    );
-    return `${base} · 간격 ${intervalLabel} 자동 조정`;
+    const parts = [base];
+    if (result.csvScrdifAllZero) {
+      parts.push('CSV scrdif=0 · 합성 세굴로 표시');
+    }
+    if (result.autoAdjusted) {
+      const intervalLabel = formatIntervalLabel(
+        result.stepMultiple,
+        result.probeSeries.baseIntervalSeconds,
+      );
+      parts.push(`간격 ${intervalLabel} 자동 조정`);
+    }
+    return parts.join(' · ');
   }
 
   private async rebuildWithCurrentInterval(): Promise<void> {
@@ -576,6 +582,8 @@ export class CsvUploadPanel implements Disposable {
       this.setParseBlocker(false);
       if (result.autoAdjusted) {
         this.statusEl.textContent = `${formatAutoAdjustedMessage(result, result.probeSeries.baseIntervalSeconds)} · 3D 적용 중…`;
+      } else if (result.csvScrdifAllZero) {
+        this.statusEl.textContent = 'CSV scrdif=0 · 합성 세굴로 표시 · 3D 적용 중…';
       } else {
         this.statusEl.textContent = '파싱 완료 · 3D 장면 적용 중…';
       }

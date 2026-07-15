@@ -1,9 +1,10 @@
-import { Scene } from 'three';
 import { describe, expect, it } from 'vitest';
 import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
 import { FluidTracers, probeSpeed } from '@/modules/FluidTracers';
+import { structureCenterX } from '@/constants/experiment';
 import { defaultFluidSliceHeight } from '@/utils/fluidWorld';
+import { Scene } from 'three';
 
 describe('FluidTracers', () => {
   it('유속장에 따라 입자 위치가 변한다', async () => {
@@ -248,6 +249,61 @@ describe('FluidTracers', () => {
       if (Math.hypot(after[i] - before[i], after[i + 2] - before[i + 2]) > 1e-4) moved += 1;
     }
     expect(moved).toBeGreaterThan(5);
+
+    tracers.dispose();
+  });
+
+  it('기둥 충돌이 있으면 입자가 원기둥 내부에 머무르지 않는다', async () => {
+    const scour = await new SyntheticScourSource({
+      width: 21,
+      height: 21,
+      cellSize: 0.05,
+      frameCount: 1,
+    }).load();
+    const fluid = await new SyntheticFluidSource({
+      width: 21,
+      height: 8,
+      depth: 21,
+      cellSize: 0.05,
+      frameCount: 1,
+      inflowSpeed: 0,
+      fluidU: 0,
+      fluidV: 0,
+      fluidW: 0,
+    }).load();
+    const waterLevel = defaultFluidSliceHeight(fluid, scour.baseTerrain);
+    const pierX = structureCenterX();
+    const pierRadius = 0.05;
+
+    const scene = new Scene();
+    const tracers = new FluidTracers({
+      scene,
+      fluidSeries: fluid,
+      scourSeries: scour,
+      waterLevel,
+      particleCount: 40,
+      piers: [{ id: 'P1', x: pierX, z: 0, diameter: pierRadius * 2, height: 1 }],
+      structurePermeable: false,
+      baseElevation: 0,
+    });
+
+    tracers.setProbeVelocity({ u: 0.35, v: 0, w: 0 });
+    tracers.updateAtTime(0);
+
+    for (let i = 0; i < 120; i += 1) {
+      tracers.tick(1 / 30);
+    }
+
+    const positions = (scene.children[0] as { geometry: { attributes: { position: { array: Float32Array } } } })
+      .geometry.attributes.position.array;
+
+    let insidePier = 0;
+    for (let i = 0; i < positions.length; i += 6) {
+      const x = positions[i + 3]!;
+      const z = positions[i + 5]!;
+      if (Math.hypot(x - pierX, z) < pierRadius - 1e-4) insidePier += 1;
+    }
+    expect(insidePier).toBe(0);
 
     tracers.dispose();
   });

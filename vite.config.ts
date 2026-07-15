@@ -53,7 +53,7 @@ export default defineConfig({
   },
   server: {
     host: true,
-    port: 5173,
+    port: 5174,
     strictPort: true,
     proxy: {
       // 백엔드 API 프록시: 운영 환경에서는 Nginx가 동일 경로로 라우팅한다.

@@ -1,6 +1,8 @@
 import {
   buildSampleProbeDashboard,
+  csvScrdifIsAllZero,
   resolveSafeStepMultiple,
+  type BuildSampleProbeDashboardOptions,
   type SampleProbeSeries,
 } from '@/data/buildSampleProbeDashboard';
 import type { ScourSeries } from '@/types/terrain';
@@ -34,9 +36,11 @@ export interface CsvDashboardLoadResult {
   requestedStepMultiple: number;
   /** 한도 때문에 stride 가 올라갔는지. */
   autoAdjusted: boolean;
+  /** CSV scrdif 가 전부 0 이면 합성 세굴로 표시한다. */
+  csvScrdifAllZero: boolean;
 }
 
-export interface LoadCsvDashboardOptions {
+export interface LoadCsvDashboardOptions extends BuildSampleProbeDashboardOptions {
   defaultCellSize?: number;
   defaultIntervalSeconds?: number;
   stepMultiple?: number;
@@ -155,10 +159,20 @@ export async function loadCsvDashboard(
     totalRows: columns.stats?.dataRowCount ?? columns.count,
   });
 
-  const built = buildSampleProbeDashboard(columns, {
+  const buildOptions: BuildSampleProbeDashboardOptions = {
     baseIntervalSeconds,
     stepMultiple: 1,
-  });
+  };
+  if (options.pierX !== undefined) buildOptions.pierX = options.pierX;
+  if (options.pierZ !== undefined) buildOptions.pierZ = options.pierZ;
+  if (options.pierDiameter !== undefined) buildOptions.pierDiameter = options.pierDiameter;
+  if (options.scourRate !== undefined) buildOptions.scourRate = options.scourRate;
+  if (options.sandGrainSizeMm !== undefined) buildOptions.sandGrainSizeMm = options.sandGrainSizeMm;
+  if (options.permeable !== undefined) buildOptions.permeable = options.permeable;
+  if (options.inflowSpeed !== undefined) buildOptions.inflowSpeed = options.inflowSpeed;
+  if (options.tankHeightY !== undefined) buildOptions.tankHeightY = options.tankHeightY;
+
+  const built = buildSampleProbeDashboard(columns, buildOptions);
 
   return {
     scour: built.scour,
@@ -167,6 +181,7 @@ export async function loadCsvDashboard(
     stepMultiple: effectiveStep,
     requestedStepMultiple,
     autoAdjusted,
+    csvScrdifAllZero: csvScrdifIsAllZero(built.probeSeries.bounds),
   };
 }
 
@@ -175,6 +190,7 @@ export function rebuildCsvDashboard(
   columns: SampleProbeColumns,
   stepMultiple: number,
   baseIntervalSeconds = 30,
+  buildOptions: BuildSampleProbeDashboardOptions = {},
 ): CsvDashboardLoadResult {
   const requested = Math.max(1, Math.floor(stepMultiple));
   const totalRows = columns.stats?.dataRowCount ?? columns.count;
@@ -183,6 +199,7 @@ export function rebuildCsvDashboard(
   const built = buildSampleProbeDashboard(columns, {
     baseIntervalSeconds,
     stepMultiple: effectiveStep,
+    ...buildOptions,
   });
   return {
     scour: built.scour,
@@ -191,5 +208,6 @@ export function rebuildCsvDashboard(
     stepMultiple: effectiveStep,
     requestedStepMultiple: requested,
     autoAdjusted,
+    csvScrdifAllZero: csvScrdifIsAllZero(built.probeSeries.bounds),
   };
 }

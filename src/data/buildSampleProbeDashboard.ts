@@ -1,7 +1,8 @@
-import { terrainGridDims } from '@/constants/experiment';
+import { FLUME, structureCenterX, terrainGridDims } from '@/constants/experiment';
 import type { ScourFrame, ScourSeries, TerrainGrid } from '@/types/terrain';
 import type { SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
 import { terrainGridToWorldXZ, worldXZToTerrainGrid } from '@/utils/fluidWorld';
+import { flowScourDelta } from '@/utils/scourShape';
 
 export interface SampleProbeBounds {
   minDataX: number;
@@ -49,11 +50,70 @@ export interface SampleProbeDashboard {
 export interface BuildSampleProbeDashboardOptions {
   baseIntervalSeconds?: number;
   stepMultiple?: number;
+  pierX?: number;
+  pierZ?: number;
+  pierDiameter?: number;
+  scourRate?: number;
+  sandGrainSizeMm?: number;
+  permeable?: boolean;
+  inflowSpeed?: number;
+  tankHeightY?: number;
+}
+
+export interface HybridScourPierConfig {
+  pierX: number;
+  pierZ: number;
+  pierRadius: number;
+  equilibriumDepth: number;
+  pierDiameter: number;
+  pierHeight: number;
 }
 
 const SCRDIF_EPS = 1e-12;
 export const MAX_SCOUR_FRAMES = 4096;
 const MAX_SCOUR_FRAME_BYTES = 256 * 1024 * 1024;
+
+/** CSV bounds 에 scrdif 신호가 없는지 판별한다. */
+export function csvScrdifIsAllZero(bounds: SampleProbeBounds): boolean {
+  return Math.abs(bounds.maxScrdif) < SCRDIF_EPS && Math.abs(bounds.minScrdif) < SCRDIF_EPS;
+}
+
+/** 합성 세굴과 동일 스케일의 균형 깊이(m). */
+export function computeHybridEquilibriumDepth(
+  options: Pick<
+    BuildSampleProbeDashboardOptions,
+    'pierDiameter' | 'scourRate' | 'sandGrainSizeMm' | 'permeable' | 'inflowSpeed'
+  > = {},
+): number {
+  const pierDiameter = options.pierDiameter ?? FLUME.structure.diameterM;
+  const scourRate = options.scourRate ?? 1.0;
+  const sandGrainSizeMm = options.sandGrainSizeMm ?? FLUME.sandGrainSizeMm;
+  const permeable = options.permeable ?? false;
+  const inflowSpeed = options.inflowSpeed ?? 0.25;
+
+  const grainFactor = Math.min(
+    1.4,
+    Math.max(0.7, Math.pow(FLUME.sandGrainSizeMm / Math.max(0.05, sandGrainSizeMm), 0.2)),
+  );
+  const speedFactor = Math.min(1.5, Math.max(0.6, inflowSpeed / 0.25));
+  const permeabilityFactor = permeable ? 0.6 : 1.0;
+  return 1.3 * pierDiameter * scourRate * grainFactor * permeabilityFactor * speedFactor;
+}
+
+export function resolveHybridScourPier(
+  options: BuildSampleProbeDashboardOptions = {},
+): HybridScourPierConfig {
+  const pierDiameter = options.pierDiameter ?? FLUME.structure.diameterM;
+  const tankHeightY = options.tankHeightY ?? FLUME.tank.heightY;
+  return {
+    pierX: options.pierX ?? structureCenterX(),
+    pierZ: options.pierZ ?? 0,
+    pierRadius: pierDiameter / 2,
+    equilibriumDepth: computeHybridEquilibriumDepth(options),
+    pierDiameter,
+    pierHeight: tankHeightY + 0.03,
+  };
+}
 
 /** 세굴 프레임 한도 안에 들어오도록 stride 를 올린다. */
 export function resolveSafeStepMultiple(
@@ -67,7 +127,7 @@ export function resolveSafeStepMultiple(
   return Math.max(requested, minStep);
 }
 
-function resolveTerrainGrid(): TerrainGrid {
+function resolveTerrainGrid(pier: HybridScourPierConfig): TerrainGrid {
   const dims = terrainGridDims();
   const vertexCount = dims.width * dims.height;
   return {
@@ -78,19 +138,17 @@ function resolveTerrainGrid(): TerrainGrid {
     metadata: {
       elevationUnit: 'm',
       simulationId: 'sample-probe-csv',
+      piers: [
+        {
+          id: 'P1',
+          x: pier.pierX,
+          z: pier.pierZ,
+          diameter: pier.pierDiameter,
+          height: pier.pierHeight,
+        },
+      ],
     },
   };
-}
-
-function countNonZeroScrdifFrames(
-  columns: SampleProbeColumns,
-  loopStep: number,
-): number {
-  let count = 0;
-  for (let i = 0; i < columns.count; i += loopStep) {
-    if (Math.abs(columns.scrdif[i]!) >= SCRDIF_EPS) count += 1;
-  }
-  return count;
 }
 
 function assertScourMemoryBudget(
@@ -106,8 +164,7 @@ function assertScourMemoryBudget(
   }
 
   const vertexCount = terrain.width * terrain.height;
-  const nonZeroFrames = countNonZeroScrdifFrames(columns, loopStep);
-  const estimatedBytes = nonZeroFrames * vertexCount * Float32Array.BYTES_PER_ELEMENT;
+  const estimatedBytes = frameCount * vertexCount * Float32Array.BYTES_PER_ELEMENT;
   if (estimatedBytes > MAX_SCOUR_FRAME_BYTES) {
     throw new Error(
       '세굴 프레임 메모리가 너무 큽니다. 재생 간격을 늘리거나 행 수가 적은 CSV를 사용해 주세요.',
@@ -222,10 +279,49 @@ function medianPositiveDelta(values: Float32Array): number | null {
     : deltas[mid]!;
 }
 
-export function estimateInfluenceRadius(columns: SampleProbeColumns, cellSize: number): number {
+export function estimateInfluenceRadius(
+  columns: SampleProbeColumns,
+  cellSize: number,
+  pierRadius?: number,
+): number {
   const medianDx = medianPositiveDelta(columns.x);
-  if (medianDx !== null && medianDx > 0) return medianDx * 2;
-  return cellSize * 2;
+  const fromMedian = medianDx !== null && medianDx > 0 ? medianDx * 2 : cellSize * 2;
+  const minFromPier = (pierRadius ?? FLUME.structure.diameterM / 2) * 1.5;
+  return Math.max(fromMedian, minFromPier);
+}
+
+function normalizeScrdifValue(scrdifValue: number): number {
+  if (!Number.isFinite(scrdifValue) || Math.abs(scrdifValue) < SCRDIF_EPS) return 0;
+  return scrdifValue > 0 ? -scrdifValue : scrdifValue;
+}
+
+function buildSyntheticScourDelta(
+  terrain: TerrainGrid,
+  pier: HybridScourPierConfig,
+  timeProgress: number,
+): Float32Array {
+  const { width, height, cellSize } = terrain;
+  const halfW = ((width - 1) * cellSize) / 2;
+  const halfH = ((height - 1) * cellSize) / 2;
+  const delta = new Float32Array(width * height);
+
+  for (let gy = 0; gy < height; gy += 1) {
+    for (let gx = 0; gx < width; gx += 1) {
+      const worldX = gx * cellSize - halfW;
+      const worldZ = gy * cellSize - halfH;
+      delta[gy * width + gx] = flowScourDelta(
+        worldX,
+        worldZ,
+        pier.pierX,
+        pier.pierZ,
+        pier.pierRadius,
+        pier.equilibriumDepth,
+        timeProgress,
+      );
+    }
+  }
+
+  return delta;
 }
 
 function splatScrdif(
@@ -236,7 +332,8 @@ function splatScrdif(
   scrdifValue: number,
   radius: number,
 ): void {
-  if (!Number.isFinite(scrdifValue) || Math.abs(scrdifValue) < 1e-12) return;
+  const scourValue = normalizeScrdifValue(scrdifValue);
+  if (Math.abs(scourValue) < SCRDIF_EPS) return;
 
   const { gx: centerGx, gy: centerGy } = worldXZToTerrainGrid(worldX, worldZ, terrain);
   const rCells = Math.ceil((radius * 2) / terrain.cellSize);
@@ -253,7 +350,7 @@ function splatScrdif(
       if (r > radius * 2) continue;
       const weight = Math.exp(-Math.pow(r / radius, 2));
       const idx = gy * terrain.width + gx;
-      delta[idx] = scrdifValue * weight;
+      delta[idx] += scourValue * weight;
     }
   }
 }
@@ -265,20 +362,19 @@ function buildScourFrames(
   baseIntervalSeconds: number,
   loopStep: number,
   parseStride: number,
+  totalRows: number,
   influenceRadius: number,
+  pier: HybridScourPierConfig,
 ): ScourFrame[] {
   const frames: ScourFrame[] = [];
-  const vertexCount = terrain.width * terrain.height;
-  const sharedZero = new Float32Array(vertexCount);
 
   for (let i = 0; i < columns.count; i += loopStep) {
     const rowIndex = sourceRowIndex(i, parseStride, loopStep);
+    const timeProgress = totalRows <= 1 ? 1 : rowIndex / (totalRows - 1);
+    const delta = buildSyntheticScourDelta(terrain, pier, timeProgress);
+
     const scrdifValue = columns.scrdif[i]!;
-    let delta: Float32Array;
-    if (Math.abs(scrdifValue) < SCRDIF_EPS) {
-      delta = sharedZero;
-    } else {
-      delta = new Float32Array(vertexCount);
+    if (Math.abs(scrdifValue) >= SCRDIF_EPS) {
       const world = dataToWorld(
         columns.x[i]!,
         columns.y[i]!,
@@ -294,6 +390,7 @@ function buildScourFrames(
         influenceRadius,
       );
     }
+
     frames.push({
       timestampSeconds: rowIndex * baseIntervalSeconds,
       deltaElevations: delta,
@@ -349,8 +446,13 @@ export function buildSampleProbeDashboard(
     requestedStep,
   );
   const bounds = computeBounds(columns);
-  const baseTerrain = resolveTerrainGrid();
-  const influenceRadius = estimateInfluenceRadius(columns, baseTerrain.cellSize);
+  const pier = resolveHybridScourPier(options);
+  const baseTerrain = resolveTerrainGrid(pier);
+  const influenceRadius = estimateInfluenceRadius(
+    columns,
+    baseTerrain.cellSize,
+    pier.pierRadius,
+  );
 
   assertScourMemoryBudget(columns, baseTerrain, loopStep);
 
@@ -361,7 +463,9 @@ export function buildSampleProbeDashboard(
     baseIntervalSeconds,
     loopStep,
     parseStride,
+    totalRows,
     influenceRadius,
+    pier,
   );
 
   const samples = buildProbeSamples(

@@ -272,6 +272,9 @@ async function buildSimState(
     fluidSeries,
     scourSeries: activeSeries,
     waterLevel: initialFluidY,
+    piers: resolvedPierDefs,
+    structurePermeable: params.structurePermeable,
+    baseElevation: 0,
   });
   tracers.setVisible(true);
   const fluidPoints = new FluidQuantityPoints({
@@ -603,6 +606,14 @@ async function bootstrap(): Promise<void> {
     onError: (message) => {
       console.error('CSV 적용 실패:', message);
     },
+    getLoadOptions: () => ({
+      pierDiameter: params.pierDiameter,
+      scourRate: params.scourRate * (params.scrdifMax / 0.12),
+      sandGrainSizeMm: params.sandGrainSizeMm,
+      permeable: params.structurePermeable,
+      inflowSpeed: params.inflowSpeed,
+      tankHeightY: params.tankHeightY,
+    }),
   });
   dockLeft.prepend(csvUploadPanel.element);
 

@@ -15,6 +15,13 @@ import {
   sampleTerrainBedAtWorld,
 } from '@/utils/fluidWorld';
 
+import type { PierDefinition } from '@/modules/PierMarker';
+import {
+  isBlockedByPiers,
+  resolvePierCollision,
+  type PierCollisionOptions,
+} from '@/utils/pierCollision';
+
 export interface FluidTracersOptions {
   scene: Scene;
   fluidSeries: FluidSeries;
@@ -22,6 +29,9 @@ export interface FluidTracersOptions {
   waterLevel: number;
   /** 입자 수. */
   particleCount?: number;
+  piers?: PierDefinition[];
+  structurePermeable?: boolean;
+  baseElevation?: number;
 }
 
 interface Tracer {
@@ -88,12 +98,19 @@ export class FluidTracers implements Disposable {
   /** CSV 프로브 모드: 단일 u·v·w 로 전체 입자를 이동. null 이면 격자 유속장 사용. */
   private probeVelocity: { vx: number; vy: number; vz: number } | null = null;
   private probeSpeedValue = -1;
+  private readonly piers: PierDefinition[];
+  private readonly pierCollision: PierCollisionOptions;
 
   public constructor(options: FluidTracersOptions) {
     this.scene = options.scene;
     this.fluidSeries = options.fluidSeries;
     this.scourSeries = options.scourSeries;
     this.waterLevel = options.waterLevel;
+    this.piers = options.piers ?? [];
+    this.pierCollision = {
+      permeable: options.structurePermeable ?? false,
+      baseElevation: options.baseElevation ?? 0,
+    };
     this.domain = fluidDomainXZExtents(this.fluidSeries.grid);
     this.hasFlow = fluidSeriesHasFlow(this.fluidSeries);
 
@@ -255,6 +272,12 @@ export class FluidTracers implements Disposable {
       t.y += vy * dt;
       t.z += vz * dt;
 
+      if (this.piers.length > 0) {
+        const resolved = resolvePierCollision(t.x, t.y, t.z, this.piers, this.pierCollision);
+        t.x = resolved.x;
+        t.z = resolved.z;
+      }
+
       const bed = sampleTerrainBedAtWorld(terrain, delta, t.x, t.z);
       const outOfWater =
         bed === null ||
@@ -308,6 +331,13 @@ export class FluidTracers implements Disposable {
       if (depth < MIN_DEPTH * 2) continue;
 
       const y = bed + depth * (0.35 + Math.random() * 0.55);
+      if (
+        this.piers.length > 0 &&
+        isBlockedByPiers(x, y, z, this.piers, this.pierCollision)
+      ) {
+        continue;
+      }
+
       t.x = x;
       t.y = y;
       t.z = z;

@@ -57,6 +57,7 @@ describe('loadCsvDashboard (sample probe)', () => {
     expect(result.probeSeries.durationSeconds).toBe(columns.count * 30);
     expect(result.autoAdjusted).toBe(false);
     expect(result.requestedStepMultiple).toBe(1);
+    expect(result.csvScrdifAllZero).toBe(true);
     expect(progress.some((m) => m.includes('파싱'))).toBe(true);
     expect(progress.some((m) => m.includes('행 수 확인'))).toBe(true);
   });

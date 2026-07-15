@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSampleProbeDashboard,
+  csvScrdifIsAllZero,
   dataToWorld,
   MAX_SCOUR_FRAMES,
   probeAtTime,
   resolveSafeStepMultiple,
 } from '@/data/buildSampleProbeDashboard';
+import { structureCenterX } from '@/constants/experiment';
 import { terrainGridDims } from '@/constants/experiment';
 import type { SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
 import { parseSampleProbeCsvText } from '@/utils/parseSampleProbeCsv';
@@ -73,19 +75,37 @@ describe('buildSampleProbeDashboard', () => {
     expect(built.scour.baseTerrain.cellSize).toBe(dims.cellSize);
   });
 
-  it('scrdif=0 프레임은 deltaElevations 버퍼를 공유한다', () => {
+  it('scrdif=0 CSV 도 합성 교각 세굴이 시간에 따라 깊어진다', () => {
+    const columns = parseSampleProbeCsvText(readFileSync(SAMPLE_PATH, 'utf8'));
+    const built = buildSampleProbeDashboard(columns);
+    expect(csvScrdifIsAllZero(built.probeSeries.bounds)).toBe(true);
+    expect(built.scour.baseTerrain.metadata?.piers?.length).toBe(1);
+
+    const terrain = built.scour.baseTerrain;
+    const pierX = structureCenterX();
+    const upstream = worldXZToTerrainGrid(pierX - 0.06, 0, terrain);
+    const idx = Math.round(upstream.gy) * terrain.width + Math.round(upstream.gx);
+
+    const mid = built.scour.frames[Math.max(1, Math.floor(built.scour.frames.length / 2))]!;
+    const last = built.scour.frames.at(-1)!.deltaElevations[idx]!;
+    const midVal = mid.deltaElevations[idx]!;
+    expect(midVal).toBeLessThan(0);
+    expect(last).toBeLessThan(midVal);
+  });
+
+  it('scrdif=0 프레임도 합성 세굴 버퍼를 갖는다', () => {
     const columns = makeProbeColumns([
       { x: 0, y: 0, z: 0, scrdif: 0 },
       { x: 0.01, y: 0, z: 0, scrdif: 0 },
       { x: 0.02, y: 0, z: 0, scrdif: 0 },
     ]);
     const built = buildSampleProbeDashboard(columns);
-    expect(built.scour.frames[0]!.deltaElevations).toBe(
-      built.scour.frames[1]!.deltaElevations,
-    );
-    expect(built.scour.frames[1]!.deltaElevations).toBe(
-      built.scour.frames[2]!.deltaElevations,
-    );
+    const terrain = built.scour.baseTerrain;
+    const pierX = structureCenterX();
+    const upstream = worldXZToTerrainGrid(pierX - 0.06, 0, terrain);
+    const idx = Math.round(upstream.gy) * terrain.width + Math.round(upstream.gx);
+    const last = built.scour.frames.at(-1)!.deltaElevations[idx]!;
+    expect(last).toBeLessThan(0);
   });
 
   it('scrdif≠0 프레임은 별도 버퍼를 사용한다', () => {
