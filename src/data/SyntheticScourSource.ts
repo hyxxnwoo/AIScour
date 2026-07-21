@@ -1,6 +1,12 @@
 import { FLUME, structureCenterX, terrainGridDims } from '@/constants/experiment';
 import type { ScourDataSource, ScourFrame, ScourSeries, TerrainGrid } from '@/types/terrain';
-import { flowScourDelta } from '@/utils/scourShape';
+import { combinedFlowScourDelta } from '@/utils/scourShape';
+
+export interface SyntheticScourPierRef {
+  id?: string;
+  x: number;
+  z: number;
+}
 
 export interface SyntheticScourOptions {
   width?: number;
@@ -12,7 +18,9 @@ export interface SyntheticScourOptions {
   pierDiameter?: number;
   scourRate?: number;
   sandGrainSizeMm?: number;
-  pier?: { x: number; z: number };
+  /** @deprecated pier 대신 piers 사용 */
+  pier?: SyntheticScourPierRef;
+  piers?: SyntheticScourPierRef[];
   tankHeightY?: number;
   permeable?: boolean;
   /** 상류 유속(m/s). 클수록 세굴이 강해진다. */
@@ -21,7 +29,7 @@ export interface SyntheticScourOptions {
 
 const flumeTerrain = terrainGridDims();
 
-const DEFAULTS: Required<Omit<SyntheticScourOptions, 'pier'>> = {
+const DEFAULTS: Required<Omit<SyntheticScourOptions, 'pier' | 'piers'>> = {
   width: flumeTerrain.width,
   height: flumeTerrain.height,
   cellSize: flumeTerrain.cellSize,
@@ -36,16 +44,22 @@ const DEFAULTS: Required<Omit<SyntheticScourOptions, 'pier'>> = {
   inflowSpeed: 0.25,
 };
 
+function resolvePiers(options: SyntheticScourOptions): SyntheticScourPierRef[] {
+  if (options.piers && options.piers.length > 0) return options.piers;
+  if (options.pier) return [options.pier];
+  return [{ id: 'P1', x: structureCenterX(), z: 0 }];
+}
+
 export class SyntheticScourSource implements ScourDataSource {
-  private readonly options: Required<Omit<SyntheticScourOptions, 'pier'>> & {
-    pier: NonNullable<SyntheticScourOptions['pier']>;
+  private readonly options: Required<Omit<SyntheticScourOptions, 'pier' | 'piers'>> & {
+    piers: SyntheticScourPierRef[];
   };
 
   public constructor(options: SyntheticScourOptions = {}) {
-    const merged: Required<Omit<SyntheticScourOptions, 'pier'>> = { ...DEFAULTS, ...options };
+    const merged: Required<Omit<SyntheticScourOptions, 'pier' | 'piers'>> = { ...DEFAULTS, ...options };
     this.options = {
       ...merged,
-      pier: options.pier ?? { x: structureCenterX(), z: 0 },
+      piers: resolvePiers(options),
     };
   }
 
@@ -56,7 +70,7 @@ export class SyntheticScourSource implements ScourDataSource {
   }
 
   private buildBaseTerrain(): TerrainGrid {
-    const { width, height, cellSize, pierDiameter, pier, tankHeightY } = this.options;
+    const { width, height, cellSize, pierDiameter, piers, tankHeightY } = this.options;
     const elevations = new Float32Array(width * height);
 
     const rippleAmp = 0.002;
@@ -77,7 +91,13 @@ export class SyntheticScourSource implements ScourDataSource {
         elevationUnit: 'm',
         simulationId: 'flume-synthetic-demo',
         capturedAt: new Date().toISOString(),
-        piers: [{ id: 'P1', x: pier.x, z: pier.z, diameter: pierDiameter, height: pierHeight }],
+        piers: piers.map((pier, i) => ({
+          id: pier.id ?? `P${i + 1}`,
+          x: pier.x,
+          z: pier.z,
+          diameter: pierDiameter,
+          height: pierHeight,
+        })),
       },
     };
   }
@@ -92,7 +112,7 @@ export class SyntheticScourSource implements ScourDataSource {
       pierDiameter,
       scourRate,
       sandGrainSizeMm,
-      pier,
+      piers,
       permeable,
       inflowSpeed,
     } = this.options;
@@ -100,6 +120,7 @@ export class SyntheticScourSource implements ScourDataSource {
     const halfW = ((width - 1) * cellSize) / 2;
     const halfH = ((height - 1) * cellSize) / 2;
     const pierRadius = pierDiameter / 2;
+    const scourPiers = piers.map((pier) => ({ x: pier.x, z: pier.z, radius: pierRadius }));
 
     const grainFactor = Math.min(
       1.4,
@@ -119,12 +140,10 @@ export class SyntheticScourSource implements ScourDataSource {
         for (let gx = 0; gx < width; gx += 1) {
           const worldX = gx * cellSize - halfW;
           const worldZ = gy * cellSize - halfH;
-          delta[gy * width + gx] = flowScourDelta(
+          delta[gy * width + gx] = combinedFlowScourDelta(
             worldX,
             worldZ,
-            pier.x,
-            pier.z,
-            pierRadius,
+            scourPiers,
             equilibriumDepth,
             timeProgress,
           );

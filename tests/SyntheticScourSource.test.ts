@@ -66,4 +66,54 @@ describe('SyntheticScourSource', () => {
   it('structureCenterX 기본값은 입구 전방 구간을 반영한다', () => {
     expect(structureCenterX()).toBeCloseTo(-1.116 / 2 + 0.1, 5);
   });
+
+  it('metadata.piers 개수는 piers 옵션과 일치한다', async () => {
+    const source = new SyntheticScourSource({
+      width: 21,
+      height: 21,
+      cellSize: 0.05,
+      frameCount: 4,
+      piers: [
+        { id: 'P1', x: -0.2, z: -0.15 },
+        { id: 'P2', x: -0.2, z: 0 },
+        { id: 'P3', x: -0.2, z: 0.15 },
+      ],
+    });
+    const series = await source.load();
+    expect(series.baseTerrain.metadata?.piers).toHaveLength(3);
+    expect(series.baseTerrain.metadata?.piers?.map((p) => p.id)).toEqual(['P1', 'P2', 'P3']);
+  });
+
+  it('다중 기둥은 각 위치에서 세굴 구멍을 만든다', async () => {
+    const width = 41;
+    const height = 41;
+    const cellSize = 0.02;
+    const pierZ = 0.12;
+    const source = new SyntheticScourSource({
+      width,
+      height,
+      cellSize,
+      frameCount: 8,
+      pierDiameter: 0.1,
+      piers: [
+        { x: 0, z: -pierZ },
+        { x: 0, z: pierZ },
+      ],
+    });
+    const series = await source.load();
+    const last = series.frames.at(-1)!;
+    const halfW = ((width - 1) * cellSize) / 2;
+    const halfH = ((height - 1) * cellSize) / 2;
+
+    const sampleNearPier = (pierX: number, pierZ: number): number => {
+      const worldX = pierX - 0.08;
+      const gx = Math.round((worldX + halfW) / cellSize);
+      const gz = Math.round((pierZ + halfH) / cellSize);
+      return last.deltaElevations[gz * width + gx]!;
+    };
+
+    expect(sampleNearPier(0, -pierZ)).toBeLessThan(-0.001);
+    expect(sampleNearPier(0, pierZ)).toBeLessThan(-0.001);
+    expect(sampleNearPier(0, 0)).toBeGreaterThanOrEqual(sampleNearPier(0, -pierZ));
+  });
 });

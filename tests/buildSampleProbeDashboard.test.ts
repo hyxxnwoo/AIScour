@@ -80,7 +80,7 @@ describe('buildSampleProbeDashboard', () => {
     const columns = parseSampleProbeCsvText(readFileSync(SAMPLE_PATH, 'utf8'));
     const built = buildSampleProbeDashboard(columns);
     expect(csvScrdifIsAllZero(built.probeSeries.bounds)).toBe(true);
-    expect(built.scour.baseTerrain.metadata?.piers?.length).toBe(1);
+    expect(built.scour.baseTerrain.metadata?.piers?.length).toBe(3);
 
     const terrain = built.scour.baseTerrain;
     const pierX = structureCenterX();

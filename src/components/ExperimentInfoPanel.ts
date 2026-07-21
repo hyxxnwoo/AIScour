@@ -7,6 +7,8 @@ import {
   type SimParams,
   type SimParamMeta,
   type SimSelectMeta,
+  type PierArrangement,
+  type BridgeType,
 } from '@/types/simParams';
 
 export interface ExperimentInfoPanelHandlers {
@@ -31,6 +33,11 @@ export class ExperimentInfoPanel implements Disposable {
   private readonly cleanups: Array<() => void> = [];
   private readonly numericRows = new Map<NumericSimParamKey, RowControls>();
   private readonly selectRows = new Map<SelectSimParamKey, HTMLSelectElement>();
+  private pierCountButtons: HTMLButtonElement[] = [];
+  private pierArrangementButtons: HTMLButtonElement[] = [];
+  private bridgeTypeButtons: HTMLButtonElement[] = [];
+  private bridgeCheckbox!: HTMLInputElement;
+  private bridgeTypeRow!: HTMLElement;
   private isLoading = false;
   private applyBtn!: HTMLButtonElement;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -89,6 +96,16 @@ export class ExperimentInfoPanel implements Disposable {
     this.element.appendChild(this.buildNumericRow(waterDepthMeta));
     this.element.appendChild(this.buildSelectRow(shapeMeta));
     this.element.appendChild(this.buildNumericRow(pierMeta));
+    this.element.appendChild(this.buildPierCountRow());
+    this.element.appendChild(this.buildPierArrangementRow());
+    this.element.appendChild(this.buildBridgeToggleRow());
+    this.bridgeTypeRow = this.buildBridgeTypeRow();
+    this.element.appendChild(this.bridgeTypeRow);
+
+    const structureHint = document.createElement('div');
+    structureHint.className = 'experiment-info-panel__hint experiment-info-panel__hint--inline';
+    structureHint.textContent = '기둥 배치·세굴은 재생성 / 교량은 시각만';
+    this.element.appendChild(structureHint);
 
     this.applyBtn = document.createElement('button');
     this.applyBtn.className = 'experiment-info-panel__apply';
@@ -218,6 +235,200 @@ export class ExperimentInfoPanel implements Disposable {
     return row;
   }
 
+  private buildPierCountRow(): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'experiment-info-panel__row experiment-info-panel__row--segments';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'experiment-info-panel__label';
+    labelEl.textContent = '기둥 개수';
+
+    const segments = document.createElement('div');
+    segments.className = 'experiment-info-panel__segments';
+    segments.setAttribute('role', 'group');
+    segments.setAttribute('aria-label', '기둥 개수');
+
+    this.pierCountButtons = [];
+    for (const count of [1, 2, 3] as const) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'experiment-info-panel__segment';
+      btn.textContent = String(count);
+      btn.setAttribute('aria-pressed', String(this.values.pierCount === count));
+      if (this.values.pierCount === count) btn.classList.add('is-active');
+
+      const onClick = (): void => {
+        this.values.pierCount = count;
+        this.syncPierCountButtons();
+        this.scheduleLiveApply();
+      };
+      btn.addEventListener('click', onClick);
+      this.cleanups.push(() => btn.removeEventListener('click', onClick));
+      this.pierCountButtons.push(btn);
+      segments.appendChild(btn);
+    }
+
+    row.append(labelEl, segments);
+    return row;
+  }
+
+  private buildPierArrangementRow(): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'experiment-info-panel__row experiment-info-panel__row--segments';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'experiment-info-panel__label';
+    labelEl.textContent = '배치 방향';
+
+    const segments = document.createElement('div');
+    segments.className = 'experiment-info-panel__segments';
+    segments.setAttribute('role', 'group');
+    segments.setAttribute('aria-label', '기둥 배치 방향');
+
+    const options: Array<{ value: PierArrangement; label: string }> = [
+      { value: 'across', label: '세로' },
+      { value: 'along', label: '가로' },
+    ];
+
+    this.pierArrangementButtons = [];
+    for (const opt of options) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'experiment-info-panel__segment';
+      btn.textContent = opt.label;
+      btn.dataset.value = opt.value;
+      btn.setAttribute('aria-pressed', String(this.values.pierArrangement === opt.value));
+      if (this.values.pierArrangement === opt.value) btn.classList.add('is-active');
+
+      const onClick = (): void => {
+        this.values.pierArrangement = opt.value;
+        this.syncPierArrangementButtons();
+        this.scheduleLiveApply();
+      };
+      btn.addEventListener('click', onClick);
+      this.cleanups.push(() => btn.removeEventListener('click', onClick));
+      this.pierArrangementButtons.push(btn);
+      segments.appendChild(btn);
+    }
+
+    row.append(labelEl, segments);
+    return row;
+  }
+
+  private buildBridgeToggleRow(): HTMLElement {
+    const row = document.createElement('label');
+    row.className = 'experiment-info-panel__row experiment-info-panel__row--toggle';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'experiment-info-panel__label';
+    labelEl.textContent = '교량';
+
+    this.bridgeCheckbox = document.createElement('input');
+    this.bridgeCheckbox.type = 'checkbox';
+    this.bridgeCheckbox.checked = this.values.bridgeEnabled;
+
+    const toggleText = document.createElement('span');
+    toggleText.className = 'experiment-info-panel__toggle-text';
+    toggleText.textContent = '설치';
+
+    const onChange = (): void => {
+      this.values.bridgeEnabled = this.bridgeCheckbox.checked;
+      this.syncBridgeTypeRowVisibility();
+      this.scheduleLiveApply();
+    };
+    this.bridgeCheckbox.addEventListener('change', onChange);
+    this.cleanups.push(() => this.bridgeCheckbox.removeEventListener('change', onChange));
+
+    row.append(labelEl, this.bridgeCheckbox, toggleText);
+    return row;
+  }
+
+  private buildBridgeTypeRow(): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'experiment-info-panel__row experiment-info-panel__row--segments';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'experiment-info-panel__label';
+    labelEl.textContent = '교량 형식';
+
+    const segments = document.createElement('div');
+    segments.className = 'experiment-info-panel__segments experiment-info-panel__segments--bridge-type';
+    segments.setAttribute('role', 'group');
+    segments.setAttribute('aria-label', '교량 형식');
+
+    const options: Array<{ value: BridgeType; label: string }> = [
+      { value: 'suspension', label: '현수교' },
+      { value: 'cable-stayed', label: '사장교' },
+      { value: 'arch', label: '아치교' },
+      { value: 'girder', label: '거더교' },
+    ];
+
+    this.bridgeTypeButtons = [];
+    for (const opt of options) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'experiment-info-panel__segment';
+      btn.textContent = opt.label;
+      btn.dataset.value = opt.value;
+      btn.setAttribute('aria-pressed', String(this.values.bridgeType === opt.value));
+      if (this.values.bridgeType === opt.value) btn.classList.add('is-active');
+
+      const onClick = (): void => {
+        this.values.bridgeType = opt.value;
+        if (!this.values.bridgeEnabled) {
+          this.values.bridgeEnabled = true;
+          this.bridgeCheckbox.checked = true;
+        }
+        this.syncBridgeTypeButtons();
+        this.syncBridgeTypeRowVisibility();
+        this.scheduleLiveApply();
+      };
+      btn.addEventListener('click', onClick);
+      this.cleanups.push(() => btn.removeEventListener('click', onClick));
+      this.bridgeTypeButtons.push(btn);
+      segments.appendChild(btn);
+    }
+
+    row.append(labelEl, segments);
+    this.syncBridgeTypeRowVisibility();
+    return row;
+  }
+
+  private syncBridgeTypeButtons(): void {
+    for (const btn of this.bridgeTypeButtons) {
+      const value = btn.dataset.value as BridgeType;
+      const active = this.values.bridgeType === value;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    }
+  }
+
+  private syncBridgeTypeRowVisibility(): void {
+    if (!this.bridgeTypeRow) return;
+    this.bridgeTypeRow.style.opacity = this.values.bridgeEnabled ? '1' : '0.55';
+    for (const btn of this.bridgeTypeButtons) {
+      btn.disabled = !this.values.bridgeEnabled;
+    }
+  }
+
+  private syncPierCountButtons(): void {
+    for (const btn of this.pierCountButtons) {
+      const count = Number(btn.textContent);
+      const active = this.values.pierCount === count;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    }
+  }
+
+  private syncPierArrangementButtons(): void {
+    for (const btn of this.pierArrangementButtons) {
+      const value = btn.dataset.value as PierArrangement;
+      const active = this.values.pierArrangement === value;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    }
+  }
+
   public setParams(params: SimParams): void {
     Object.assign(this.values, params);
     for (const meta of EXPERIMENT_NUMERIC_META) {
@@ -229,6 +440,11 @@ export class ExperimentInfoPanel implements Disposable {
     }
     const shapeSelect = this.selectRows.get('structureShape');
     if (shapeSelect) shapeSelect.value = this.values.structureShape;
+    this.syncPierCountButtons();
+    this.syncPierArrangementButtons();
+    this.syncBridgeTypeButtons();
+    this.syncBridgeTypeRowVisibility();
+    if (this.bridgeCheckbox) this.bridgeCheckbox.checked = this.values.bridgeEnabled;
   }
 
   public getParams(): SimParams {

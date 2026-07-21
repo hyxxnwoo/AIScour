@@ -1,8 +1,11 @@
 import { FLUME, structureCenterX, terrainGridDims } from '@/constants/experiment';
+import type { PierDefinition } from '@/modules/PierMarker';
 import type { ScourFrame, ScourSeries, TerrainGrid } from '@/types/terrain';
+import { DEFAULT_SIM_PARAMS, type PierArrangement } from '@/types/simParams';
 import type { SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
 import { terrainGridToWorldXZ, worldXZToTerrainGrid } from '@/utils/fluidWorld';
-import { flowScourDelta } from '@/utils/scourShape';
+import { buildPierLayout } from '@/utils/pierLayout';
+import { combinedFlowScourDelta } from '@/utils/scourShape';
 
 export interface SampleProbeBounds {
   minDataX: number;
@@ -52,6 +55,8 @@ export interface BuildSampleProbeDashboardOptions {
   stepMultiple?: number;
   pierX?: number;
   pierZ?: number;
+  pierCount?: number;
+  pierArrangement?: PierArrangement;
   pierDiameter?: number;
   scourRate?: number;
   sandGrainSizeMm?: number;
@@ -139,18 +144,47 @@ export function computeHybridEquilibriumDepth(
   return 1.3 * pierDiameter * scourRate * grainFactor * permeabilityFactor * speedFactor;
 }
 
+/** CSV·합성 세굴 공통 교각 배치. pierX/pierZ 지정 시 단일 기둥으로 고정한다. */
+export function resolveHybridPierLayout(
+  options: BuildSampleProbeDashboardOptions = {},
+): PierDefinition[] {
+  if (options.pierX !== undefined || options.pierZ !== undefined) {
+    const pierDiameter = options.pierDiameter ?? FLUME.structure.diameterM;
+    const tankHeightY = options.tankHeightY ?? FLUME.tank.heightY;
+    return [
+      {
+        id: 'P1',
+        x: options.pierX ?? structureCenterX(),
+        z: options.pierZ ?? 0,
+        diameter: pierDiameter,
+        height: tankHeightY + 0.03,
+        shape: 'circle',
+      },
+    ];
+  }
+
+  const params = {
+    ...DEFAULT_SIM_PARAMS,
+    pierCount: options.pierCount ?? DEFAULT_SIM_PARAMS.pierCount,
+    pierArrangement: options.pierArrangement ?? DEFAULT_SIM_PARAMS.pierArrangement,
+    pierDiameter: options.pierDiameter ?? DEFAULT_SIM_PARAMS.pierDiameter,
+    tankHeightY: options.tankHeightY ?? DEFAULT_SIM_PARAMS.tankHeightY,
+  };
+  return buildPierLayout(params);
+}
+
 export function resolveHybridScourPier(
   options: BuildSampleProbeDashboardOptions = {},
 ): HybridScourPierConfig {
-  const pierDiameter = options.pierDiameter ?? FLUME.structure.diameterM;
-  const tankHeightY = options.tankHeightY ?? FLUME.tank.heightY;
+  const pier = resolveHybridPierLayout(options)[0]!;
+  const pierDiameter = pier.diameter ?? FLUME.structure.diameterM;
   return {
-    pierX: options.pierX ?? structureCenterX(),
-    pierZ: options.pierZ ?? 0,
+    pierX: pier.x,
+    pierZ: pier.z,
     pierRadius: pierDiameter / 2,
     equilibriumDepth: computeHybridEquilibriumDepth(options),
     pierDiameter,
-    pierHeight: tankHeightY + 0.03,
+    pierHeight: pier.height ?? FLUME.tank.heightY + 0.03,
   };
 }
 
@@ -166,7 +200,7 @@ export function resolveSafeStepMultiple(
   return Math.max(requested, minStep);
 }
 
-function resolveTerrainGrid(pier: HybridScourPierConfig): TerrainGrid {
+function resolveTerrainGrid(piers: PierDefinition[]): TerrainGrid {
   const dims = terrainGridDims();
   const vertexCount = dims.width * dims.height;
   return {
@@ -177,15 +211,13 @@ function resolveTerrainGrid(pier: HybridScourPierConfig): TerrainGrid {
     metadata: {
       elevationUnit: 'm',
       simulationId: 'sample-probe-csv',
-      piers: [
-        {
-          id: 'P1',
-          x: pier.pierX,
-          z: pier.pierZ,
-          diameter: pier.pierDiameter,
-          height: pier.pierHeight,
-        },
-      ],
+      piers: piers.map((pier) => ({
+        id: pier.id,
+        x: pier.x,
+        z: pier.z,
+        diameter: pier.diameter,
+        height: pier.height,
+      })),
     },
   };
 }
@@ -336,7 +368,8 @@ function normalizeScrdifValue(scrdifValue: number): number {
 
 function buildSyntheticScourDelta(
   terrain: TerrainGrid,
-  pier: HybridScourPierConfig,
+  piers: PierDefinition[],
+  equilibriumDepth: number,
   timeProgress: number,
   flowHeading: number,
 ): Float32Array {
@@ -344,18 +377,21 @@ function buildSyntheticScourDelta(
   const halfW = ((width - 1) * cellSize) / 2;
   const halfH = ((height - 1) * cellSize) / 2;
   const delta = new Float32Array(width * height);
+  const scourPiers = piers.map((pier) => ({
+    x: pier.x,
+    z: pier.z,
+    radius: (pier.diameter ?? FLUME.structure.diameterM) / 2,
+  }));
 
   for (let gy = 0; gy < height; gy += 1) {
     for (let gx = 0; gx < width; gx += 1) {
       const worldX = gx * cellSize - halfW;
       const worldZ = gy * cellSize - halfH;
-      delta[gy * width + gx] = flowScourDelta(
+      delta[gy * width + gx] = combinedFlowScourDelta(
         worldX,
         worldZ,
-        pier.pierX,
-        pier.pierZ,
-        pier.pierRadius,
-        pier.equilibriumDepth,
+        scourPiers,
+        equilibriumDepth,
         timeProgress,
         flowHeading,
       );
@@ -405,7 +441,8 @@ function buildScourFrames(
   parseStride: number,
   totalRows: number,
   influenceRadius: number,
-  pier: HybridScourPierConfig,
+  piers: PierDefinition[],
+  equilibriumDepth: number,
   flowHeading: number,
 ): ScourFrame[] {
   const frames: ScourFrame[] = [];
@@ -413,7 +450,13 @@ function buildScourFrames(
   for (let i = 0; i < columns.count; i += loopStep) {
     const rowIndex = sourceRowIndex(i, parseStride, loopStep);
     const timeProgress = totalRows <= 1 ? 1 : rowIndex / (totalRows - 1);
-    const delta = buildSyntheticScourDelta(terrain, pier, timeProgress, flowHeading);
+    const delta = buildSyntheticScourDelta(
+      terrain,
+      piers,
+      equilibriumDepth,
+      timeProgress,
+      flowHeading,
+    );
 
     const scrdifValue = columns.scrdif[i]!;
     if (Math.abs(scrdifValue) >= SCRDIF_EPS) {
@@ -493,17 +536,15 @@ export function buildSampleProbeDashboard(
     ...options,
     inflowSpeed: options.inflowSpeed ?? meanFlow.inflowSpeed,
   };
-  const basePier = resolveHybridScourPier(pierOptions);
-  const pier: HybridScourPierConfig = {
-    ...basePier,
-    equilibriumDepth:
-      basePier.equilibriumDepth * downflowDepthFactor(meanFlow.meanW),
-  };
-  const baseTerrain = resolveTerrainGrid(pier);
+  const pierLayout = resolveHybridPierLayout(pierOptions);
+  const equilibriumDepth =
+    computeHybridEquilibriumDepth(pierOptions) * downflowDepthFactor(meanFlow.meanW);
+  const baseTerrain = resolveTerrainGrid(pierLayout);
+  const primaryPier = pierLayout[0];
   const influenceRadius = estimateInfluenceRadius(
     columns,
     baseTerrain.cellSize,
-    pier.pierRadius,
+    primaryPier ? (primaryPier.diameter ?? FLUME.structure.diameterM) / 2 : undefined,
   );
 
   assertScourMemoryBudget(columns, baseTerrain, loopStep);
@@ -517,7 +558,8 @@ export function buildSampleProbeDashboard(
     parseStride,
     totalRows,
     influenceRadius,
-    pier,
+    pierLayout,
+    equilibriumDepth,
     meanFlow.flowHeading,
   );
 

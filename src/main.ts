@@ -16,6 +16,7 @@ import { RendererManager } from '@/core/RendererManager';
 import { SceneManager } from '@/core/SceneManager';
 import { createDataSource } from '@/data/createDataSource';
 import { probeAtTime, type SampleProbeSeries } from '@/data/buildSampleProbeDashboard';
+import { buildPierLayout } from '@/utils/pierLayout';
 import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
 import { FluidSlicePlane } from '@/modules/FluidSlicePlane';
@@ -145,6 +146,7 @@ async function buildSimState(
   const fluidDims = fluidGridDims(geom);
   const pierX = structureCenterX(geom);
   const interval = frameIntervalSeconds(params);
+  const resolvedPierDefs = buildPierLayout(params);
 
   // ── 세굴 데이터
   const scourSrc = new SyntheticScourSource({
@@ -159,37 +161,9 @@ async function buildSimState(
     tankHeightY: params.tankHeightY,
     permeable: params.structurePermeable,
     inflowSpeed: params.inflowSpeed,
-    pier: { x: pierX, z: 0 },
+    piers: resolvedPierDefs.map((p) => ({ id: p.id, x: p.x, z: p.z })),
   });
   const activeSeries = baseScourSeries ?? (await scourSrc.load());
-
-  const pierDefs: PierDefinition[] = (
-    activeSeries.baseTerrain.metadata?.piers ?? []
-  ).map((p) => ({
-    id: p.id,
-    x: p.x,
-    z: p.z,
-    ...(p.diameter !== undefined ? { diameter: p.diameter } : {}),
-    ...(p.height !== undefined ? { height: p.height } : {}),
-  }));
-
-  const pierHeight = params.tankHeightY + 0.03;
-  const resolvedPierDefs: PierDefinition[] =
-    pierDefs.length > 0
-      ? pierDefs.map((p) => ({
-          ...p,
-          shape: p.shape ?? params.structureShape,
-        }))
-      : [
-          {
-            id: 'P1',
-            x: pierX,
-            z: 0,
-            diameter: params.pierDiameter,
-            height: pierHeight,
-            shape: params.structureShape,
-          },
-        ];
 
   const terrain = new Terrain(scene, activeSeries);
   const sedimentLayer = new SedimentLayer({
@@ -197,7 +171,10 @@ async function buildSimState(
     series: activeSeries,
     thicknessM: params.sedimentThickness,
   });
-  const pierMarker = new PierMarker({ scene, baseElevation: 0 }, resolvedPierDefs);
+  const pierMarker = new PierMarker(
+    { scene, baseElevation: 0, bridgeEnabled: params.bridgeEnabled, bridgeType: params.bridgeType },
+    resolvedPierDefs,
+  );
 
   // ── 유체 데이터
   let fluidSeries =
@@ -585,6 +562,8 @@ async function bootstrap(): Promise<void> {
       );
     },
     getLoadOptions: () => ({
+      pierCount: params.pierCount,
+      pierArrangement: params.pierArrangement,
       pierDiameter: params.pierDiameter,
       scourRate: params.scourRate * (params.scrdifMax / 0.12),
       sandGrainSizeMm: params.sandGrainSizeMm,

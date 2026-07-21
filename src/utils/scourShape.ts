@@ -110,3 +110,39 @@ export function flowScourDelta(
 
   return scour + deposition;
 }
+
+export interface ScourPierRef {
+  x: number;
+  z: number;
+  radius: number;
+}
+
+/** 여러 교각 세굴을 합성한다. 각 셀은 가장 깊은(최솟값) Δ표고를 사용한다. */
+export function combinedFlowScourDelta(
+  worldX: number,
+  worldZ: number,
+  piers: ScourPierRef[],
+  equilibriumDepth: number,
+  timeProgress: number,
+  flowHeading = 0,
+): number {
+  if (piers.length === 0) return 0;
+
+  let delta = 0;
+  for (const pier of piers) {
+    delta = Math.min(
+      delta,
+      flowScourDelta(
+        worldX,
+        worldZ,
+        pier.x,
+        pier.z,
+        pier.radius,
+        equilibriumDepth,
+        timeProgress,
+        flowHeading,
+      ),
+    );
+  }
+  return delta;
+}

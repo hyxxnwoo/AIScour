@@ -9,6 +9,10 @@ describe('mergePanelParams', () => {
       waterDepth: 0.2,
       structureShape: 'square' as const,
       pierDiameter: 0.15,
+      pierCount: 3,
+      pierArrangement: 'along',
+      bridgeEnabled: true,
+      bridgeType: 'cable-stayed' as const,
     };
     const fluidPanel = {
       ...DEFAULT_SIM_PARAMS,
@@ -24,6 +28,10 @@ describe('mergePanelParams', () => {
     expect(merged.waterDepth).toBe(0.2);
     expect(merged.structureShape).toBe('square');
     expect(merged.pierDiameter).toBe(0.15);
+    expect(merged.pierCount).toBe(3);
+    expect(merged.pierArrangement).toBe('along');
+    expect(merged.bridgeEnabled).toBe(true);
+    expect(merged.bridgeType).toBe('cable-stayed');
     expect(merged.fluidU).toBe(0.4);
     expect(merged.fluidV).toBe(0.05);
     expect(merged.fluidW).toBe(0.2);

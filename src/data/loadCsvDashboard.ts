@@ -165,6 +165,8 @@ export async function loadCsvDashboard(
   };
   if (options.pierX !== undefined) buildOptions.pierX = options.pierX;
   if (options.pierZ !== undefined) buildOptions.pierZ = options.pierZ;
+  if (options.pierCount !== undefined) buildOptions.pierCount = options.pierCount;
+  if (options.pierArrangement !== undefined) buildOptions.pierArrangement = options.pierArrangement;
   if (options.pierDiameter !== undefined) buildOptions.pierDiameter = options.pierDiameter;
   if (options.scourRate !== undefined) buildOptions.scourRate = options.scourRate;
   if (options.sandGrainSizeMm !== undefined) buildOptions.sandGrainSizeMm = options.sandGrainSizeMm;

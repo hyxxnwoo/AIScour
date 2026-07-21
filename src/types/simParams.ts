@@ -2,6 +2,12 @@ import { FLUME } from '@/constants/experiment';
 
 export type StructureShape = 'circle' | 'square';
 
+/** 기둥 배열 방향. across=폭(Z·세로), along=흐름(X·가로) */
+export type PierArrangement = 'across' | 'along';
+
+/** 교량 형식(시각 전용). */
+export type BridgeType = 'suspension' | 'cable-stayed' | 'arch' | 'girder';
+
 export type SelectSimParamKey = 'structureShape' | 'structurePermeable';
 
 // 시뮬레이션 케이스를 정의하는 모든 조절 가능 파라미터.
@@ -12,9 +18,13 @@ export interface SimParams {
   tankHeightY: number; // m — 연직(Y) 높이
   structureFrontX: number; // m — 입구측 전방 구간(구조물 배치)
   // ── 구조물(교각)
+  pierCount: number; // 1~3
+  pierArrangement: PierArrangement;
   pierDiameter: number; // m
   structureShape: StructureShape;
   structurePermeable: boolean;
+  bridgeEnabled: boolean; // 교량 시각 표시
+  bridgeType: BridgeType;
   // ── 유체
   inflowSpeed: number; // m/s — 하위 호환(미사용 시 fluidU 와 동기)
   fluidU: number; // m/s — 기준 x방향 유속
@@ -42,9 +52,13 @@ export const DEFAULT_SIM_PARAMS: SimParams = {
   tankWidthZ: FLUME.tank.widthZ,
   tankHeightY: FLUME.tank.heightY,
   structureFrontX: FLUME.structureFrontX,
+  pierCount: 3,
+  pierArrangement: 'along',
   pierDiameter: FLUME.structure.diameterM,
   structureShape: 'circle',
   structurePermeable: false,
+  bridgeEnabled: true,
+  bridgeType: 'suspension',
   inflowSpeed: 0.25,
   fluidU: 0.25,
   fluidV: 0,
@@ -129,6 +143,10 @@ export const FLUID_PANEL_OWNED_KEYS = FLUID_FIELD_META.map((m) => m.key) as read
 export const EXPERIMENT_OWNED_KEYS = [
   ...EXPERIMENT_NUMERIC_META.map((m) => m.key),
   ...EXPERIMENT_SELECT_META.map((m) => m.key),
+  'pierCount',
+  'pierArrangement',
+  'bridgeEnabled',
+  'bridgeType',
 ] as const satisfies readonly (keyof SimParams)[];
 
 /** 시뮬레이션 파라미터 패널이 소유하는 파라미터 키 */

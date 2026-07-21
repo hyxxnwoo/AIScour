@@ -1344,6 +1344,81 @@ body {
   margin-bottom: 10px;
 }
 
+.experiment-info-panel__hint--inline {
+  margin-top: 2px;
+  margin-bottom: 8px;
+  line-height: 1.35;
+}
+
+.experiment-info-panel__row--segments {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.experiment-info-panel__segments {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.experiment-info-panel__segment {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 0;
+  background: #0f2035;
+  color: #9ab0c2;
+  border: 1px solid #2c507e;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+}
+
+.experiment-info-panel__segment:hover {
+  border-color: rgba(126, 200, 227, 0.45);
+  color: #e6eef7;
+}
+
+.experiment-info-panel__segment.is-active {
+  background: rgba(26, 88, 130, 0.95);
+  border-color: rgba(126, 200, 227, 0.55);
+  color: #e6eef7;
+}
+
+.experiment-info-panel__row--toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.experiment-info-panel__row--toggle input {
+  accent-color: #7ec8e3;
+  flex-shrink: 0;
+}
+
+.experiment-info-panel__toggle-text {
+  color: #e6eef7;
+  font-size: 10.5px;
+}
+
+.experiment-info-panel__segments--bridge-type {
+  flex-wrap: wrap;
+}
+
+.experiment-info-panel__segments--bridge-type .experiment-info-panel__segment {
+  font-size: 9.5px;
+  padding: 5px 2px;
+  letter-spacing: -0.03em;
+  min-width: calc(50% - 2px);
+  flex: 1 1 calc(50% - 2px);
+}
+
 .experiment-info-panel__live {
   display: flex;
   align-items: flex-start;
