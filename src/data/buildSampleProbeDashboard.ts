@@ -584,6 +584,141 @@ export function buildSampleProbeDashboard(
   };
 }
 
+function scourDepthFromScrdif(scrdifValue: number): number {
+  if (!Number.isFinite(scrdifValue)) return 0;
+  return Math.abs(scrdifValue);
+}
+
+function assertMultiScourMemoryBudget(frameCount: number, terrain: TerrainGrid): void {
+  if (frameCount > MAX_SCOUR_FRAMES) {
+    throw new Error(
+      '세굴 프레임 메모리가 너무 큽니다. 재생 간격을 늘리거나 행 수가 적은 CSV를 사용해 주세요.',
+    );
+  }
+
+  const vertexCount = terrain.width * terrain.height;
+  const estimatedBytes = frameCount * vertexCount * Float32Array.BYTES_PER_ELEMENT;
+  if (estimatedBytes > MAX_SCOUR_FRAME_BYTES) {
+    throw new Error(
+      '세굴 프레임 메모리가 너무 큽니다. 재생 간격을 늘리거나 행 수가 적은 CSV를 사용해 주세요.',
+    );
+  }
+}
+
+/**
+ * 교각별 CSV(각 행 = 한 시점)로 세굴 프레임을 만든다.
+ * 각 교각은 자기 CSV 의 실측 scrdif(t)(→ 깊이)와 atan2(v,u)(→ 유향)를 그대로 사용하므로,
+ * 교각마다 서로 다른 깊이·말굽 방향의 세굴이 나온다. 유속이 0인 행은 직전 유향을 유지한다.
+ */
+export function buildMultiPierScourFrames(
+  pierColumns: SampleProbeColumns[],
+  terrain: TerrainGrid,
+  piers: PierDefinition[],
+  baseIntervalSeconds: number,
+  loopStep: number,
+  maxRows: number,
+): ScourFrame[] {
+  const frames: ScourFrame[] = [];
+  const { width, height, cellSize } = terrain;
+  const halfW = ((width - 1) * cellSize) / 2;
+  const halfH = ((height - 1) * cellSize) / 2;
+  const lastHeading = piers.map(() => 0);
+
+  for (let rowIndex = 0; rowIndex < maxRows; rowIndex += loopStep) {
+    const scourPiers = piers.map((pier, idx) => {
+      const cols = pierColumns[idx] ?? pierColumns[0]!;
+      const r = Math.min(rowIndex, Math.max(0, cols.count - 1));
+      const u = cols.u[r] ?? 0;
+      const v = cols.v[r] ?? 0;
+      const speed = Math.hypot(u, v);
+      if (speed >= FLOW_SPEED_EPS) {
+        lastHeading[idx] = Math.atan2(v, u);
+      }
+      const scrdif = cols.scrdif[r] ?? 0;
+      return {
+        x: pier.x,
+        z: pier.z,
+        radius: (pier.diameter ?? FLUME.structure.diameterM) / 2,
+        heading: lastHeading[idx]!,
+        depth: scourDepthFromScrdif(scrdif),
+      };
+    });
+
+    const delta = new Float32Array(width * height);
+    for (let gy = 0; gy < height; gy += 1) {
+      for (let gx = 0; gx < width; gx += 1) {
+        const worldX = gx * cellSize - halfW;
+        const worldZ = gy * cellSize - halfH;
+        // equilibriumDepth/timeProgress 는 각 pier 의 실측 depth 로 대체되므로 값은 쓰이지 않는다.
+        delta[gy * width + gx] = combinedFlowScourDelta(worldX, worldZ, scourPiers, 0, 1, 0);
+      }
+    }
+
+    frames.push({
+      timestampSeconds: rowIndex * baseIntervalSeconds,
+      deltaElevations: delta,
+    });
+  }
+
+  return frames;
+}
+
+/**
+ * 교각 1개당 CSV 1개 입력으로 세굴·프로브 시리즈를 만든다.
+ * pierColumnsList 가 1개면 기존 합성 하이브리드 경로(buildSampleProbeDashboard)로 위임한다.
+ */
+export function buildSampleProbeDashboardMulti(
+  pierColumnsList: SampleProbeColumns[],
+  options: BuildSampleProbeDashboardOptions = {},
+): SampleProbeDashboard {
+  if (pierColumnsList.length === 0) {
+    throw new Error('buildSampleProbeDashboardMulti: 최소 1개의 CSV 열 데이터가 필요합니다.');
+  }
+  if (pierColumnsList.length === 1) {
+    return buildSampleProbeDashboard(pierColumnsList[0]!, options);
+  }
+
+  const baseIntervalSeconds = options.baseIntervalSeconds ?? 30;
+  const requestedStep = Math.max(1, Math.floor(options.stepMultiple ?? 1));
+  const maxRows = Math.max(...pierColumnsList.map((c) => c.count));
+  const loopStep = resolveSafeStepMultiple(requestedStep, maxRows);
+
+  const pierOptions: BuildSampleProbeDashboardOptions = {
+    ...options,
+    pierCount: pierColumnsList.length,
+  };
+  const pierLayout = resolveHybridPierLayout(pierOptions).slice(0, pierColumnsList.length);
+  const baseTerrain = resolveTerrainGrid(pierLayout);
+
+  const frameCount = Math.ceil(maxRows / loopStep);
+  assertMultiScourMemoryBudget(frameCount, baseTerrain);
+
+  const frames = buildMultiPierScourFrames(
+    pierColumnsList,
+    baseTerrain,
+    pierLayout,
+    baseIntervalSeconds,
+    loopStep,
+    maxRows,
+  );
+
+  const primaryColumns = pierColumnsList[0]!;
+  const bounds = computeBounds(primaryColumns);
+  const samples = buildProbeSamples(primaryColumns, bounds, baseIntervalSeconds, loopStep, 1);
+
+  return {
+    scour: { baseTerrain, frames },
+    probeSeries: {
+      samples,
+      rowCount: maxRows,
+      baseIntervalSeconds,
+      stepMultiple: loopStep,
+      durationSeconds: probeDurationSeconds(maxRows, baseIntervalSeconds),
+      bounds,
+    },
+  };
+}
+
 /** 시각 t 에 맞는 프로브 샘플(보간 없음, stride 정렬). */
 export function probeAtTime(
   series: SampleProbeSeries,

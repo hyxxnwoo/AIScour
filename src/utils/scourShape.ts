@@ -115,9 +115,16 @@ export interface ScourPierRef {
   x: number;
   z: number;
   radius: number;
+  /** 이 교각만의 실측 유향(rad). 지정 시 combinedFlowScourDelta 의 공통 flowHeading 대신 사용. */
+  heading?: number;
+  /** 이 교각만의 실측 균형 세굴 깊이(m). 지정 시 공통 equilibriumDepth 대신 사용. */
+  depth?: number;
 }
 
-/** 여러 교각 세굴을 합성한다. 각 셀은 가장 깊은(최솟값) Δ표고를 사용한다. */
+/**
+ * 여러 교각 세굴을 합성한다. 각 셀은 가장 깊은(최솟값) Δ표고를 사용한다.
+ * 교각마다 실측 heading/depth 가 있으면 해당 교각에만 적용해 형상·깊이가 서로 달라지게 한다.
+ */
 export function combinedFlowScourDelta(
   worldX: number,
   worldZ: number,
@@ -130,6 +137,8 @@ export function combinedFlowScourDelta(
 
   let delta = 0;
   for (const pier of piers) {
+    // pier.depth 는 이미 그 시점의 실측 세굴 깊이이므로 timeFactor 로 다시 깎지 않는다(timeProgress=1).
+    const effectiveTimeProgress = pier.depth !== undefined ? 1 : timeProgress;
     delta = Math.min(
       delta,
       flowScourDelta(
@@ -138,9 +147,9 @@ export function combinedFlowScourDelta(
         pier.x,
         pier.z,
         pier.radius,
-        equilibriumDepth,
-        timeProgress,
-        flowHeading,
+        pier.depth ?? equilibriumDepth,
+        effectiveTimeProgress,
+        pier.heading ?? flowHeading,
       ),
     );
   }

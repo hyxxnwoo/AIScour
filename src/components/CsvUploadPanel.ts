@@ -105,7 +105,8 @@ export class CsvUploadPanel implements Disposable {
 
     const hint = document.createElement('p');
     hint.className = 'csv-upload-panel__hint';
-    hint.textContent = 'sampledata.csv 양식(x y z u v w scrdif)만 업로드합니다.';
+    hint.textContent =
+      'sampledata.csv 양식(x y z u v w scrdif)만 업로드합니다. 교각별로 다른 세굴을 반영하려면 교각 순서(P1, P2, P3…)대로 CSV를 여러 개 선택하세요.';
     this.element.appendChild(hint);
 
     const fileRow = document.createElement('div');
@@ -113,7 +114,7 @@ export class CsvUploadPanel implements Disposable {
 
     this.fileInput = document.createElement('input');
     this.fileInput.type = 'file';
-    this.fileInput.multiple = false;
+    this.fileInput.multiple = true;
     this.fileInput.accept = '.csv,text/csv';
     this.fileInput.className = 'csv-upload-panel__file-input';
 
@@ -300,7 +301,10 @@ export class CsvUploadPanel implements Disposable {
     }
 
     const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-    this.statusEl.textContent = `${files[0]?.name ?? 'CSV'} · ${formatBytes(totalBytes)}`;
+    this.statusEl.textContent =
+      files.length === 1
+        ? `${files[0]?.name ?? 'CSV'} · ${formatBytes(totalBytes)}`
+        : `교각별 CSV ${files.length}개(P1…P${files.length}) · ${formatBytes(totalBytes)}`;
     this.loadBtn.disabled = false;
   }
 
@@ -347,7 +351,11 @@ export class CsvUploadPanel implements Disposable {
     const lastStep = this.lastLoadResult?.stepMultiple ?? 1;
     if (stepMultiple === lastStep) return;
 
-    if (this.lastColumns && isFullSampleProbeColumns(this.lastColumns)) {
+    if (
+      this.parseReadyFiles.length === 1 &&
+      this.lastColumns &&
+      isFullSampleProbeColumns(this.lastColumns)
+    ) {
       const result = rebuildCsvDashboard(this.lastColumns, stepMultiple);
       this.lastLoadResult = result;
       this.syncIntervalSelect(result.stepMultiple, result.probeSeries.baseIntervalSeconds);

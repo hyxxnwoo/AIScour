@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSampleProbeDashboard,
+  buildSampleProbeDashboardMulti,
   computeMeanFlow,
   csvScrdifIsAllZero,
   dataToWorld,
@@ -231,5 +232,67 @@ describe('buildSampleProbeDashboard', () => {
     expect(flow.horizontalSpeed).toBe(0);
     expect(flow.flowHeading).toBe(0);
     expect(flow.inflowSpeed).toBe(0.25);
+  });
+});
+
+describe('buildSampleProbeDashboardMulti (교각 1개당 CSV 1개)', () => {
+  it('CSV 1개면 기존 합성 하이브리드 경로로 위임한다', () => {
+    const columns = makeProbeColumns([
+      { x: 0, y: 0, z: 0, u: 0.3, scrdif: 0 },
+      { x: 0.01, y: 0, z: 0, u: 0.3, scrdif: 0 },
+    ]);
+    const single = buildSampleProbeDashboard(columns);
+    const multi = buildSampleProbeDashboardMulti([columns]);
+    expect(multi.scour.frames.length).toBe(single.scour.frames.length);
+    expect(multi.scour.baseTerrain.width).toBe(single.scour.baseTerrain.width);
+  });
+
+  it('교각마다 실측 scrdif·유향이 다르면 세굴 형상도 서로 다르다', () => {
+    // 교각 1: 강한 침식, +X 유입(상류=-X)
+    const pier1Columns = makeProbeColumns([
+      { x: 0, y: 0, z: 0, u: 0.3, v: 0, scrdif: -0.09 },
+      { x: 0.01, y: 0, z: 0, u: 0.3, v: 0, scrdif: -0.1 },
+    ]);
+    // 교각 2: 약한 침식, +Z 유입(상류=-Z, 다른 방향)
+    const pier2Columns = makeProbeColumns([
+      { x: 0, y: 0, z: 0, u: 0, v: 0.3, scrdif: -0.01 },
+      { x: 0.01, y: 0, z: 0, u: 0, v: 0.3, scrdif: -0.015 },
+    ]);
+
+    const built = buildSampleProbeDashboardMulti([pier1Columns, pier2Columns], {
+      pierCount: 2,
+      pierArrangement: 'across',
+    });
+
+    expect(built.scour.baseTerrain.metadata?.piers?.length).toBe(2);
+    const [p1, p2] = built.scour.baseTerrain.metadata!.piers!;
+    const terrain = built.scour.baseTerrain;
+    const lastFrame = built.scour.frames.at(-1)!;
+
+    // 교각 1 은 자기 유향(+X)의 상류(-X) 쪽에서 깊게 파여야 한다.
+    const p1Upstream = worldXZToTerrainGrid(p1!.x - 0.06, p1!.z, terrain);
+    const p1Idx = Math.round(p1Upstream.gy) * terrain.width + Math.round(p1Upstream.gx);
+    // 교각 2 는 자기 유향(+Z)의 상류(-Z) 쪽에서 파여야 한다.
+    const p2Upstream = worldXZToTerrainGrid(p2!.x, p2!.z - 0.06, terrain);
+    const p2Idx = Math.round(p2Upstream.gy) * terrain.width + Math.round(p2Upstream.gx);
+
+    const p1Depth = Math.abs(lastFrame.deltaElevations[p1Idx]!);
+    const p2Depth = Math.abs(lastFrame.deltaElevations[p2Idx]!);
+
+    expect(p1Depth).toBeGreaterThan(0);
+    expect(p2Depth).toBeGreaterThan(0);
+    // 실측 scrdif 가 교각 1이 훨씬 크므로 깊이도 훨씬 커야 한다(고정 수식 복사가 아니라는 증거).
+    expect(p1Depth).toBeGreaterThan(p2Depth * 2);
+  });
+
+  it('행 수가 다른 CSV 는 짧은 쪽이 마지막 값을 유지(hold)한다', () => {
+    const shortColumns = makeProbeColumns([{ x: 0, y: 0, z: 0, u: 0.3, scrdif: -0.05 }]);
+    const longColumns = makeProbeColumns([
+      { x: 0, y: 0, z: 0, u: 0.3, scrdif: -0.01 },
+      { x: 0.01, y: 0, z: 0, u: 0.3, scrdif: -0.02 },
+      { x: 0.02, y: 0, z: 0, u: 0.3, scrdif: -0.03 },
+    ]);
+    const built = buildSampleProbeDashboardMulti([shortColumns, longColumns], { pierCount: 2 });
+    expect(built.scour.frames.length).toBe(3);
   });
 });
