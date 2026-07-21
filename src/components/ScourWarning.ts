@@ -1,5 +1,4 @@
 import type { Disposable } from '@/types/disposable';
-import type { CollapseEvent } from '@/modules/BridgeCollapse';
 
 export interface ScourWarningOptions {
   pierCount: number;
@@ -7,13 +6,11 @@ export interface ScourWarningOptions {
   criticalDepthM: number;
 }
 
-// ScourWarning: 교각별 세굴 깊이 게이지와 붕괴 경보 배너를 표시하는 오버레이 패널.
+// ScourWarning: 교각별 세굴 깊이 게이지를 표시하는 오버레이 패널.
 export class ScourWarning implements Disposable {
   public readonly element: HTMLElement;
   private readonly barFills: HTMLElement[] = [];
   private readonly barLabels: HTMLElement[] = [];
-  private readonly alertBanner: HTMLElement;
-  private readonly collapseList: HTMLElement;
 
   public constructor(options: ScourWarningOptions) {
     this.element = document.createElement('div');
@@ -26,7 +23,7 @@ export class ScourWarning implements Disposable {
 
     const critLine = document.createElement('div');
     critLine.className = 'scour-warning__crit';
-    critLine.textContent = `임계 세굴 깊이: ${options.criticalDepthM.toFixed(1)} m`;
+    critLine.textContent = `기준 세굴 깊이: ${options.criticalDepthM.toFixed(1)} m`;
     this.element.appendChild(critLine);
 
     for (let i = 0; i < options.pierCount; i++) {
@@ -55,18 +52,9 @@ export class ScourWarning implements Disposable {
       this.barFills.push(fill);
       this.barLabels.push(barLabel);
     }
-
-    this.alertBanner = document.createElement('div');
-    this.alertBanner.className = 'scour-warning__alert';
-    this.alertBanner.textContent = '';
-    this.element.appendChild(this.alertBanner);
-
-    this.collapseList = document.createElement('div');
-    this.collapseList.className = 'scour-warning__collapse-list';
-    this.element.appendChild(this.collapseList);
   }
 
-  public update(ratios: { ratio: number; collapsed: boolean }[], criticalDepthM: number): void {
+  public update(ratios: { ratio: number }[], criticalDepthM: number): void {
     for (let i = 0; i < ratios.length; i++) {
       const entry = ratios[i];
       const fill = this.barFills[i];
@@ -76,9 +64,7 @@ export class ScourWarning implements Disposable {
       const pct = Math.min(1, entry.ratio) * 100;
       fill.style.width = `${pct.toFixed(1)}%`;
 
-      if (entry.collapsed) {
-        fill.className = 'scour-warning__fill is-collapsed';
-      } else if (entry.ratio > 0.75) {
+      if (entry.ratio > 0.75) {
         fill.className = 'scour-warning__fill is-danger';
       } else if (entry.ratio > 0.45) {
         fill.className = 'scour-warning__fill is-warning';
@@ -89,16 +75,6 @@ export class ScourWarning implements Disposable {
       const depthM = entry.ratio * criticalDepthM;
       lbl.textContent = `${depthM.toFixed(1)} m`;
     }
-  }
-
-  public showCollapse(evt: CollapseEvent): void {
-    this.alertBanner.textContent = `붕괴 발생! 교각 ${evt.pierId} · t = ${evt.timestampSeconds.toFixed(1)}s · 세굴 ${evt.scourDepth.toFixed(2)}m`;
-    this.alertBanner.classList.add('is-visible');
-
-    const item = document.createElement('div');
-    item.className = 'scour-warning__collapse-item';
-    item.textContent = `▶ P${evt.pierId}: ${evt.timestampSeconds.toFixed(1)}s`;
-    this.collapseList.appendChild(item);
   }
 
   public dispose(): void {

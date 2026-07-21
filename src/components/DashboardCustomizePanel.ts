@@ -38,6 +38,8 @@ export class DashboardCustomizePanel implements Disposable {
     bgInput.className = 'dashboard-customize__color';
     bgInput.value = initialBg;
     const onBg = (): void => this.handlers.onBackgroundHex(bgInput.value);
+    
+    // 배경색 변경 시 즉시 반영
     bgInput.addEventListener('input', onBg);
     this.cleanups.push(() => bgInput.removeEventListener('input', onBg));
     bgRow.append(bgLab, bgInput);

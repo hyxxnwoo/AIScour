@@ -131,12 +131,18 @@ export class CsvDataPreviewModal implements Disposable {
     this.rowsCountEl.className = 'csv-preview-modal__rows-count';
     rowsHeading.append(rowsTitle, this.rowsCountEl);
 
+    const rowsTable = document.createElement('div');
+    rowsTable.className = 'csv-preview-modal__rows-table';
+    rowsTable.setAttribute('role', 'table');
+    rowsTable.setAttribute('aria-label', '파싱된 CSV 데이터 행');
+
     const rowsHeader = document.createElement('div');
     rowsHeader.className = 'csv-preview-modal__rows-header';
     rowsHeader.setAttribute('role', 'row');
     for (const label of ['#', ...SAMPLE_PROBE_FIELDS]) {
       const cell = document.createElement('span');
       cell.className = 'csv-preview-modal__rows-cell csv-preview-modal__rows-cell--head';
+      cell.setAttribute('role', 'columnheader');
       cell.textContent = label;
       rowsHeader.appendChild(cell);
     }
@@ -147,9 +153,11 @@ export class CsvDataPreviewModal implements Disposable {
     this.rowsSpacer.className = 'csv-preview-modal__rows-spacer';
     this.rowsBody = document.createElement('div');
     this.rowsBody.className = 'csv-preview-modal__rows-body';
+    this.rowsBody.setAttribute('role', 'rowgroup');
 
     this.rowsSpacer.appendChild(this.rowsBody);
     this.rowsScrollWrap.append(this.rowsSpacer);
+    rowsTable.append(rowsHeader, this.rowsScrollWrap);
 
     const onRowsScroll = (): void => {
       if (this.scrollFrame !== null) return;
@@ -163,7 +171,7 @@ export class CsvDataPreviewModal implements Disposable {
       this.rowsScrollWrap.removeEventListener('scroll', onRowsScroll),
     );
 
-    this.rowsSection.append(rowsHeading, rowsHeader, this.rowsScrollWrap);
+    this.rowsSection.append(rowsHeading, rowsTable);
 
     const controls = document.createElement('div');
     controls.className = 'csv-preview-modal__controls';
@@ -289,12 +297,14 @@ export class CsvDataPreviewModal implements Disposable {
       const indexCell = document.createElement('span');
       indexCell.className =
         'csv-preview-modal__rows-cell csv-preview-modal__rows-cell--index';
+      indexCell.setAttribute('role', 'cell');
       indexCell.textContent = String(rowIndex + 1);
       row.appendChild(indexCell);
 
       for (const field of SAMPLE_PROBE_FIELDS) {
         const cell = document.createElement('span');
         cell.className = 'csv-preview-modal__rows-cell';
+        cell.setAttribute('role', 'cell');
         cell.textContent = formatNumber(columns[field][rowIndex]!);
         row.appendChild(cell);
       }

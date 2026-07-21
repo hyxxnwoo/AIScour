@@ -3,12 +3,9 @@ import type { CsvDashboardLoadResult, CsvLoadProgress, LoadCsvDashboardOptions }
 import { loadCsvDashboard, rebuildCsvDashboard } from '@/data/loadCsvDashboard';
 import { isCsvParseAbortError } from '@/utils/csvParseAbort';
 import { computeCsvProgressPct } from '@/utils/csvProgress';
-import { createInMemoryUploadFile, snapshotUploadFiles, UPLOAD_SNAPSHOT_MAX_BYTES } from '@/utils/readUploadFile';
+import { snapshotUploadFiles, UPLOAD_SNAPSHOT_MAX_BYTES } from '@/utils/readUploadFile';
 import { CsvDataPreviewModal } from '@/components/CsvDataPreviewModal';
 import type { SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
-
-/** dev 서버 public/data/sampledata.csv */
-const SAMPLE_CSV_URL = '/data/sampledata.csv';
 
 /** 재생 간격 UI 옵션: 라벨 → stride(30초 배수). */
 export const SAMPLE_PROBE_INTERVAL_OPTIONS = [
@@ -108,8 +105,7 @@ export class CsvUploadPanel implements Disposable {
 
     const hint = document.createElement('p');
     hint.className = 'csv-upload-panel__hint';
-    hint.textContent =
-      'sampledata.csv 양식(x y z u v w scrdif)만 업로드합니다. 디스크 읽기 오류 시 「샘플 CSV」를 사용해 보세요.';
+    hint.textContent = 'sampledata.csv 양식(x y z u v w scrdif)만 업로드합니다.';
     this.element.appendChild(hint);
 
     const fileRow = document.createElement('div');
@@ -132,17 +128,7 @@ export class CsvUploadPanel implements Disposable {
     fileBtn.addEventListener('click', onFileBtn);
     this.cleanups.push(() => fileBtn.removeEventListener('click', onFileBtn));
 
-    const sampleBtn = document.createElement('button');
-    sampleBtn.type = 'button';
-    sampleBtn.className = 'csv-upload-panel__pick csv-upload-panel__pick--secondary';
-    sampleBtn.textContent = '샘플 CSV';
-    const onSampleBtn = (): void => {
-      void this.loadSampleData();
-    };
-    sampleBtn.addEventListener('click', onSampleBtn);
-    this.cleanups.push(() => sampleBtn.removeEventListener('click', onSampleBtn));
-
-    fileRow.append(fileBtn, sampleBtn);
+    fileRow.appendChild(fileBtn);
     this.element.appendChild(fileRow);
     this.element.append(this.fileInput);
 
@@ -295,45 +281,6 @@ export class CsvUploadPanel implements Disposable {
       const hint = totalBytes > 2 * 1024 * 1024 ? ' · 대용량(스트리밍 파싱)' : ' · 스트리밍 파싱';
       this.statusEl.textContent = `${raw.length}개 파일 · ${formatBytes(totalBytes)}${hint}`;
       this.loadBtn.disabled = false;
-
-      if (err instanceof Error) {
-        console.warn('CSV 메모리 복사 건너뜀 — 스트리밍으로 파싱합니다:', err.message);
-      }
-    } finally {
-      if (!this.isLoading) {
-        this.fileInput.disabled = false;
-      }
-    }
-  }
-
-  private async loadSampleData(): Promise<void> {
-    if (this.isLoading) return;
-    this.fileInput.disabled = true;
-    this.statusEl.textContent = '샘플 CSV 불러오는 중…';
-    this.loadBtn.disabled = true;
-
-    try {
-      const res = await fetch(SAMPLE_CSV_URL);
-      if (!res.ok) {
-        throw new Error(`샘플 CSV를 불러올 수 없습니다 (HTTP ${res.status}).`);
-      }
-      const text = await res.text();
-      const file = createInMemoryUploadFile(text, 'sampledata.csv');
-      this.parseReadyFiles = [file];
-      this.fileInput.value = '';
-      this.setSelectedFiles([file]);
-    } catch (err: unknown) {
-      this.parseReadyFiles = [];
-      this.lastLoadResult = null;
-      this.lastColumns = null;
-      const message =
-        err instanceof Error ? err.message : '샘플 CSV를 불러올 수 없습니다.';
-      this.statusEl.textContent = message;
-      this.loadBtn.disabled = true;
-      this.previewBtn.hidden = true;
-      this.intervalRow.hidden = true;
-      this.handlers.onError?.(message);
-      console.error('샘플 CSV 불러오기 실패:', err);
     } finally {
       if (!this.isLoading) {
         this.fileInput.disabled = false;
@@ -600,7 +547,6 @@ export class CsvUploadPanel implements Disposable {
       this.statusEl.textContent = message;
       this.progressBar.style.width = '0%';
       this.handlers.onError?.(message);
-      console.error('CSV 업로드 실패:', err);
     } finally {
       this.flushProgressFrame();
       this.abortController = null;

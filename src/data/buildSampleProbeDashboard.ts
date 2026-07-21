@@ -72,6 +72,45 @@ export interface HybridScourPierConfig {
 const SCRDIF_EPS = 1e-12;
 export const MAX_SCOUR_FRAMES = 4096;
 const MAX_SCOUR_FRAME_BYTES = 256 * 1024 * 1024;
+const DEFAULT_INFLOW_SPEED = 0.25;
+const FLOW_SPEED_EPS = 1e-9;
+
+export interface MeanFlowSnapshot {
+  meanU: number;
+  meanV: number;
+  meanW: number;
+  horizontalSpeed: number;
+  flowHeading: number;
+  inflowSpeed: number;
+}
+
+/** CSV 전체 평균 유속 → 월드 XZ 흐름 방향·세기. 유속 0 이면 기본 inflowSpeed 폴백. */
+export function computeMeanFlow(columns: SampleProbeColumns): MeanFlowSnapshot {
+  let sumU = 0;
+  let sumV = 0;
+  let sumW = 0;
+  for (let i = 0; i < columns.count; i += 1) {
+    sumU += columns.u[i]!;
+    sumV += columns.v[i]!;
+    sumW += columns.w[i]!;
+  }
+  const n = Math.max(1, columns.count);
+  const meanU = sumU / n;
+  const meanV = sumV / n;
+  const meanW = sumW / n;
+  const horizontalSpeed = Math.hypot(meanU, meanV);
+  const flowHeading =
+    horizontalSpeed >= FLOW_SPEED_EPS ? Math.atan2(meanV, meanU) : 0;
+  const inflowSpeed =
+    horizontalSpeed >= FLOW_SPEED_EPS ? horizontalSpeed : DEFAULT_INFLOW_SPEED;
+  return { meanU, meanV, meanW, horizontalSpeed, flowHeading, inflowSpeed };
+}
+
+/** 평균 하강류(w<0)를 균형 깊이에 소폭 반영한다. */
+function downflowDepthFactor(meanW: number): number {
+  if (meanW >= 0) return 1;
+  return Math.min(1.25, Math.max(1, 1 - meanW * 2));
+}
 
 /** CSV bounds 에 scrdif 신호가 없는지 판별한다. */
 export function csvScrdifIsAllZero(bounds: SampleProbeBounds): boolean {
@@ -299,6 +338,7 @@ function buildSyntheticScourDelta(
   terrain: TerrainGrid,
   pier: HybridScourPierConfig,
   timeProgress: number,
+  flowHeading: number,
 ): Float32Array {
   const { width, height, cellSize } = terrain;
   const halfW = ((width - 1) * cellSize) / 2;
@@ -317,6 +357,7 @@ function buildSyntheticScourDelta(
         pier.pierRadius,
         pier.equilibriumDepth,
         timeProgress,
+        flowHeading,
       );
     }
   }
@@ -365,13 +406,14 @@ function buildScourFrames(
   totalRows: number,
   influenceRadius: number,
   pier: HybridScourPierConfig,
+  flowHeading: number,
 ): ScourFrame[] {
   const frames: ScourFrame[] = [];
 
   for (let i = 0; i < columns.count; i += loopStep) {
     const rowIndex = sourceRowIndex(i, parseStride, loopStep);
     const timeProgress = totalRows <= 1 ? 1 : rowIndex / (totalRows - 1);
-    const delta = buildSyntheticScourDelta(terrain, pier, timeProgress);
+    const delta = buildSyntheticScourDelta(terrain, pier, timeProgress, flowHeading);
 
     const scrdifValue = columns.scrdif[i]!;
     if (Math.abs(scrdifValue) >= SCRDIF_EPS) {
@@ -446,7 +488,17 @@ export function buildSampleProbeDashboard(
     requestedStep,
   );
   const bounds = computeBounds(columns);
-  const pier = resolveHybridScourPier(options);
+  const meanFlow = computeMeanFlow(columns);
+  const pierOptions: BuildSampleProbeDashboardOptions = {
+    ...options,
+    inflowSpeed: options.inflowSpeed ?? meanFlow.inflowSpeed,
+  };
+  const basePier = resolveHybridScourPier(pierOptions);
+  const pier: HybridScourPierConfig = {
+    ...basePier,
+    equilibriumDepth:
+      basePier.equilibriumDepth * downflowDepthFactor(meanFlow.meanW),
+  };
   const baseTerrain = resolveTerrainGrid(pier);
   const influenceRadius = estimateInfluenceRadius(
     columns,
@@ -466,6 +518,7 @@ export function buildSampleProbeDashboard(
     totalRows,
     influenceRadius,
     pier,
+    meanFlow.flowHeading,
   );
 
   const samples = buildProbeSamples(

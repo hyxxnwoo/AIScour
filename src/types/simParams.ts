@@ -27,7 +27,7 @@ export interface SimParams {
   sedimentThickness: number; // m — 퇴적층 두께(표면 y=0 아래)
   // ── 세굴
   scourRate: number; // 배율 (1.0 = 기본)
-  criticalScourDepth: number; // m — 이 깊이 초과 시 붕괴
+  criticalScourDepth: number; // m — 세굴 모니터 기준 깊이
   // ── 시뮬레이션 기간
   totalTimeSeconds: number; // s — 총 계산 시간
   frameCount: number; // 프레임 수
@@ -79,7 +79,7 @@ export const SIM_PARAM_META: SimParamMeta[] = [
   { key: 'sandGrainSizeMm', label: '모래 입경', unit: 'mm', min: 0.1, max: 2.0, step: 0.005 },
   { key: 'sedimentThickness', label: '퇴적층 두께', unit: 'm', min: 0.03, max: 0.25, step: 0.005 },
   { key: 'scourRate', label: '세굴 속도 배율', unit: '×', min: 0.2, max: 5.0, step: 0.1 },
-  { key: 'criticalScourDepth', label: '임계 세굴 깊이', unit: 'm', min: 0.02, max: 0.3, step: 0.005 },
+  { key: 'criticalScourDepth', label: '기준 세굴 깊이', unit: 'm', min: 0.02, max: 0.3, step: 0.005 },
   { key: 'frameCount', label: '시뮬레이션 프레임', unit: '개', min: 10, max: 300, step: 10 },
 ];
 

@@ -18,7 +18,6 @@ import { createDataSource } from '@/data/createDataSource';
 import { probeAtTime, type SampleProbeSeries } from '@/data/buildSampleProbeDashboard';
 import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
-import { BridgeCollapse } from '@/modules/BridgeCollapse';
 import { FluidSlicePlane } from '@/modules/FluidSlicePlane';
 import { FluidQuantityPoints } from '@/modules/FluidQuantityPoints';
 import { FluidTracers } from '@/modules/FluidTracers';
@@ -44,6 +43,7 @@ import { DEFAULT_SIM_PARAMS, frameIntervalSeconds, mergePanelParams, type SimPar
 import { createFpsMeter } from '@/utils/fpsMeter';
 import { captureSceneScreenshot } from '@/utils/screenshot';
 import { injectScrdifFromScour } from '@/utils/injectScrdifFluid';
+import { pierScourRatios } from '@/utils/pierScourSample';
 import { yieldToMain } from '@/utils/yieldToMain';
 import {
   alignFluidSeriesToTerrain,
@@ -101,7 +101,6 @@ interface SimState {
   terrain: Terrain;
   sedimentLayer: SedimentLayer;
   pierMarker: PierMarker;
-  bridgeCollapse: BridgeCollapse;
   slicePlane: FluidSlicePlane;
   terrainWater: TerrainWater;
   arrows: VelocityArrows;
@@ -200,14 +199,6 @@ async function buildSimState(
   });
   const pierMarker = new PierMarker({ scene, baseElevation: 0 }, resolvedPierDefs);
 
-  const bridgeCollapse = new BridgeCollapse({
-    scene,
-    series: activeSeries,
-    piers: resolvedPierDefs,
-    criticalScourDepth: params.criticalScourDepth,
-    baseElevation: 0,
-  });
-
   // ── 유체 데이터
   let fluidSeries =
     baseFluidSeries ??
@@ -299,7 +290,6 @@ async function buildSimState(
     terrain,
     sedimentLayer,
     pierMarker,
-    bridgeCollapse,
     slicePlane,
     terrainWater,
     arrows,
@@ -317,7 +307,6 @@ async function buildSimState(
       arrows.dispose();
       terrainWater.dispose();
       slicePlane.dispose();
-      bridgeCollapse.dispose();
       pierMarker.dispose();
       sedimentLayer.dispose();
       terrain.dispose();
@@ -464,10 +453,6 @@ async function bootstrap(): Promise<void> {
   });
   dockRight.insertBefore(activeScourWarning.element, legend.element);
 
-  sim.bridgeCollapse.onCollapse((evt) => {
-    activeScourWarning.showCollapse(evt);
-  });
-
   const cellSeries = new CellTimeSeries({ series: sim.series });
   appRoot.appendChild(cellSeries.element);
 
@@ -530,10 +515,6 @@ async function bootstrap(): Promise<void> {
       criticalDepthM: nextParams.criticalScourDepth,
     });
     dockRight.insertBefore(activeScourWarning.element, legend.element);
-
-    next.bridgeCollapse.onCollapse((evt) => {
-      activeScourWarning.showCollapse(evt);
-    });
 
     picking.updatePickables(next.terrain.pickables);
     cellSeries.updateSeries(next.series);
@@ -603,9 +584,6 @@ async function bootstrap(): Promise<void> {
         sceneViewRadius(next.series.baseTerrain, next.fluidSeries),
       );
     },
-    onError: (message) => {
-      console.error('CSV 적용 실패:', message);
-    },
     getLoadOptions: () => ({
       pierDiameter: params.pierDiameter,
       scourRate: params.scourRate * (params.scrdifMax / 0.12),
@@ -673,9 +651,10 @@ async function bootstrap(): Promise<void> {
 
     sim.terrain.updateAtTime(t);
     sim.sedimentLayer.updateAtTime(t);
-    sim.bridgeCollapse.updateAtTime(t);
-    sim.pierMarker.setVisible(!sim.bridgeCollapse.isAnyPierCollapsedAt(t));
-    activeScourWarning.update(sim.bridgeCollapse.getScourRatios(t), params.criticalScourDepth);
+    activeScourWarning.update(
+      pierScourRatios(sim.series, sim.pierDefs, t, params.criticalScourDepth),
+      params.criticalScourDepth,
+    );
     sim.terrainWater.updateAtTime(t);
     sim.terrainWater.tickRipple(elapsed);
     sim.tracers.updateAtTime(t);

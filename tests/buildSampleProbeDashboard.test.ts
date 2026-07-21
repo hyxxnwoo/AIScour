@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSampleProbeDashboard,
+  computeMeanFlow,
   csvScrdifIsAllZero,
   dataToWorld,
   MAX_SCOUR_FRAMES,
@@ -195,5 +196,40 @@ describe('buildSampleProbeDashboard', () => {
     expect(built.probeSeries.durationSeconds).toBe(columns.stats!.dataRowCount * 30);
     expect(built.scour.frames[1]!.timestampSeconds).toBe(60);
     expect(built.probeSeries.stepMultiple).toBe(2);
+  });
+
+  it('평균 유속 방향에 따라 세굴 패턴이 회전한다', () => {
+    const columnsX = makeProbeColumns([
+      { x: 0, y: 0, z: 0, u: 0.3, v: 0, w: 0, scrdif: 0 },
+      { x: 0.01, y: 0, z: 0, u: 0.3, v: 0, w: 0, scrdif: 0 },
+    ]);
+    const columnsZ = makeProbeColumns([
+      { x: 0, y: 0, z: 0, u: 0, v: 0.3, w: 0, scrdif: 0 },
+      { x: 0.01, y: 0, z: 0, u: 0, v: 0.3, w: 0, scrdif: 0 },
+    ]);
+    const builtX = buildSampleProbeDashboard(columnsX);
+    const builtZ = buildSampleProbeDashboard(columnsZ);
+    const terrain = builtX.scour.baseTerrain;
+    const pierX = structureCenterX();
+    const pierZ = 0;
+    const idxUpstreamX = worldXZToTerrainGrid(pierX - 0.06, pierZ, terrain);
+    const idxUpstreamZ = worldXZToTerrainGrid(pierX, pierZ - 0.06, terrain);
+    const iX =
+      Math.round(idxUpstreamX.gy) * terrain.width + Math.round(idxUpstreamX.gx);
+    const iZ =
+      Math.round(idxUpstreamZ.gy) * terrain.width + Math.round(idxUpstreamZ.gx);
+    const lastX = builtX.scour.frames.at(-1)!.deltaElevations[iX]!;
+    const lastZ = builtZ.scour.frames.at(-1)!.deltaElevations[iZ]!;
+    expect(lastX).toBeLessThan(0);
+    expect(lastZ).toBeLessThan(0);
+    expect(Math.abs(lastZ)).toBeGreaterThan(Math.abs(lastX) * 0.5);
+  });
+
+  it('computeMeanFlow 는 0-유속 CSV 에 기본 inflowSpeed 폴백을 쓴다', () => {
+    const columns = makeProbeColumns([{ x: 0, y: 0, z: 0 }]);
+    const flow = computeMeanFlow(columns);
+    expect(flow.horizontalSpeed).toBe(0);
+    expect(flow.flowHeading).toBe(0);
+    expect(flow.inflowSpeed).toBe(0.25);
   });
 });

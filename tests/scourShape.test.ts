@@ -37,4 +37,33 @@ describe('flowScourShape', () => {
     expect(upstream).toBeLessThan(downstream);
     expect(Math.abs(upstream)).toBeGreaterThan(Math.abs(downstream) * 1.5);
   });
+
+  it('flowHeading=π/2 이면 상류 집중이 −Z 방향으로 회전한다', () => {
+    const heading = Math.PI / 2;
+    const dist = radius * 1.35;
+    const upstreamAlongFlow = flowScourIntensity(
+      pierX,
+      pierZ - dist,
+      pierX,
+      pierZ,
+      radius,
+      heading,
+    );
+    const farDownstream = flowScourIntensity(
+      pierX,
+      pierZ + radius * 6,
+      pierX,
+      pierZ,
+      radius,
+      heading,
+    );
+    expect(upstreamAlongFlow).toBeGreaterThan(farDownstream);
+    expect(upstreamAlongFlow).toBeGreaterThan(0);
+  });
+
+  it('원거리 후류에는 퇴적(+Δ)이 생긴다', () => {
+    const dist = radius * 2.5;
+    const deposition = flowScourDelta(pierX + dist, pierZ, pierX, pierZ, radius, 0.13, 1);
+    expect(deposition).toBeGreaterThan(0);
+  });
 });
