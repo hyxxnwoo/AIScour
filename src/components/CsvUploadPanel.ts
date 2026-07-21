@@ -333,7 +333,7 @@ export class CsvUploadPanel implements Disposable {
     const base = `완료 · ${result.scour.baseTerrain.width}×${result.scour.baseTerrain.height} · 프레임 ${result.scour.frames.length}개`;
     const parts = [base];
     if (result.csvScrdifAllZero) {
-      parts.push('CSV scrdif=0 · 합성 세굴로 표시');
+      parts.push('CSV scrdif=0 · 세굴 없음(실측 없음)');
     }
     if (result.autoAdjusted) {
       const intervalLabel = formatIntervalLabel(
@@ -538,7 +538,7 @@ export class CsvUploadPanel implements Disposable {
       if (result.autoAdjusted) {
         this.statusEl.textContent = `${formatAutoAdjustedMessage(result, result.probeSeries.baseIntervalSeconds)} · 3D 적용 중…`;
       } else if (result.csvScrdifAllZero) {
-        this.statusEl.textContent = 'CSV scrdif=0 · 합성 세굴로 표시 · 3D 적용 중…';
+        this.statusEl.textContent = 'CSV scrdif=0 · 세굴 없음(실측 없음) · 3D 적용 중…';
       } else {
         this.statusEl.textContent = '파싱 완료 · 3D 장면 적용 중…';
       }

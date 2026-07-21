@@ -37,7 +37,7 @@ export interface CsvDashboardLoadResult {
   requestedStepMultiple: number;
   /** 한도 때문에 stride 가 올라갔는지. */
   autoAdjusted: boolean;
-  /** CSV scrdif 가 전부 0 이면 합성 세굴로 표시한다. */
+  /** CSV scrdif 가 전부 0 이면(실측 신호 없음) 세굴도 표시되지 않는다. */
   csvScrdifAllZero: boolean;
 }
 

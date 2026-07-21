@@ -77,37 +77,30 @@ describe('buildSampleProbeDashboard', () => {
     expect(built.scour.baseTerrain.cellSize).toBe(dims.cellSize);
   });
 
-  it('scrdif=0 CSV 도 합성 교각 세굴이 시간에 따라 깊어진다', () => {
+  it('scrdif=0 CSV 는 합성 세굴로 대체하지 않고 delta 가 전부 0이다(실측 없음 = 세굴 없음)', () => {
     const columns = parseSampleProbeCsvText(readFileSync(SAMPLE_PATH, 'utf8'));
     const built = buildSampleProbeDashboard(columns);
     expect(csvScrdifIsAllZero(built.probeSeries.bounds)).toBe(true);
     expect(built.scour.baseTerrain.metadata?.piers?.length).toBe(3);
 
-    const terrain = built.scour.baseTerrain;
-    const pierX = structureCenterX();
-    const upstream = worldXZToTerrainGrid(pierX - 0.06, 0, terrain);
-    const idx = Math.round(upstream.gy) * terrain.width + Math.round(upstream.gx);
-
-    const mid = built.scour.frames[Math.max(1, Math.floor(built.scour.frames.length / 2))]!;
-    const last = built.scour.frames.at(-1)!.deltaElevations[idx]!;
-    const midVal = mid.deltaElevations[idx]!;
-    expect(midVal).toBeLessThan(0);
-    expect(last).toBeLessThan(midVal);
+    for (const frame of built.scour.frames) {
+      for (let i = 0; i < frame.deltaElevations.length; i += 1) {
+        expect(frame.deltaElevations[i]).toBe(0);
+      }
+    }
   });
 
-  it('scrdif=0 프레임도 합성 세굴 버퍼를 갖는다', () => {
+  it('scrdif=0 프레임은 세굴 버퍼가 전부 0이다', () => {
     const columns = makeProbeColumns([
       { x: 0, y: 0, z: 0, scrdif: 0 },
       { x: 0.01, y: 0, z: 0, scrdif: 0 },
       { x: 0.02, y: 0, z: 0, scrdif: 0 },
     ]);
     const built = buildSampleProbeDashboard(columns);
-    const terrain = built.scour.baseTerrain;
-    const pierX = structureCenterX();
-    const upstream = worldXZToTerrainGrid(pierX - 0.06, 0, terrain);
-    const idx = Math.round(upstream.gy) * terrain.width + Math.round(upstream.gx);
-    const last = built.scour.frames.at(-1)!.deltaElevations[idx]!;
-    expect(last).toBeLessThan(0);
+    const last = built.scour.frames.at(-1)!.deltaElevations;
+    for (let i = 0; i < last.length; i += 1) {
+      expect(last[i]).toBe(0);
+    }
   });
 
   it('scrdif≠0 프레임은 별도 버퍼를 사용한다', () => {
@@ -199,14 +192,14 @@ describe('buildSampleProbeDashboard', () => {
     expect(built.probeSeries.stepMultiple).toBe(2);
   });
 
-  it('평균 유속 방향에 따라 세굴 패턴이 회전한다', () => {
+  it('실측 유속 방향에 따라 세굴 패턴이 회전한다(scrdif≠0일 때만 세굴 발생)', () => {
     const columnsX = makeProbeColumns([
-      { x: 0, y: 0, z: 0, u: 0.3, v: 0, w: 0, scrdif: 0 },
-      { x: 0.01, y: 0, z: 0, u: 0.3, v: 0, w: 0, scrdif: 0 },
+      { x: 0, y: 0, z: 0, u: 0.3, v: 0, w: 0, scrdif: -0.05 },
+      { x: 0.01, y: 0, z: 0, u: 0.3, v: 0, w: 0, scrdif: -0.08 },
     ]);
     const columnsZ = makeProbeColumns([
-      { x: 0, y: 0, z: 0, u: 0, v: 0.3, w: 0, scrdif: 0 },
-      { x: 0.01, y: 0, z: 0, u: 0, v: 0.3, w: 0, scrdif: 0 },
+      { x: 0, y: 0, z: 0, u: 0, v: 0.3, w: 0, scrdif: -0.05 },
+      { x: 0.01, y: 0, z: 0, u: 0, v: 0.3, w: 0, scrdif: -0.08 },
     ]);
     const builtX = buildSampleProbeDashboard(columnsX);
     const builtZ = buildSampleProbeDashboard(columnsZ);
