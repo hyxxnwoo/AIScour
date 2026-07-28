@@ -7,6 +7,7 @@ import {
   dataToWorld,
   MAX_SCOUR_FRAMES,
   probeAtTime,
+  probeSeriesValueRange,
   resolveSafeStepMultiple,
 } from '@/data/buildSampleProbeDashboard';
 import { structureCenterX } from '@/constants/experiment';
@@ -225,6 +226,26 @@ describe('buildSampleProbeDashboard', () => {
     expect(flow.horizontalSpeed).toBe(0);
     expect(flow.flowHeading).toBe(0);
     expect(flow.inflowSpeed).toBe(0.25);
+  });
+
+  it('probeSeriesValueRange 는 시계열 전체의 min/max 를 반환한다', () => {
+    const columns = makeProbeColumns([
+      { x: 0, y: 0, z: 0, u: 0.5, scrdif: -0.02 },
+      { x: 0.01, y: 0, z: 0, u: -0.3, scrdif: -0.09 },
+      { x: 0.02, y: 0, z: 0, u: 0.1, scrdif: -0.05 },
+    ]);
+    const built = buildSampleProbeDashboard(columns);
+    expect(probeSeriesValueRange(built.probeSeries, 'u')).toEqual({ min: -0.3, max: 0.5 });
+    expect(probeSeriesValueRange(built.probeSeries, 'scrdif')).toEqual({ min: -0.09, max: -0.02 });
+  });
+
+  it('probeSeriesValueRange 는 값이 전부 같으면 0~1 로 폴백한다', () => {
+    const columns = makeProbeColumns([
+      { x: 0, y: 0, z: 0, u: 0 },
+      { x: 0.01, y: 0, z: 0, u: 0 },
+    ]);
+    const built = buildSampleProbeDashboard(columns);
+    expect(probeSeriesValueRange(built.probeSeries, 'u')).toEqual({ min: 0, max: 1 });
   });
 });
 

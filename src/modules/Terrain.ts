@@ -64,6 +64,7 @@ export class Terrain implements Disposable {
       flatShading: false,
     });
     this.mesh = new Mesh(this.geometry, material);
+    this.mesh.receiveShadow = true;
     this.scene.add(this.mesh);
 
     // 첫 프레임을 미리 적용하여 초기 화면이 비어 보이지 않게 한다.

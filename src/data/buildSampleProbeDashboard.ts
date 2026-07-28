@@ -587,3 +587,21 @@ export function probeAtTime(
 
   return sample;
 }
+
+/** 프로브 시계열에서 u/v/w/scrdif 중 하나의 min/max 를 구한다 (수면 색·범례·차트 범위 계산용). */
+export function probeSeriesValueRange(
+  series: SampleProbeSeries,
+  key: 'u' | 'v' | 'w' | 'scrdif',
+): { min: number; max: number } {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const s of series.samples) {
+    const v = s[key];
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  if (!isFinite(min) || !isFinite(max) || min === max) {
+    return { min: 0, max: 1 };
+  }
+  return { min, max };
+}

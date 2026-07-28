@@ -13,14 +13,19 @@ export function fluidQuantityColorMode(q: FluidQuantity): FluidQuantityColorMode
   return 'field';
 }
 
-/** u/v/w 는 0 기준 대칭 범위, 나머지는 데이터 min/max. */
+/**
+ * u/v/w·scrdif 는 0 기준 대칭 범위, 나머지는 데이터 min/max.
+ * scrdif 도 대칭화해야 하는 이유: sampleColorRamp 가 항상
+ * range = max(|min|,|max|) 기준으로 색을 매핑하므로(0=베이지 고정),
+ * 범례에 표시하는 min/max 도 그 대칭 범위와 일치해야 색-숫자가 어긋나지 않는다.
+ */
 export function normalizeFluidQuantityRange(
   q: FluidQuantity,
   min: number,
   max: number,
 ): { min: number; max: number } {
   if (!isFinite(min) || !isFinite(max) || min === max) return { min: 0, max: 1 };
-  if (q === 'velocityX' || q === 'velocityY' || q === 'velocityZ') {
+  if (q === 'velocityX' || q === 'velocityY' || q === 'velocityZ' || q === 'scrdif') {
     const abs = Math.max(Math.abs(min), Math.abs(max), 1e-6);
     return { min: -abs, max: abs };
   }

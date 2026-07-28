@@ -1,4 +1,4 @@
-import { WebGLRenderer } from 'three';
+import { ACESFilmicToneMapping, PCFSoftShadowMap, SRGBColorSpace, WebGLRenderer } from 'three';
 import { RENDERER_DEFAULTS } from '@/constants/scene';
 import type { Disposable } from '@/types/disposable';
 
@@ -30,6 +30,11 @@ export class RendererManager implements Disposable {
       powerPreference: 'high-performance',
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.maxPixelRatio));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = PCFSoftShadowMap;
+    this.renderer.toneMapping = ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.outputColorSpace = SRGBColorSpace;
     this.applyCanvasSize();
 
     // WebGL 컨텍스트 손실은 GPU 드라이버 재시작/탭 비활성화 등으로 발생할 수 있다.

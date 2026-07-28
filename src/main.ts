@@ -6,6 +6,8 @@ import { ColorLegend } from '@/components/ColorLegend';
 import { CsvUploadPanel } from '@/components/CsvUploadPanel';
 import { DashboardCustomizePanel } from '@/components/DashboardCustomizePanel';
 import { FluidControls, fluidDashboardLabel, type FluidRangeEntry } from '@/components/FluidControls';
+import { FluidFieldLegend } from '@/components/FluidFieldLegend';
+import { FluidTimeSeriesChart } from '@/components/FluidTimeSeriesChart';
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts';
 import { ScourWarning } from '@/components/ScourWarning';
 import { TimeControls } from '@/components/TimeControls';
@@ -15,7 +17,11 @@ import { LightManager } from '@/core/LightManager';
 import { RendererManager } from '@/core/RendererManager';
 import { SceneManager } from '@/core/SceneManager';
 import { createDataSource } from '@/data/createDataSource';
-import { probeAtTime, type SampleProbeSeries } from '@/data/buildSampleProbeDashboard';
+import {
+  probeAtTime,
+  probeSeriesValueRange,
+  type SampleProbeSeries,
+} from '@/data/buildSampleProbeDashboard';
 import { buildPierLayout } from '@/utils/pierLayout';
 import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
@@ -44,6 +50,7 @@ import { DEFAULT_SIM_PARAMS, frameIntervalSeconds, mergePanelParams, type SimPar
 import { createFpsMeter } from '@/utils/fpsMeter';
 import { captureSceneScreenshot } from '@/utils/screenshot';
 import { injectScrdifFromScour } from '@/utils/injectScrdifFluid';
+import { normalizeFluidQuantityRange } from '@/utils/fluidQuantityColor';
 import { pierScourRatios } from '@/utils/pierScourSample';
 import { yieldToMain } from '@/utils/yieldToMain';
 import {
@@ -114,6 +121,58 @@ interface SimState {
   probeSeries: SampleProbeSeries | null;
   durationSeconds: number;
   dispose(): void;
+}
+
+/** FluidQuantity → CSV 프로브 컬럼 키. 프로브 대시보드 항목(u/v/w/scrdif)만 존재. */
+function probeKeyForQuantity(q: FluidQuantity): 'u' | 'v' | 'w' | 'scrdif' | null {
+  switch (q) {
+    case 'velocityX':
+      return 'u';
+    case 'velocityY':
+      return 'v';
+    case 'velocityZ':
+      return 'w';
+    case 'scrdif':
+      return 'scrdif';
+    default:
+      return null;
+  }
+}
+
+/** 시계열 차트·수면 색이 항목별로 구분되도록 고정 팔레트를 쓴다. */
+function chartColorForQuantity(q: FluidQuantity): string {
+  switch (q) {
+    case 'velocityX':
+      return '#7ec8e3';
+    case 'velocityY':
+      return '#c9a4e0';
+    case 'velocityZ':
+      return '#f4a261';
+    case 'scrdif':
+      return '#e07a5f';
+    default:
+      return '#7ec8e3';
+  }
+}
+
+/** 프로브 시계열 전체(재생 구간 전체) 기준 안정적 색 범위. u/v/w 는 0 대칭. */
+function probeQuantityRange(
+  probeSeries: SampleProbeSeries,
+  q: FluidQuantity,
+): { min: number; max: number } | null {
+  const key = probeKeyForQuantity(q);
+  if (!key) return null;
+  const raw = probeSeriesValueRange(probeSeries, key);
+  return normalizeFluidQuantityRange(q, raw.min, raw.max);
+}
+
+function probeSeriesTimesValues(
+  probeSeries: SampleProbeSeries,
+  key: 'u' | 'v' | 'w' | 'scrdif',
+): { times: number[]; values: number[] } {
+  const times = probeSeries.samples.map((s) => s.t);
+  const values = probeSeries.samples.map((s) => s[key]);
+  return { times, values };
 }
 
 function syncProbeTracers(
@@ -348,13 +407,64 @@ async function bootstrap(): Promise<void> {
     initialAbsMax: sim.terrain.absMax,
   });
 
+  // 유체 필드(u/v/w/scrdif) 실측 시계열 오버레이 — 씬 위 플로팅 범례 + 하단 라인 차트.
+  const fluidFieldLegend = new FluidFieldLegend();
+  appRoot.appendChild(fluidFieldLegend.element);
+  const fluidTimeSeriesChart = new FluidTimeSeriesChart();
+  appRoot.appendChild(fluidTimeSeriesChart.element);
+  /** 매 프레임 setProbeQuantity 에 쓰는 현재 항목의 고정 색 범위(재생 중 흔들리지 않도록). */
+  let currentProbeRange: { min: number; max: number } | null = null;
+
   let lastFluidLegendKey = '';
+
+  const refreshFluidProbeOverlays = (primary: FluidQuantity): void => {
+    const probeSeries = sim.probeSeries;
+    const key = probeSeries ? probeKeyForQuantity(primary) : null;
+    if (!probeSeries || !key) {
+      currentProbeRange = null;
+      fluidFieldLegend.setVisible(false);
+      fluidTimeSeriesChart.setVisible(false);
+      return;
+    }
+    fluidFieldLegend.setVisible(true);
+    fluidTimeSeriesChart.setVisible(true);
+    const range = probeQuantityRange(probeSeries, primary) ?? { min: 0, max: 1 };
+    currentProbeRange = range;
+    const label = fluidDashboardLabel(primary);
+    const unit = fluidUnitForQuantity(primary, sim.fluidSeries.metadata);
+    const note =
+      primary === 'scrdif'
+        ? '파란색 = 세굴(하상이 깊어짐) · 베이지 = 변화 없음 · 황토색 = 퇴적(하상이 쌓임). 아래 물을 투명하게 하면 실제 구덩이 형태를 볼 수 있습니다.'
+        : '';
+    fluidFieldLegend.setQuantity(primary, label, range, unit, note);
+    const { times, values } = probeSeriesTimesValues(probeSeries, key);
+    fluidTimeSeriesChart.setSeries({
+      times,
+      values,
+      label,
+      unit,
+      colorHex: chartColorForQuantity(primary),
+    });
+  };
 
   const applyFluidPrimaryQuantity = (primary: FluidQuantity): void => {
     sim.slicePlane.setQuantity(primary);
     sim.terrainWater.setQuantity(primary);
     sim.fluidPoints.setQuantity(primary);
     fluidControls.setLegendForQuantity(primary);
+    refreshFluidProbeOverlays(primary);
+
+    // scrdif 는 색만으로는 "구덩이가 생겼다"는 걸 전달하기 어렵다 — 실제로 지형이 파인
+    // 3D 형태를 보여주는 게 훨씬 직관적이므로, 물을 투명하게 하고 굴곡을 과장해 드러낸다.
+    if (primary === 'scrdif') {
+      sim.terrainWater.setOpacity(Math.min(fluidSliceOpacity, 0.35));
+      sim.terrainWater.setVerticalExaggeration(4);
+      sim.terrain.setVerticalExaggeration(4);
+    } else {
+      sim.terrainWater.setOpacity(fluidSliceOpacity);
+      sim.terrainWater.setVerticalExaggeration(1);
+      sim.terrain.setVerticalExaggeration(1);
+    }
   };
 
   const syncFluidFieldLegend = (): void => {
@@ -511,13 +621,15 @@ async function bootstrap(): Promise<void> {
     next.tracers.setWaterLevel(next.waterLevelY);
     syncProbeTracers(next.tracers, next.probeSeries, 0);
     fluidControls.setPointsVisible(false);
+
+    // sim 을 next 로 먼저 교체해야 아래 applyFluidPrimaryQuantity(항목·투명도·과장 배율 설정)가
+    // 방금 폐기된 옛 인스턴스가 아니라 실제로 화면에 보이는 next 에 적용된다.
+    params = nextParams;
+    sim = next;
     applyFluidPrimaryQuantity(fluidControls.getPrimaryQuantity());
     lastFluidLegendKey = '';
     syncFluidFieldLegend();
 
-    params = nextParams;
-    sim = next;
-    lastFluidLegendKey = '';
     experimentInfoPanel.setParams(nextParams);
     fluidControls.setParams(nextParams);
     fluidControls.setProbeMode(next.probeSeries !== null);
@@ -534,7 +646,6 @@ async function bootstrap(): Promise<void> {
         });
       }
     }
-    sim.terrainWater.setOpacity(fluidSliceOpacity);
     loop.start();
   };
 
@@ -636,6 +747,7 @@ async function bootstrap(): Promise<void> {
     );
     sim.terrainWater.updateAtTime(t);
     sim.terrainWater.tickRipple(elapsed);
+    sim.terrainWater.setCameraPosition(cameraManager.camera.position);
     sim.tracers.updateAtTime(t);
     syncProbeTracers(sim.tracers, sim.probeSeries, t);
     sim.tracers.tick(delta);
@@ -654,7 +766,19 @@ async function bootstrap(): Promise<void> {
           t: sample.t,
           rowIndex: sample.rowIndex,
         });
+        const primary = fluidControls.getPrimaryQuantity();
+        const key = probeKeyForQuantity(primary);
+        if (key && currentProbeRange) {
+          const value = sample[key];
+          sim.terrainWater.setProbeQuantity(primary, value, currentProbeRange);
+          fluidTimeSeriesChart.setTime(sample.t);
+          fluidFieldLegend.setCurrentValue(value);
+        }
       }
+      sim.terrainWater.setFlowVector(sample?.u ?? 0, sample?.v ?? 0);
+    } else {
+      sim.terrainWater.clearProbeQuantity();
+      sim.terrainWater.setFlowVector(params.fluidU, params.fluidV);
     }
     syncFluidFieldLegend();
 
@@ -676,6 +800,8 @@ async function bootstrap(): Promise<void> {
     customizePanel.dispose();
     fluidControls.dispose();
     legend.dispose();
+    fluidFieldLegend.dispose();
+    fluidTimeSeriesChart.dispose();
     timeControls.dispose();
     activeScourWarning.dispose();
     flowDirectionBadge.dispose();

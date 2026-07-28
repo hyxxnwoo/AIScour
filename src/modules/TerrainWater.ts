@@ -12,7 +12,10 @@ import {
   ShaderMaterial,
   type Scene,
   UnsignedByteType,
+  Vector2,
+  Vector3,
 } from 'three';
+import { LIGHT_DEFAULTS } from '@/constants/scene';
 import type { Disposable } from '@/types/disposable';
 import type { FluidFrame, FluidGrid3D, FluidQuantity, FluidSeries } from '@/types/fluid';
 import { sampleFluidQuantity } from '@/types/fluid';
@@ -38,7 +41,7 @@ export interface TerrainWaterOptions {
   initialQuantity?: FluidQuantity;
 }
 
-const MAX_MESH_SEGMENTS = 48;
+const MAX_MESH_SEGMENTS = 96;
 const MAX_TEX_SIZE = 96;
 
 const WATER_VERTEX_SHADER = /* glsl */ `
@@ -48,20 +51,40 @@ const WATER_VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
   varying float vWet;
   varying float vWorldX;
+  varying vec3 vNormalW;
+  varying vec3 vWorldPos;
+
+  // +X(하류) 방향으로 이동하는 잔물결 — 실험 수조 규모(~1m)에 맞춰 파장을 짧게 잡아야
+  // 여러 개의 물결 마루가 보인다(파장이 도메인보다 크면 완만한 굴곡 하나로만 보임).
+  float waveHeight(vec2 xz, float t) {
+    float downstream = xz.x - t * 0.4;
+    float w1 = sin(downstream * 13.0 + xz.y * 9.0) * 0.45;
+    float w2 = sin(downstream * 19.0 - xz.y * 7.0 + t * 1.3) * 0.32;
+    float w3 = sin(downstream * 27.0 + xz.y * 15.0) * cos(downstream * 8.0 + t * 0.6) * 0.23;
+    return w1 + w2 + w3;
+  }
 
   void main() {
     vUv = uv;
     vWet = aWet;
     vec3 pos = position;
-    vWorldX = (modelMatrix * vec4(pos, 1.0)).x;
+    vec3 normal = vec3(0.0, 1.0, 0.0);
     if (aWet > 0.5) {
-      // +X(하류) 방향으로 이동하는 파형 — 유입→유출 흐름을 시각적으로 암시
-      float downstream = pos.x - uTime * 0.55;
-      float w1 = sin(downstream * 1.35 + pos.z * 0.55) * 0.62;
-      float w2 = sin(downstream * 2.6 - pos.z * 0.35 + uTime * 0.25) * 0.38;
-      float w3 = sin(downstream * 0.85 + pos.z * 1.1) * cos(downstream * 1.9) * 0.24;
-      pos.y += (w1 + w2 + w3) * uWaveAmp;
+      float h = waveHeight(vec2(pos.x, pos.z), uTime);
+      pos.y += h * uWaveAmp;
+
+      // 유한차분으로 파형 기울기를 구해 근사 법선을 만든다(윤슬·스페큘러 반사에 사용).
+      // eps 는 파장(가장 짧은 항 기준 2π/27 ≈ 0.23m)보다 훨씬 작아야 기울기가 상쇄되지 않는다.
+      float eps = 0.02;
+      float hx = waveHeight(vec2(pos.x + eps, pos.z), uTime);
+      float hz = waveHeight(vec2(pos.x, pos.z + eps), uTime);
+      float dHdx = (hx - h) / eps * uWaveAmp;
+      float dHdz = (hz - h) / eps * uWaveAmp;
+      normal = normalize(vec3(-dHdx, 1.0, -dHdz));
     }
+    vWorldX = (modelMatrix * vec4(pos, 1.0)).x;
+    vNormalW = normalize(mat3(modelMatrix) * normal);
+    vWorldPos = (modelMatrix * vec4(pos, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
   }
 `;
@@ -70,16 +93,53 @@ const WATER_FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D uMap;
   uniform float uOpacity;
   uniform float uTime;
+  uniform vec3 uCameraPos;
+  uniform vec3 uLightDir;
+  uniform vec2 uFlowDir;
+  uniform float uFlowSpeed;
+  uniform float uHasFlow;
   varying vec2 vUv;
   varying float vWet;
   varying float vWorldX;
+  varying vec3 vNormalW;
+  varying vec3 vWorldPos;
+
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  }
 
   void main() {
     if (vWet < 0.5) discard;
     vec4 c = texture2D(uMap, vUv);
     if (c.a < 0.08) discard;
-    vec3 rgb = c.rgb;
-    gl_FragColor = vec4(rgb, c.a * uOpacity);
+
+    vec3 N = normalize(vNormalW);
+    vec3 V = normalize(uCameraPos - vWorldPos);
+    vec3 L = normalize(uLightDir);
+    vec3 H = normalize(L + V);
+
+    float ndotl = max(dot(N, L), 0.0);
+    float spec = pow(max(dot(N, H), 0.0), 60.0);
+    float fresnel = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 3.0);
+
+    // 윤슬: 잔물결 표면 위 촘촘한 반짝임(시간에 따라 흐름 방향으로 흘러가며 깜빡임)
+    vec2 sparkleUv = vUv * 220.0 + vec2(uTime * 0.6, uTime * 0.35);
+    float sparkleNoise = hash(floor(sparkleUv));
+    float sparkle = step(0.975, sparkleNoise) * spec * 4.0;
+
+    // 실측 u/v 유속 방향·크기를 따라 흘러가는 줄무늬 — "물이 흐른다"는 인상과
+    // 현재 값의 크기를 동시에 전달한다(유속이 0이면 줄무늬도 멈춘다).
+    float along = dot(vWorldPos.xz, uFlowDir);
+    float streakPhase = along * 22.0 - uTime * (0.8 + uFlowSpeed * 3.0);
+    float streak = pow(max(sin(streakPhase), 0.0), 4.0);
+    float streakStrength = uHasFlow * clamp(uFlowSpeed * 3.0, 0.05, 1.0) * 0.28;
+
+    vec3 shaded = c.rgb * (0.62 + 0.38 * ndotl);
+    shaded += vec3(1.0) * (spec * 0.6 + sparkle) * (0.35 + 0.65 * ndotl);
+    shaded += vec3(0.85, 0.95, 1.0) * fresnel * 0.3;
+    shaded += vec3(0.92, 0.98, 1.0) * streak * streakStrength;
+
+    gl_FragColor = vec4(shaded, c.a * uOpacity);
   }
 `;
 
@@ -148,6 +208,9 @@ export class TerrainWater implements Disposable {
   private userVisible = true;
   private wetCount = 0;
   private currentRange: { min: number; max: number } = { min: 0, max: 1 };
+  /** CSV 프로브 실측값(단일 시점 스칼라)으로 수면 전체를 균일하게 칠할 때 사용. null 이면 격자 샘플링. */
+  private probeValue: number | null = null;
+  private probeRange: { min: number; max: number } = { min: 0, max: 1 };
 
   public constructor(options: TerrainWaterOptions) {
     this.scene = options.scene;
@@ -169,7 +232,8 @@ export class TerrainWater implements Disposable {
     this.meshSegH = meshSegments(Math.max(1, this.terrainGrid.height - 1));
     this.texW = texSize(this.terrainGrid.width - 1);
     this.texH = texSize(this.terrainGrid.height - 1);
-    this.waveAmp = Math.max(0.002, cs * 0.15);
+    // 실험실 규모(셀 1cm 안팎)에서는 물리적 파고가 그대로면 안 보이므로 시각 효과 목적으로 과장한다.
+    this.waveAmp = Math.max(0.01, cs * 1.8);
 
     this.pixels = new Uint8Array(this.texW * this.texH * 4);
     this.texture = new DataTexture(this.pixels, this.texW, this.texH, RGBAFormat, UnsignedByteType);
@@ -190,12 +254,23 @@ export class TerrainWater implements Disposable {
     this.wetAttr = new Float32Array(vertCount);
     this.surfaceGeometry.setAttribute('aWet', new BufferAttribute(this.wetAttr, 1));
 
+    const lightDir = new Vector3(
+      LIGHT_DEFAULTS.directionalPosition.x,
+      LIGHT_DEFAULTS.directionalPosition.y,
+      LIGHT_DEFAULTS.directionalPosition.z,
+    ).normalize();
+
     this.surfaceMaterial = new ShaderMaterial({
       uniforms: {
         uMap: { value: this.texture },
         uTime: { value: 0 },
         uWaveAmp: { value: this.waveAmp },
         uOpacity: { value: 0.88 },
+        uCameraPos: { value: new Vector3() },
+        uLightDir: { value: lightDir },
+        uFlowDir: { value: new Vector2(1, 0) },
+        uFlowSpeed: { value: 0 },
+        uHasFlow: { value: 0 },
       },
       vertexShader: WATER_VERTEX_SHADER,
       fragmentShader: WATER_FRAGMENT_SHADER,
@@ -261,6 +336,37 @@ export class TerrainWater implements Disposable {
   public setQuantity(q: FluidQuantity): void {
     if (q === this.currentQuantity) return;
     this.currentQuantity = q;
+    this.probeValue = null;
+    if (this.currentFluidFrameIndex >= 0) {
+      this.applyFluidFrame(this.currentFluidFrameIndex);
+    }
+  }
+
+  /**
+   * CSV 프로브 실측값(u/v/w/scrdif 중 현재 선택 항목)으로 수면 색을 갱신한다.
+   * 프로브는 공간상 단일 지점 값이므로, 젖은 영역 전체를 이 값의 단일 색으로 균일하게 칠한다
+   * (합성 격자 대신 실측 데이터를 그대로 반영 — 물리적으로 정직한 표현).
+   * range 는 재생 구간 전체의 min/max(시간에 따라 안정적)를 넘겨야 한다.
+   */
+  public setProbeQuantity(
+    q: FluidQuantity,
+    value: number,
+    range: { min: number; max: number },
+  ): void {
+    this.currentQuantity = q;
+    this.probeValue = value;
+    this.probeRange = range;
+    this.currentRange = range;
+    if (this.currentFluidFrameIndex < 0 && this.fluidFrames.length > 0) {
+      this.currentFluidFrameIndex = 0;
+    }
+    this.recolorSurface();
+  }
+
+  /** 프로브 연동을 해제하고 합성 격자 기반 색으로 복귀한다. */
+  public clearProbeQuantity(): void {
+    if (this.probeValue === null) return;
+    this.probeValue = null;
     if (this.currentFluidFrameIndex >= 0) {
       this.applyFluidFrame(this.currentFluidFrameIndex);
     }
@@ -284,6 +390,9 @@ export class TerrainWater implements Disposable {
   }
 
   public computeRangeForQuantity(q: FluidQuantity): { min: number; max: number } {
+    if (this.probeValue !== null && q === this.currentQuantity && q !== 'scrdif') {
+      return this.probeRange;
+    }
     if (this.currentFluidFrameIndex < 0) return { min: 0, max: 1 };
     const frame = this.fluidFrames[this.currentFluidFrameIndex];
     if (!frame) return { min: 0, max: 1 };
@@ -293,6 +402,25 @@ export class TerrainWater implements Disposable {
   public tickRipple(elapsedSeconds: number): void {
     if (!this.surfaceMesh.visible) return;
     this.surfaceMaterial.uniforms['uTime']!.value = elapsedSeconds;
+  }
+
+  /** 카메라 위치를 매 프레임 전달해 스페큘러 하이라이트(윤슬)가 시점에 반응하게 한다. */
+  public setCameraPosition(position: Vector3): void {
+    (this.surfaceMaterial.uniforms['uCameraPos']!.value as Vector3).copy(position);
+  }
+
+  /**
+   * 실측(또는 합성) u·v 유속으로 수면 위 흐름 줄무늬 방향·속도를 갱신한다.
+   * FLOW-3D 좌표 u→월드 X, v→월드 Z (probeVelocityToWorld 와 동일한 매핑).
+   * 유속이 0이면 줄무늬도 멈춰서 "흐름 없음"이 시각적으로도 정직하게 드러난다.
+   */
+  public setFlowVector(u: number, v: number): void {
+    const speed = Math.hypot(u, v);
+    this.surfaceMaterial.uniforms['uFlowSpeed']!.value = speed;
+    this.surfaceMaterial.uniforms['uHasFlow']!.value = speed > 1e-4 ? 1 : 0;
+    if (speed > 1e-4) {
+      (this.surfaceMaterial.uniforms['uFlowDir']!.value as Vector2).set(u / speed, v / speed);
+    }
   }
 
   public updateAtTime(timeSeconds: number): void {
@@ -416,10 +544,23 @@ export class TerrainWater implements Disposable {
     const frame = this.fluidFrames[index];
     if (!frame) return;
     this.currentFluidFrameIndex = index;
+    this.recolorSurface();
+  }
 
-    const range = this.measureQuantityRange(frame, this.currentQuantity);
+  /** 현재 프레임/양/프로브 상태에 맞춰 수면 텍스처를 다시 칠한다. */
+  private recolorSurface(): void {
+    const frame = this.fluidFrames[this.currentFluidFrameIndex];
+    if (!frame) return;
+
+    // 프로브 실측값이 있고(scrdif 제외) 현재 선택 양이면, 공간 전체를 단일 색으로 균일하게 칠한다.
+    const useProbeColor = this.probeValue !== null && this.currentQuantity !== 'scrdif';
+    const range = useProbeColor ? this.probeRange : this.measureQuantityRange(frame, this.currentQuantity);
     this.currentRange = range;
     const { min: vMin, max: vMax } = range;
+
+    if (useProbeColor) {
+      colorForFluidQuantity(this.currentQuantity, this.probeValue!, vMin, vMax, this.tmpColor);
+    }
 
     const yi = fluidYiAtWorldY(this.fluidGrid, this.waterLevel);
     const frameDelta =
@@ -441,11 +582,13 @@ export class TerrainWater implements Disposable {
           continue;
         }
 
-        const { xi, zi, inside } = this.fluidCellAtWorld(worldX, worldZ);
-        const v = inside
-          ? sampleFluidQuantity(this.fluidGrid, frame, this.currentQuantity, xi, yi, zi)
-          : 0;
-        colorForFluidQuantity(this.currentQuantity, v, vMin, vMax, this.tmpColor);
+        if (!useProbeColor) {
+          const { xi, zi, inside } = this.fluidCellAtWorld(worldX, worldZ);
+          const v = inside
+            ? sampleFluidQuantity(this.fluidGrid, frame, this.currentQuantity, xi, yi, zi)
+            : 0;
+          colorForFluidQuantity(this.currentQuantity, v, vMin, vMax, this.tmpColor);
+        }
         this.pixels[px] = Math.round(this.tmpColor.r * 255);
         this.pixels[px + 1] = Math.round(this.tmpColor.g * 255);
         this.pixels[px + 2] = Math.round(this.tmpColor.b * 255);

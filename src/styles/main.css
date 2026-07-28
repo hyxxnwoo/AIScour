@@ -340,6 +340,120 @@ body {
   font-size: 10.5px;
 }
 
+.fluid-field-legend {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(300px, calc(100vw - var(--dock-left-w) - var(--dock-right-w) - 40px));
+  padding: 10px 14px;
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: var(--text-primary);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  z-index: 2;
+  pointer-events: none;
+  user-select: none;
+}
+
+.fluid-field-legend__title {
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.fluid-field-legend__bar-wrap {
+  position: relative;
+  height: 12px;
+}
+
+.fluid-field-legend__bar {
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.fluid-field-legend__cursor {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 18px;
+  background: #f4d35e;
+  box-shadow: 0 0 4px rgba(244, 211, 94, 0.8);
+  transform: translateX(-1px);
+  transition: left 0.12s linear;
+}
+
+.fluid-field-legend__scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  color: #cfd8e3;
+}
+
+.fluid-field-legend__note {
+  margin-top: 5px;
+  color: var(--accent-muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.fluid-field-legend__current {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--panel-border-soft);
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.fluid-timeseries {
+  position: absolute;
+  bottom: calc(var(--time-stack-height) + 62px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - var(--dock-left-w) - var(--dock-right-w) - 32px));
+  padding: 10px 12px;
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: var(--text-primary);
+  font-size: 11px;
+  z-index: 2;
+  pointer-events: none;
+  user-select: none;
+}
+
+.fluid-timeseries__title {
+  font-size: 11px;
+  margin-bottom: 4px;
+  color: #cfd8e3;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.fluid-timeseries__svg {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  display: block;
+}
+
+.fluid-timeseries__current {
+  margin-top: 4px;
+  color: #cfd8e3;
+  font-variant-numeric: tabular-nums;
+}
+
 .fluid-controls {
   width: auto;
   padding: 10px 12px;

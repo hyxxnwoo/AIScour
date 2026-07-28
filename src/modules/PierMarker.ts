@@ -94,6 +94,12 @@ export class PierMarker implements Disposable {
     if (bridgeOn && layout) {
       this.addBridgeStructure(piers, options.bridgeType ?? 'suspension', layout);
     }
+    this.group.traverse((obj) => {
+      if (obj instanceof Mesh) {
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+      }
+    });
     this.scene.add(this.group);
   }
 

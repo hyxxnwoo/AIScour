@@ -63,6 +63,7 @@ export class SedimentLayer implements Disposable {
     });
     this.mesh = new Mesh(this.geometry, material);
     this.mesh.renderOrder = -1;
+    this.mesh.receiveShadow = true;
     this.scene.add(this.mesh);
 
     if (this.frames.length > 0) {

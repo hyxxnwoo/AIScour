@@ -21,6 +21,18 @@ export class LightManager implements Disposable {
     const { x, y, z } = LIGHT_DEFAULTS.directionalPosition;
     this.directional.position.set(x, y, z);
 
+    // 실험 수조 규모(~1.5m)에 맞춘 그림자 프러스텀 — 그림자가 있어야 교각·지형에 입체감이 생긴다.
+    this.directional.castShadow = true;
+    this.directional.shadow.mapSize.set(2048, 2048);
+    this.directional.shadow.camera.near = 0.1;
+    this.directional.shadow.camera.far = 120;
+    this.directional.shadow.camera.left = -2;
+    this.directional.shadow.camera.right = 2;
+    this.directional.shadow.camera.top = 2;
+    this.directional.shadow.camera.bottom = -2;
+    this.directional.shadow.bias = -0.0015;
+    this.directional.shadow.normalBias = 0.001;
+
     this.scene.add(this.ambient);
     this.scene.add(this.directional);
   }
