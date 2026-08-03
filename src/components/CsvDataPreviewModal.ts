@@ -317,7 +317,7 @@ export class CsvDataPreviewModal implements Disposable {
 
   private renderSummary(): void {
     if (!this.loadResult) return;
-    const { scour, probeSeries } = this.loadResult;
+    const { scour, probeSeries, fluid } = this.loadResult;
     const items: Array<[string, string]> = [];
 
     if (this.probeColumns && this.probeColumns.count > 0) {
@@ -325,6 +325,9 @@ export class CsvDataPreviewModal implements Disposable {
       if (stats) {
         items.push(['파일 줄 수', `${stats.fileLineCount.toLocaleString()}줄`]);
         items.push(['파싱된 데이터 행', `${stats.dataRowCount.toLocaleString()}행`]);
+        if (stats.timeBlockCount !== undefined) {
+          items.push(['t 시간 블록', `${stats.timeBlockCount.toLocaleString()}개`]);
+        }
         if (stats.skippedLinesAfterHeader > 0) {
           items.push([
             '건너뛴 데이터 줄',
@@ -339,6 +342,11 @@ export class CsvDataPreviewModal implements Disposable {
     items.push(['재생 간격', `${probeSeries.baseIntervalSeconds * probeSeries.stepMultiple}초`]);
     items.push(['세굴 격자', `${scour.baseTerrain.width} × ${scour.baseTerrain.height}`]);
     items.push(['세굴 프레임', `${scour.frames.length}개`]);
+    if (fluid) {
+      const g = fluid.grid;
+      items.push(['유체 격자', `${g.width} × ${g.height} × ${g.depth}`]);
+      items.push(['유체 셀 크기', `${(g.cellSize * 100).toFixed(2)}cm`]);
+    }
     items.push(['총 재생 길이', `${probeSeries.durationSeconds.toFixed(0)}초`]);
 
     this.summaryEl.replaceChildren(

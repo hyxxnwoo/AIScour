@@ -13,6 +13,6 @@ describe('colorRampToCssGradient', () => {
   it('t=-1 stop 은 0%, t=+1 stop 은 100% 에 위치한다', () => {
     const css = colorRampToCssGradient();
     expect(css).toMatch(/rgb\(12, 36, 86\) 0\.0%/);
-    expect(css).toMatch(/rgb\(132, 88, 36\) 100\.0%/);
+    expect(css).toMatch(/rgb\(92, 62, 26\) 100\.0%/);
   });
 });

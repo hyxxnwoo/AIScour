@@ -56,9 +56,9 @@ export class SedimentLayer implements Disposable {
     this.geometry.setDrawRange(0, 0);
 
     const material = new MeshStandardMaterial({
-      color: 0x9a7344,
-      roughness: 0.94,
-      metalness: 0.01,
+      color: 0x6b4522,
+      roughness: 0.96,
+      metalness: 0.0,
       side: DoubleSide,
     });
     this.mesh = new Mesh(this.geometry, material);

@@ -10,25 +10,30 @@ import {
   probeSeriesValueRange,
   resolveSafeStepMultiple,
 } from '@/data/buildSampleProbeDashboard';
-import { structureCenterX } from '@/constants/experiment';
 import { terrainGridDims } from '@/constants/experiment';
-import type { SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
-import { parseSampleProbeCsvText } from '@/utils/parseSampleProbeCsv';
+import {
+  datasetFromColumns,
+  datasetFromTimeBlocks,
+  parseSampleProbeCsvText,
+  type SampleProbeColumns,
+} from '@/utils/parseSampleProbeCsv';
 import { worldXZToTerrainGrid } from '@/utils/fluidWorld';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const SAMPLE_PATH = resolve('public/data/sampledata.csv');
 
-function makeProbeColumns(rows: Array<{
-  x: number;
-  y: number;
-  z: number;
-  u?: number;
-  v?: number;
-  w?: number;
-  scrdif?: number;
-}>): SampleProbeColumns {
+function makeProbeColumns(
+  rows: Array<{
+    x: number;
+    y: number;
+    z: number;
+    u?: number;
+    v?: number;
+    w?: number;
+    scrdif?: number;
+  }>,
+): SampleProbeColumns {
   const count = rows.length;
   const x = new Float32Array(count);
   const y = new Float32Array(count);
@@ -49,8 +54,23 @@ function makeProbeColumns(rows: Array<{
   return { x, y, z, u, v, w, scrdif, count };
 }
 
+/** 행마다 별도 t 블록(한 시점당 공간점 1개). */
+function makeTimeSeriesDataset(
+  rows: Array<{
+    x: number;
+    y: number;
+    z: number;
+    u?: number;
+    v?: number;
+    w?: number;
+    scrdif?: number;
+  }>,
+) {
+  return datasetFromTimeBlocks(rows.map((row) => makeProbeColumns([row])));
+}
+
 describe('resolveSafeStepMultiple', () => {
-  it('행 수가 한도를 넘으면 stride 를 올린다', () => {
+  it('t 블록 수가 한도를 넘으면 stride 를 올린다', () => {
     expect(resolveSafeStepMultiple(1, 10_000)).toBe(Math.ceil(10_000 / MAX_SCOUR_FRAMES));
     expect(resolveSafeStepMultiple(1, 10_000)).toBe(3);
   });
@@ -61,17 +81,18 @@ describe('resolveSafeStepMultiple', () => {
 });
 
 describe('buildSampleProbeDashboard', () => {
-  it('sampledata.csv 는 행 수와 동일한 프레임을 만든다', () => {
-    const columns = parseSampleProbeCsvText(readFileSync(SAMPLE_PATH, 'utf8'));
-    const built = buildSampleProbeDashboard(columns);
-    expect(built.scour.frames.length).toBe(columns.count);
-    expect(built.probeSeries.samples.length).toBe(columns.count);
-    expect(built.probeSeries.durationSeconds).toBe(columns.count * 30);
+  it('sampledata.csv 는 t 블록 1개 → 프레임 1개', () => {
+    const dataset = parseSampleProbeCsvText(readFileSync(SAMPLE_PATH, 'utf8'));
+    const built = buildSampleProbeDashboard(dataset);
+    expect(built.scour.frames.length).toBe(1);
+    expect(built.probeSeries.samples.length).toBe(1);
+    expect(built.probeSeries.durationSeconds).toBe(0);
+    expect(built.scour.frames[0]!.timestampSeconds).toBe(0);
   });
 
   it('지형 격자는 FLUME terrainGridDims 와 일치한다', () => {
-    const columns = parseSampleProbeCsvText(readFileSync(SAMPLE_PATH, 'utf8'));
-    const built = buildSampleProbeDashboard(columns);
+    const dataset = parseSampleProbeCsvText(readFileSync(SAMPLE_PATH, 'utf8'));
+    const built = buildSampleProbeDashboard(dataset);
     const dims = terrainGridDims();
     expect(built.scour.baseTerrain.width).toBe(dims.width);
     expect(built.scour.baseTerrain.height).toBe(dims.height);
@@ -79,10 +100,10 @@ describe('buildSampleProbeDashboard', () => {
   });
 
   it('scrdif=0 CSV 는 합성 세굴로 대체하지 않고 delta 가 전부 0이다(실측 없음 = 세굴 없음)', () => {
-    const columns = parseSampleProbeCsvText(readFileSync(SAMPLE_PATH, 'utf8'));
-    const built = buildSampleProbeDashboard(columns);
+    const dataset = parseSampleProbeCsvText(readFileSync(SAMPLE_PATH, 'utf8'));
+    const built = buildSampleProbeDashboard(dataset);
     expect(csvScrdifIsAllZero(built.probeSeries.bounds)).toBe(true);
-    expect(built.scour.baseTerrain.metadata?.piers?.length).toBe(3);
+    expect(built.scour.baseTerrain.metadata?.piers?.length).toBe(1);
 
     for (const frame of built.scour.frames) {
       for (let i = 0; i < frame.deltaElevations.length; i += 1) {
@@ -92,132 +113,139 @@ describe('buildSampleProbeDashboard', () => {
   });
 
   it('scrdif=0 프레임은 세굴 버퍼가 전부 0이다', () => {
-    const columns = makeProbeColumns([
+    const dataset = makeTimeSeriesDataset([
       { x: 0, y: 0, z: 0, scrdif: 0 },
       { x: 0.01, y: 0, z: 0, scrdif: 0 },
       { x: 0.02, y: 0, z: 0, scrdif: 0 },
     ]);
-    const built = buildSampleProbeDashboard(columns);
+    const built = buildSampleProbeDashboard(dataset);
     const last = built.scour.frames.at(-1)!.deltaElevations;
     for (let i = 0; i < last.length; i += 1) {
       expect(last[i]).toBe(0);
     }
   });
 
-  it('scrdif≠0 프레임은 별도 버퍼를 사용한다', () => {
-    const columns = makeProbeColumns([
+  it('시점마다 별도 세굴 버퍼를 사용한다', () => {
+    const dataset = makeTimeSeriesDataset([
       { x: 0, y: 0, z: 0, scrdif: -0.05 },
       { x: 0.01, y: 0, z: 0, scrdif: 0 },
     ]);
-    const built = buildSampleProbeDashboard(columns);
+    const built = buildSampleProbeDashboard(dataset);
     expect(built.scour.frames[0]!.deltaElevations).not.toBe(
       built.scour.frames[1]!.deltaElevations,
     );
   });
 
-  it('프레임 수가 4096 을 넘으면 메모리 가드 오류를 던진다', () => {
-    const count = 4097;
-    const x = new Float32Array(count);
-    const y = new Float32Array(count);
-    const z = new Float32Array(count);
-    const u = new Float32Array(count);
-    const v = new Float32Array(count);
-    const w = new Float32Array(count);
-    const scrdif = new Float32Array(count);
-    const columns: SampleProbeColumns = { x, y, z, u, v, w, scrdif, count };
-    expect(() => buildSampleProbeDashboard(columns)).toThrow(/메모리가 너무 큽니다/);
+  it('t 블록 수가 4096 을 넘으면 stride 를 자동으로 올린다', () => {
+    const blocks = Array.from({ length: 4097 }, () =>
+      makeProbeColumns([{ x: 0, y: 0, z: 0 }]),
+    );
+    const dataset = datasetFromTimeBlocks(blocks);
+    const built = buildSampleProbeDashboard(dataset, { stepMultiple: 1 });
+    expect(built.probeSeries.stepMultiple).toBeGreaterThan(1);
+    expect(built.scour.frames.length).toBeLessThanOrEqual(MAX_SCOUR_FRAMES);
   });
 
-  it('stride=2 이면 프레임 수가 절반이다', () => {
-    const columns = makeProbeColumns([
+  it('stride=2 이면 t 블록을 하나 건너뛴다', () => {
+    const dataset = makeTimeSeriesDataset([
       { x: 0, y: 0, z: 0 },
       { x: 0.01, y: 0, z: 0 },
       { x: 0.02, y: 0, z: 0 },
       { x: 0.03, y: 0, z: 0 },
     ]);
-    const built = buildSampleProbeDashboard(columns, { stepMultiple: 2 });
+    const built = buildSampleProbeDashboard(dataset, { stepMultiple: 2 });
     expect(built.scour.frames.length).toBe(2);
     expect(built.scour.frames[0]!.timestampSeconds).toBe(0);
     expect(built.scour.frames[1]!.timestampSeconds).toBe(60);
   });
 
-  it('scrdif 는 프로브 위치 주변 셀에만 적용된다', () => {
-    const columns = makeProbeColumns([
-      { x: 0, y: 0, z: 0, scrdif: -0.05 },
-      { x: 0.02, y: 0, z: 0, scrdif: 0 },
-      { x: 0.04, y: 0, z: 0, scrdif: 0 },
-    ]);
-    const built = buildSampleProbeDashboard(columns);
-    const terrain = built.scour.baseTerrain;
-    const bounds = built.probeSeries.bounds;
-    const world = dataToWorld(columns.x[0]!, columns.y[0]!, columns.z[0]!, bounds);
-    const center = worldXZToTerrainGrid(world.x, world.z, terrain);
-    const centerIdx =
-      Math.round(center.gy) * terrain.width + Math.round(center.gx);
-
-    const frame = built.scour.frames[0]!;
-    expect(Math.abs(frame.deltaElevations[centerIdx]!)).toBeGreaterThan(0);
-
-    let farNonZero = 0;
-    for (let i = 0; i < frame.deltaElevations.length; i += 1) {
-      if (i === centerIdx) continue;
-      if (Math.abs(frame.deltaElevations[i]!) > 1e-6) farNonZero += 1;
-    }
-    expect(farNonZero).toBeGreaterThan(0);
-    expect(farNonZero).toBeLessThan(frame.deltaElevations.length);
+  it('기본 교각은 도메인 중심(0,0)에 둔다', () => {
+    const dataset = datasetFromColumns(
+      makeProbeColumns([{ x: 0.55, y: -0.04, z: 0, scrdif: -0.07 }]),
+    );
+    const built = buildSampleProbeDashboard(dataset, { pierCount: 1 });
+    const pier = built.scour.baseTerrain.metadata?.piers?.[0];
+    expect(pier).toBeDefined();
+    expect(pier!.x).toBeCloseTo(0, 5);
+    expect(pier!.z).toBeCloseTo(0, 5);
   });
 
-  it('probeAtTime 은 stride 에 맞는 행을 반환한다', () => {
-    const columns = makeProbeColumns([
+  it('scrdif 는 CSV 데이터 위치의 지형 셀에 배치된다', () => {
+    const dataset = datasetFromColumns(
+      makeProbeColumns([
+        { x: 0.4, y: -0.05, z: 0, scrdif: -0.05 },
+        { x: 0.7, y: 0.05, z: 0, scrdif: +0.04 },
+      ]),
+    );
+    const built = buildSampleProbeDashboard(dataset);
+    const terrain = built.scour.baseTerrain;
+    const bounds = built.probeSeries.bounds;
+    const frame = built.scour.frames[0]!;
+
+    const scourWorld = dataToWorld(0.4, -0.05, 0, bounds);
+    const depositWorld = dataToWorld(0.7, 0.05, 0, bounds);
+    const scourCell = worldXZToTerrainGrid(scourWorld.x, scourWorld.z, terrain);
+    const depositCell = worldXZToTerrainGrid(depositWorld.x, depositWorld.z, terrain);
+    const scourIdx =
+      Math.round(scourCell.gy) * terrain.width + Math.round(scourCell.gx);
+    const depositIdx =
+      Math.round(depositCell.gy) * terrain.width + Math.round(depositCell.gx);
+
+    expect(frame.deltaElevations[scourIdx]).toBeLessThan(0);
+    expect(frame.deltaElevations[depositIdx]).toBeGreaterThan(0);
+  });
+
+  it('probeAtTime 은 stride 에 맞는 시점을 반환한다', () => {
+    const dataset = makeTimeSeriesDataset([
       { x: 0, y: 0, z: 0, u: 1 },
       { x: 0.01, y: 0, z: 0, u: 2 },
       { x: 0.02, y: 0, z: 0, u: 3 },
       { x: 0.03, y: 0, z: 0, u: 4 },
     ]);
-    const built = buildSampleProbeDashboard(columns, { stepMultiple: 2 });
+    const built = buildSampleProbeDashboard(dataset, { stepMultiple: 2 });
     const at45 = probeAtTime(built.probeSeries, 45);
-    expect(at45?.rowIndex).toBe(0);
+    expect(at45?.timeIndex).toBe(0);
     expect(at45?.u).toBe(1);
     const at75 = probeAtTime(built.probeSeries, 75);
-    expect(at75?.rowIndex).toBe(2);
+    expect(at75?.timeIndex).toBe(2);
     expect(at75?.u).toBe(3);
   });
 
-  it('parse stride 가 적용된 열은 올바른 타임스탬프와 전체 duration 을 유지한다', () => {
-    const text = readFileSync(SAMPLE_PATH, 'utf8');
-    const columns = parseSampleProbeCsvText(text, { stepMultiple: 2 });
-    const built = buildSampleProbeDashboard(columns, { stepMultiple: 1 });
-    expect(built.scour.frames.length).toBe(columns.count);
-    expect(built.probeSeries.durationSeconds).toBe(columns.stats!.dataRowCount * 30);
-    expect(built.scour.frames[1]!.timestampSeconds).toBe(60);
-    expect(built.probeSeries.stepMultiple).toBe(2);
+  it('한 블록의 여러 공간 행은 평균·max|scrdif| 로 집계된다', () => {
+    const columns = makeProbeColumns([
+      { x: 0, y: 0, z: 0, u: 0.2, scrdif: -0.02 },
+      { x: 0.01, y: 0, z: 0, u: 0.4, scrdif: -0.08 },
+    ]);
+    const built = buildSampleProbeDashboard(datasetFromColumns(columns));
+    expect(built.scour.frames.length).toBe(1);
+    expect(built.probeSeries.samples[0]!.u).toBeCloseTo(0.3);
+    expect(built.probeSeries.samples[0]!.scrdif).toBeCloseTo(-0.05);
+    expect(built.probeSeries.durationSeconds).toBe(0);
   });
 
-  it('실측 유속 방향에 따라 세굴 패턴이 회전한다(scrdif≠0일 때만 세굴 발생)', () => {
-    const columnsX = makeProbeColumns([
-      { x: 0, y: 0, z: 0, u: 0.3, v: 0, w: 0, scrdif: -0.05 },
-      { x: 0.01, y: 0, z: 0, u: 0.3, v: 0, w: 0, scrdif: -0.08 },
-    ]);
-    const columnsZ = makeProbeColumns([
-      { x: 0, y: 0, z: 0, u: 0, v: 0.3, w: 0, scrdif: -0.05 },
-      { x: 0.01, y: 0, z: 0, u: 0, v: 0.3, w: 0, scrdif: -0.08 },
-    ]);
-    const builtX = buildSampleProbeDashboard(columnsX);
-    const builtZ = buildSampleProbeDashboard(columnsZ);
-    const terrain = builtX.scour.baseTerrain;
-    const pierX = structureCenterX();
-    const pierZ = 0;
-    const idxUpstreamX = worldXZToTerrainGrid(pierX - 0.06, pierZ, terrain);
-    const idxUpstreamZ = worldXZToTerrainGrid(pierX, pierZ - 0.06, terrain);
-    const iX =
-      Math.round(idxUpstreamX.gy) * terrain.width + Math.round(idxUpstreamX.gx);
-    const iZ =
-      Math.round(idxUpstreamZ.gy) * terrain.width + Math.round(idxUpstreamZ.gx);
-    const lastX = builtX.scour.frames.at(-1)!.deltaElevations[iX]!;
-    const lastZ = builtZ.scour.frames.at(-1)!.deltaElevations[iZ]!;
-    expect(lastX).toBeLessThan(0);
-    expect(lastZ).toBeLessThan(0);
-    expect(Math.abs(lastZ)).toBeGreaterThan(Math.abs(lastX) * 0.5);
+  it('한 블록 안 서로 다른 위치의 +/- scrdif 가 각자 자기 셀에 나타난다', () => {
+    const dataset = datasetFromColumns(
+      makeProbeColumns([
+        { x: 0.35, y: -0.08, z: 0, scrdif: -0.06 },
+        { x: 0.75, y: 0.08, z: 0, scrdif: +0.05 },
+      ]),
+    );
+    const built = buildSampleProbeDashboard(dataset);
+    const terrain = built.scour.baseTerrain;
+    const bounds = built.probeSeries.bounds;
+    const frame = built.scour.frames[0]!;
+
+    const scourWorld = dataToWorld(0.35, -0.08, 0, bounds);
+    const depositWorld = dataToWorld(0.75, 0.08, 0, bounds);
+    const scourCell = worldXZToTerrainGrid(scourWorld.x, scourWorld.z, terrain);
+    const depositCell = worldXZToTerrainGrid(depositWorld.x, depositWorld.z, terrain);
+    const scourIdx =
+      Math.round(scourCell.gy) * terrain.width + Math.round(scourCell.gx);
+    const depositIdx =
+      Math.round(depositCell.gy) * terrain.width + Math.round(depositCell.gx);
+
+    expect(frame.deltaElevations[scourIdx]).toBeLessThan(0);
+    expect(frame.deltaElevations[depositIdx]).toBeGreaterThan(0);
   });
 
   it('computeMeanFlow 는 0-유속 CSV 에 기본 inflowSpeed 폴백을 쓴다', () => {
@@ -229,84 +257,71 @@ describe('buildSampleProbeDashboard', () => {
   });
 
   it('probeSeriesValueRange 는 시계열 전체의 min/max 를 반환한다', () => {
-    const columns = makeProbeColumns([
+    const dataset = makeTimeSeriesDataset([
       { x: 0, y: 0, z: 0, u: 0.5, scrdif: -0.02 },
       { x: 0.01, y: 0, z: 0, u: -0.3, scrdif: -0.09 },
       { x: 0.02, y: 0, z: 0, u: 0.1, scrdif: -0.05 },
     ]);
-    const built = buildSampleProbeDashboard(columns);
-    expect(probeSeriesValueRange(built.probeSeries, 'u')).toEqual({ min: -0.3, max: 0.5 });
-    expect(probeSeriesValueRange(built.probeSeries, 'scrdif')).toEqual({ min: -0.09, max: -0.02 });
+    const built = buildSampleProbeDashboard(dataset);
+    expect(probeSeriesValueRange(built.probeSeries, 'u').min).toBeCloseTo(-0.3);
+    expect(probeSeriesValueRange(built.probeSeries, 'u').max).toBeCloseTo(0.5);
+    expect(probeSeriesValueRange(built.probeSeries, 'scrdif').min).toBeCloseTo(-0.09);
+    expect(probeSeriesValueRange(built.probeSeries, 'scrdif').max).toBeCloseTo(-0.02);
   });
 
   it('probeSeriesValueRange 는 값이 전부 같으면 0~1 로 폴백한다', () => {
-    const columns = makeProbeColumns([
+    const dataset = makeTimeSeriesDataset([
       { x: 0, y: 0, z: 0, u: 0 },
       { x: 0.01, y: 0, z: 0, u: 0 },
     ]);
-    const built = buildSampleProbeDashboard(columns);
+    const built = buildSampleProbeDashboard(dataset);
     expect(probeSeriesValueRange(built.probeSeries, 'u')).toEqual({ min: 0, max: 1 });
   });
 });
 
 describe('buildSampleProbeDashboardMulti (교각 1개당 CSV 1개)', () => {
-  it('CSV 1개면 기존 합성 하이브리드 경로로 위임한다', () => {
-    const columns = makeProbeColumns([
+  it('CSV 1개면 기존 경로로 위임한다', () => {
+    const dataset = makeTimeSeriesDataset([
       { x: 0, y: 0, z: 0, u: 0.3, scrdif: 0 },
       { x: 0.01, y: 0, z: 0, u: 0.3, scrdif: 0 },
     ]);
-    const single = buildSampleProbeDashboard(columns);
-    const multi = buildSampleProbeDashboardMulti([columns]);
+    const single = buildSampleProbeDashboard(dataset);
+    const multi = buildSampleProbeDashboardMulti([dataset]);
     expect(multi.scour.frames.length).toBe(single.scour.frames.length);
     expect(multi.scour.baseTerrain.width).toBe(single.scour.baseTerrain.width);
   });
 
-  it('교각마다 실측 scrdif·유향이 다르면 세굴 형상도 서로 다르다', () => {
-    // 교각 1: 강한 침식, +X 유입(상류=-X)
-    const pier1Columns = makeProbeColumns([
-      { x: 0, y: 0, z: 0, u: 0.3, v: 0, scrdif: -0.09 },
-      { x: 0.01, y: 0, z: 0, u: 0.3, v: 0, scrdif: -0.1 },
-    ]);
-    // 교각 2: 약한 침식, +Z 유입(상류=-Z, 다른 방향)
-    const pier2Columns = makeProbeColumns([
-      { x: 0, y: 0, z: 0, u: 0, v: 0.3, scrdif: -0.01 },
-      { x: 0.01, y: 0, z: 0, u: 0, v: 0.3, scrdif: -0.015 },
-    ]);
+  it('교각별 CSV 는 셀 단위 |scrdif| 최대로 병합된다', () => {
+    const pier1 = datasetFromColumns(
+      makeProbeColumns([{ x: 0.5, y: 0, z: 0, scrdif: -0.09 }]),
+    );
+    const pier2 = datasetFromColumns(
+      makeProbeColumns([{ x: 0.5, y: 0, z: 0, scrdif: -0.01 }]),
+    );
 
-    const built = buildSampleProbeDashboardMulti([pier1Columns, pier2Columns], {
+    const built = buildSampleProbeDashboardMulti([pier1, pier2], {
       pierCount: 2,
       pierArrangement: 'across',
     });
 
-    expect(built.scour.baseTerrain.metadata?.piers?.length).toBe(2);
-    const [p1, p2] = built.scour.baseTerrain.metadata!.piers!;
     const terrain = built.scour.baseTerrain;
-    const lastFrame = built.scour.frames.at(-1)!;
+    const bounds = built.probeSeries.bounds;
+    const frame = built.scour.frames[0]!;
+    const world = dataToWorld(0.5, 0, 0, bounds);
+    const cell = worldXZToTerrainGrid(world.x, world.z, terrain);
+    const idx = Math.round(cell.gy) * terrain.width + Math.round(cell.gx);
 
-    // 교각 1 은 자기 유향(+X)의 상류(-X) 쪽에서 깊게 파여야 한다.
-    const p1Upstream = worldXZToTerrainGrid(p1!.x - 0.06, p1!.z, terrain);
-    const p1Idx = Math.round(p1Upstream.gy) * terrain.width + Math.round(p1Upstream.gx);
-    // 교각 2 는 자기 유향(+Z)의 상류(-Z) 쪽에서 파여야 한다.
-    const p2Upstream = worldXZToTerrainGrid(p2!.x, p2!.z - 0.06, terrain);
-    const p2Idx = Math.round(p2Upstream.gy) * terrain.width + Math.round(p2Upstream.gx);
-
-    const p1Depth = Math.abs(lastFrame.deltaElevations[p1Idx]!);
-    const p2Depth = Math.abs(lastFrame.deltaElevations[p2Idx]!);
-
-    expect(p1Depth).toBeGreaterThan(0);
-    expect(p2Depth).toBeGreaterThan(0);
-    // 실측 scrdif 가 교각 1이 훨씬 크므로 깊이도 훨씬 커야 한다(고정 수식 복사가 아니라는 증거).
-    expect(p1Depth).toBeGreaterThan(p2Depth * 2);
+    expect(frame.deltaElevations[idx]).toBeCloseTo(-0.09);
   });
 
-  it('행 수가 다른 CSV 는 짧은 쪽이 마지막 값을 유지(hold)한다', () => {
-    const shortColumns = makeProbeColumns([{ x: 0, y: 0, z: 0, u: 0.3, scrdif: -0.05 }]);
-    const longColumns = makeProbeColumns([
+  it('t 블록 수가 다른 CSV 는 짧은 쪽이 마지막 값을 유지(hold)한다', () => {
+    const shortDs = makeTimeSeriesDataset([{ x: 0, y: 0, z: 0, u: 0.3, scrdif: -0.05 }]);
+    const longDs = makeTimeSeriesDataset([
       { x: 0, y: 0, z: 0, u: 0.3, scrdif: -0.01 },
       { x: 0.01, y: 0, z: 0, u: 0.3, scrdif: -0.02 },
       { x: 0.02, y: 0, z: 0, u: 0.3, scrdif: -0.03 },
     ]);
-    const built = buildSampleProbeDashboardMulti([shortColumns, longColumns], { pierCount: 2 });
+    const built = buildSampleProbeDashboardMulti([shortDs, longDs], { pierCount: 2 });
     expect(built.scour.frames.length).toBe(3);
   });
 });

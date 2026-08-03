@@ -5,6 +5,7 @@ import { legendGradientForFluidQuantity } from '@/utils/fluidQuantityColor';
 import {
   FLUID_FIELD_META,
   FLUID_QUANTITY_PARAM_KEYS,
+  type FluidDashboardQuantity,
   type NumericSimParamKey,
   type SimParams,
 } from '@/types/simParams';
@@ -56,9 +57,9 @@ const QUANTITY_LABELS: Record<FluidQuantity, string> = {
   speed: '속도 |U|',
   pressure: '압력 P',
   density: '밀도 ρ',
-  velocityX: 'u (x 방향 유속)',
-  velocityY: 'v (y 방향 유속)',
-  velocityZ: 'w (z 방향 유속)',
+  velocityX: 'X 흐름 방향 유속 (CSV u)',
+  velocityY: 'Y 연직 방향 유속 (CSV w)',
+  velocityZ: 'Z 횡단 방향 유속 (CSV v)',
   tke: 'TKE',
   dtke: 'dTKE',
   mhyfd: '수리깊이',
@@ -69,7 +70,7 @@ const QUANTITY_LABELS: Record<FluidQuantity, string> = {
 };
 
 /** 유체 필드 대시보드에 표시할 물리량 */
-export const FLUID_DASHBOARD_QUANTITIES: FluidQuantity[] = [
+export const FLUID_DASHBOARD_QUANTITIES: FluidDashboardQuantity[] = [
   'velocityX',
   'velocityY',
   'velocityZ',
@@ -466,15 +467,16 @@ export class FluidControls implements Disposable {
   }
 
   public setProbeReadout(values: ProbeReadoutValues): void {
+    // 월드 축 기준 배치 — Y(연직)는 CSV w, Z(횡단)는 CSV v.
     const map: Record<FluidQuantity, number> = {
       velocityX: values.u,
-      velocityY: values.v,
-      velocityZ: values.w,
+      velocityY: values.w,
+      velocityZ: values.v,
       scrdif: values.scrdif,
       speed: 0,
       pressure: 0,
       density: 0,
-      tke: 0,
+      tke: 0, 
       dtke: 0,
       mhyfd: 0,
       shrvel: 0,
@@ -486,7 +488,7 @@ export class FluidControls implements Disposable {
       if (readout) readout.textContent = formatScientific(map[q]);
     }
     if (values.t !== undefined && values.rowIndex !== undefined) {
-      this.probeMetaEl.textContent = `t = ${values.t.toFixed(0)}s · 행 ${values.rowIndex + 1}`;
+      this.probeMetaEl.textContent = `t = ${values.t.toFixed(0)}s · 시점 ${values.rowIndex + 1}`;
     } else if (values.t !== undefined) {
       this.probeMetaEl.textContent = `t = ${values.t.toFixed(0)}s`;
     } else {

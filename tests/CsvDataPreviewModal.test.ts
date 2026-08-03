@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CsvDataPreviewModal } from '@/components/CsvDataPreviewModal';
 import { buildSampleProbeDashboard } from '@/data/buildSampleProbeDashboard';
-import type { SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
+import type { CsvDashboardLoadResult } from '@/data/loadCsvDashboard';
+import { datasetFromColumns, type SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
 
 function makeProbeColumns(count: number): SampleProbeColumns {
   const x = new Float32Array(count);
@@ -25,13 +26,19 @@ function makeProbeColumns(count: number): SampleProbeColumns {
   return { x, y, z, u, v, w, scrdif, count };
 }
 
-function makeLoadResult(columns: SampleProbeColumns) {
-  const built = buildSampleProbeDashboard(columns);
+function makeLoadResult(columns: SampleProbeColumns): CsvDashboardLoadResult {
+  const dataset = datasetFromColumns(columns);
+  const built = buildSampleProbeDashboard(dataset);
   return {
     scour: built.scour,
     probeSeries: built.probeSeries,
-    columns,
+    fluid: built.fluid,
+    columns: dataset.flatColumns,
+    dataset,
     stepMultiple: 1,
+    requestedStepMultiple: 1,
+    autoAdjusted: false,
+    csvScrdifAllZero: false,
   };
 }
 
@@ -44,9 +51,8 @@ describe('CsvDataPreviewModal', () => {
     modal.open(makeLoadResult(columns));
 
     expect(modal.element.hidden).toBe(false);
-    expect(modal.element.querySelector('.csv-preview-modal__summary-value')?.textContent).toContain(
-      '4',
-    );
+    expect(modal.element.textContent).toContain('세굴 프레임');
+    expect(modal.element.textContent).toMatch(/1개/);
 
     modal.dispose();
   });

@@ -31,6 +31,9 @@ const DEFAULTS: Required<Omit<SyntheticFluidOptions, 'pier'>> = {
   frameCount: 90,
   frameIntervalSeconds: FLUME.totalTimeSeconds / 90,
   inflowSpeed: 0.25,
+  fluidU: 0.25,
+  fluidV: 0,
+  fluidW: 0.15,
   baseDensity: 1000,
   permeable: false,
 };

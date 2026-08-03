@@ -80,6 +80,7 @@ export class DashboardCustomizePanel implements Disposable {
     val.className = 'dashboard-customize__value';
     const fmt = opts.format ?? ((v: number) => v.toFixed(2));
     val.textContent = fmt(opts.initial);
+    
     labWrap.append(lab, val);
 
     const range = document.createElement('input');
@@ -96,7 +97,7 @@ export class DashboardCustomizePanel implements Disposable {
       opts.onInput(v);
     };
     range.addEventListener('input', onIn);
-    this.cleanups.push(() => range.removeEventListener('input', onIn));
+    this.cleanups.push(() => range.removeEventListener('input', onIn)); 
 
     row.append(labWrap, range);
     return row;

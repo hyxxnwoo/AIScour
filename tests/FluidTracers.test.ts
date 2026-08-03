@@ -34,14 +34,14 @@ describe('FluidTracers', () => {
     });
 
     tracers.updateAtTime(0);
-    const before = (scene.children[0] as { geometry: { attributes: { position: { array: Float32Array } } } })
+    const before = (scene.children[0] as unknown as { geometry: { attributes: { position: { array: Float32Array } } } })
       .geometry.attributes.position.array.slice();
 
     for (let i = 0; i < 30; i += 1) {
       tracers.tick(1 / 30);
     }
 
-    const after = (scene.children[0] as { geometry: { attributes: { position: { array: Float32Array } } } })
+    const after = (scene.children[0] as unknown as { geometry: { attributes: { position: { array: Float32Array } } } })
       .geometry.attributes.position.array;
 
     let moved = 0;
@@ -234,14 +234,14 @@ describe('FluidTracers', () => {
     expect(probeSpeed(0.35, 0, 0)).toBeGreaterThan(0.012);
 
     tracers.updateAtTime(0);
-    const before = (scene.children[0] as { geometry: { attributes: { position: { array: Float32Array } } } })
+    const before = (scene.children[0] as unknown as { geometry: { attributes: { position: { array: Float32Array } } } })
       .geometry.attributes.position.array.slice();
 
     for (let i = 0; i < 30; i += 1) {
       tracers.tick(1 / 30);
     }
 
-    const after = (scene.children[0] as { geometry: { attributes: { position: { array: Float32Array } } } })
+    const after = (scene.children[0] as unknown as { geometry: { attributes: { position: { array: Float32Array } } } })
       .geometry.attributes.position.array;
 
     let moved = 0;
@@ -294,7 +294,7 @@ describe('FluidTracers', () => {
       tracers.tick(1 / 30);
     }
 
-    const positions = (scene.children[0] as { geometry: { attributes: { position: { array: Float32Array } } } })
+    const positions = (scene.children[0] as unknown as { geometry: { attributes: { position: { array: Float32Array } } } })
       .geometry.attributes.position.array;
 
     let insidePier = 0;

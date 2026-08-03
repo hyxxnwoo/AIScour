@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { paramsToFlumeGeometry, terrainPhysicalSize } from '@/constants/experiment';
 import { DEFAULT_SIM_PARAMS } from '@/types/simParams';
 import {
+  buildCenteredPierLayout,
   buildPierLayout,
   clampPierCount,
   pierSpacingX,
@@ -15,6 +16,31 @@ describe('pierLayout', () => {
     expect(clampPierCount(0)).toBe(1);
     expect(clampPierCount(2.4)).toBe(2);
     expect(clampPierCount(5)).toBe(3);
+  });
+
+  it('buildCenteredPierLayout 은 단일 기둥을 도메인 중심(0,0)에 둔다', () => {
+    const layout = buildCenteredPierLayout({ ...DEFAULT_SIM_PARAMS, pierCount: 1 });
+    expect(layout).toHaveLength(1);
+    expect(layout[0]?.x).toBe(0);
+    expect(layout[0]?.z).toBe(0);
+  });
+
+  it('buildCenteredPierLayout 다중 기둥은 x=0 또는 z=0 대칭이다', () => {
+    const along = buildCenteredPierLayout({
+      ...DEFAULT_SIM_PARAMS,
+      pierCount: 3,
+      pierArrangement: 'along',
+    });
+    expect(along.every((p) => p.z === 0)).toBe(true);
+    expect(along[1]!.x).toBeCloseTo(0, 5);
+
+    const across = buildCenteredPierLayout({
+      ...DEFAULT_SIM_PARAMS,
+      pierCount: 3,
+      pierArrangement: 'across',
+    });
+    expect(across.every((p) => p.x === 0)).toBe(true);
+    expect(across[1]!.z).toBeCloseTo(0, 5);
   });
 
   it('기둥 1개는 z=0 에 놓인다', () => {

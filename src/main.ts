@@ -22,6 +22,7 @@ import {
   probeSeriesValueRange,
   type SampleProbeSeries,
 } from '@/data/buildSampleProbeDashboard';
+import { probeFluidQuantityRange } from '@/data/buildProbeFluidSeries';
 import { buildPierLayout } from '@/utils/pierLayout';
 import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
@@ -119,19 +120,25 @@ interface SimState {
   waterLevelY: number;
   coordinateFluid: boolean;
   probeSeries: SampleProbeSeries | null;
+  /** CSV t 블록 행 데이터로 만든 3D 유체 필드를 쓰는 중인지. */
+  probeFluidField: boolean;
   durationSeconds: number;
   dispose(): void;
 }
 
-/** FluidQuantity → CSV 프로브 컬럼 키. 프로브 대시보드 항목(u/v/w/scrdif)만 존재. */
+/**
+ * FluidQuantity → CSV 프로브 컬럼 키.
+ * 월드 축 규약(X=흐름, Y=연직, Z=횡단)에 맞춘다. FLOW-3D CSV 는 z 가 연직이므로
+ * velocityY ↔ w, velocityZ ↔ v 로 대응해야 수면 색·유속 화살표·추적 입자가 같은 값을 가리킨다.
+ */
 function probeKeyForQuantity(q: FluidQuantity): 'u' | 'v' | 'w' | 'scrdif' | null {
   switch (q) {
     case 'velocityX':
       return 'u';
     case 'velocityY':
-      return 'v';
-    case 'velocityZ':
       return 'w';
+    case 'velocityZ':
+      return 'v';
     case 'scrdif':
       return 'scrdif';
     default:
@@ -175,12 +182,18 @@ function probeSeriesTimesValues(
   return { times, values };
 }
 
+/**
+ * 추적 입자 이동 방식을 결정한다.
+ * 공간 유체 필드가 있으면(CSV t 블록 행 데이터) 격자 유속을 삼선형 보간해 위치별로
+ * 다르게 흐르므로 단일 대표값을 덮어쓰지 않는다. 필드가 없을 때만 블록 평균 u·v·w 로 이동한다.
+ */
 function syncProbeTracers(
   tracers: FluidTracers,
   probeSeries: SampleProbeSeries | null,
   timeSeconds: number,
+  useFluidField: boolean,
 ): void {
-  if (!probeSeries) {
+  if (useFluidField || !probeSeries) {
     tracers.clearProbeVelocity();
     return;
   }
@@ -190,6 +203,23 @@ function syncProbeTracers(
     return;
   }
   tracers.setProbeVelocity({ u: sample.u, v: sample.v, w: sample.w });
+}
+
+/** CSV 대시보드가 terrain metadata 에 기록한 교각 정의를 PierMarker 용으로 변환한다. */
+function pierDefsFromScourMetadata(
+  series: ScourSeries,
+  params: SimParams,
+): PierDefinition[] | null {
+  const meta = series.baseTerrain.metadata?.piers;
+  if (!meta || meta.length === 0) return null;
+  return meta.map((p) => ({
+    id: p.id,
+    x: p.x,
+    z: p.z,
+    diameter: p.diameter ?? params.pierDiameter,
+    height: p.height ?? params.tankHeightY + 0.03,
+    shape: params.structureShape,
+  }));
 }
 
 async function buildSimState(
@@ -205,7 +235,6 @@ async function buildSimState(
   const fluidDims = fluidGridDims(geom);
   const pierX = structureCenterX(geom);
   const interval = frameIntervalSeconds(params);
-  const resolvedPierDefs = buildPierLayout(params);
 
   // ── 세굴 데이터
   const scourSrc = new SyntheticScourSource({
@@ -220,9 +249,11 @@ async function buildSimState(
     tankHeightY: params.tankHeightY,
     permeable: params.structurePermeable,
     inflowSpeed: params.inflowSpeed,
-    piers: resolvedPierDefs.map((p) => ({ id: p.id, x: p.x, z: p.z })),
+    piers: buildPierLayout(params).map((p) => ({ id: p.id, x: p.x, z: p.z })),
   });
   const activeSeries = baseScourSeries ?? (await scourSrc.load());
+  const resolvedPierDefs =
+    pierDefsFromScourMetadata(activeSeries, params) ?? buildPierLayout(params);
 
   const terrain = new Terrain(scene, activeSeries);
   const sedimentLayer = new SedimentLayer({
@@ -255,8 +286,14 @@ async function buildSimState(
     }).load());
 
   if (baseFluidSeries) {
-    fluidSeries = alignFluidSeriesToTerrain(fluidSeries, activeSeries.baseTerrain);
+    const isProbeCsv = baseFluidSeries.metadata?.simulationId === 'sample-probe-csv';
+    if (!isProbeCsv) {
+      fluidSeries = alignFluidSeriesToTerrain(fluidSeries, activeSeries.baseTerrain);
+    }
   }
+  // CSV 업로드 경로: t 블록의 행 데이터가 그대로 유체 격자 값이므로 합성 유속·프로브 대표값이 아니라
+  // 이 필드가 수면 색·유속 화살표·추적 입자를 구동한다.
+  const probeFluidField = baseFluidSeries !== null && probeSeries !== null;
 
   const { min: fluidMinY, max: fluidMaxY } = fluidHeightRange(fluidSeries.grid);
   // 합성 데이터: 하상 표고 + 수심 = 수면. 유체 격자 Y 범위 안으로 클램프.
@@ -291,7 +328,7 @@ async function buildSimState(
     series: fluidSeries,
     stride: 3,
     ySliceIndex: fluidYiAtWorldY(fluidSeries.grid, initialFluidY),
-    maxArrowLength: fluidDims.cellSize * 4.5,
+    maxArrowLength: fluidSeries.grid.cellSize * 4.5,
   });
   arrows.setVisible(false);
   const tracers = new FluidTracers({
@@ -304,10 +341,18 @@ async function buildSimState(
     baseElevation: 0,
   });
   tracers.setVisible(true);
+  // CSV 격자는 측정점 간격을 따르므로 셀 수가 합성 격자보다 훨씬 많을 수 있다 —
+  // 점 표시 수가 폭발하지 않도록 격자 크기에서 stride 를 역산한다.
+  const fluidCellCount =
+    fluidSeries.grid.width * fluidSeries.grid.height * fluidSeries.grid.depth;
   const fluidPoints = new FluidQuantityPoints({
     scene,
     series: fluidSeries,
-    stride: coordinateFluid ? 4 : 2,
+    stride: probeFluidField
+      ? Math.max(2, Math.ceil(Math.cbrt(fluidCellCount / 20_000)))
+      : coordinateFluid
+        ? 4
+        : 2,
     initialQuantity: 'velocityX',
   });
   // 지형·교량과 함께 볼 때는 수평 슬라이스·화살표가 겹침에 유리하다.
@@ -336,6 +381,7 @@ async function buildSimState(
     waterLevelY: initialFluidY,
     coordinateFluid,
     probeSeries,
+    probeFluidField,
     durationSeconds,
     dispose() {
       fluidPoints.dispose();
@@ -422,14 +468,19 @@ async function bootstrap(): Promise<void> {
     const key = probeSeries ? probeKeyForQuantity(primary) : null;
     if (!probeSeries || !key) {
       currentProbeRange = null;
+      sim.terrainWater.setColorRange(null);
       fluidFieldLegend.setVisible(false);
       fluidTimeSeriesChart.setVisible(false);
       return;
     }
     fluidFieldLegend.setVisible(true);
     fluidTimeSeriesChart.setVisible(true);
-    const range = probeQuantityRange(probeSeries, primary) ?? { min: 0, max: 1 };
+    // 공간 필드가 있으면 수면 색과 범례가 같은 눈금을 쓰도록 필드 전체 범위로 고정한다.
+    const range = sim.probeFluidField
+      ? probeFluidQuantityRange(sim.fluidSeries, primary)
+      : (probeQuantityRange(probeSeries, primary) ?? { min: 0, max: 1 });
     currentProbeRange = range;
+    sim.terrainWater.setColorRange(sim.probeFluidField ? range : null);
     const label = fluidDashboardLabel(primary);
     const unit = fluidUnitForQuantity(primary, sim.fluidSeries.metadata);
     const note =
@@ -619,7 +670,7 @@ async function bootstrap(): Promise<void> {
     next.arrows.setVisible(false);
     next.tracers.setVisible(fluidControls.isTracersVisible());
     next.tracers.setWaterLevel(next.waterLevelY);
-    syncProbeTracers(next.tracers, next.probeSeries, 0);
+    syncProbeTracers(next.tracers, next.probeSeries, 0, next.probeFluidField);
     fluidControls.setPointsVisible(false);
 
     // sim 을 next 로 먼저 교체해야 아래 applyFluidPrimaryQuantity(항목·투명도·과장 배율 설정)가
@@ -661,7 +712,7 @@ async function bootstrap(): Promise<void> {
         params,
         sceneManager.scene,
         result.scour,
-        null,
+        result.fluid,
         false,
         result.probeSeries,
       );
@@ -676,7 +727,6 @@ async function bootstrap(): Promise<void> {
       pierCount: params.pierCount,
       pierArrangement: params.pierArrangement,
       pierDiameter: params.pierDiameter,
-      scourRate: params.scourRate * (params.scrdifMax / 0.12),
       sandGrainSizeMm: params.sandGrainSizeMm,
       permeable: params.structurePermeable,
       inflowSpeed: params.inflowSpeed,
@@ -749,7 +799,7 @@ async function bootstrap(): Promise<void> {
     sim.terrainWater.tickRipple(elapsed);
     sim.terrainWater.setCameraPosition(cameraManager.camera.position);
     sim.tracers.updateAtTime(t);
-    syncProbeTracers(sim.tracers, sim.probeSeries, t);
+    syncProbeTracers(sim.tracers, sim.probeSeries, t, sim.probeFluidField);
     sim.tracers.tick(delta);
     sim.slicePlane.updateAtTime(t);
     sim.arrows.updateAtTime(t);
@@ -770,7 +820,13 @@ async function bootstrap(): Promise<void> {
         const key = probeKeyForQuantity(primary);
         if (key && currentProbeRange) {
           const value = sample[key];
-          sim.terrainWater.setProbeQuantity(primary, value, currentProbeRange);
+          // 공간 필드가 있으면 수면은 셀별 실측값으로 칠한다. 단일 대표값으로 균일하게
+          // 덮으면 행마다 다른 데이터가 사라지므로, 프로브 값은 범례 현재값·차트에만 쓴다.
+          if (sim.probeFluidField) {
+            sim.terrainWater.clearProbeQuantity();
+          } else {
+            sim.terrainWater.setProbeQuantity(primary, value, currentProbeRange);
+          }
           fluidTimeSeriesChart.setTime(sample.t);
           fluidFieldLegend.setCurrentValue(value);
         }

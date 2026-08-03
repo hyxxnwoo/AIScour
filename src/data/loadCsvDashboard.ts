@@ -6,13 +6,16 @@ import {
   type BuildSampleProbeDashboardOptions,
   type SampleProbeSeries,
 } from '@/data/buildSampleProbeDashboard';
+import type { FluidSeries } from '@/types/fluid';
 import type { ScourSeries } from '@/types/terrain';
 import { throwIfAborted } from '@/utils/csvParseAbort';
 import {
-  countSampleProbeDataRows,
+  countSampleProbeTimeBlocks,
+  DEFAULT_T_INTERVAL_SECONDS,
   isSampleProbeCsv,
   parseSampleProbeCsvFile,
   type SampleProbeColumns,
+  type SampleProbeDataset,
 } from '@/utils/parseSampleProbeCsv';
 
 export interface CsvLoadProgress {
@@ -25,13 +28,20 @@ export interface CsvLoadProgress {
   fileSize: number;
   rowsParsed?: number;
   totalRows?: number;
+  timeBlocksParsed?: number;
+  totalTimeBlocks?: number;
 }
 
 export interface CsvDashboardLoadResult {
   scour: ScourSeries;
   probeSeries: SampleProbeSeries;
+  /** t 블록 행 데이터로 만든 3D 유체 필드(유속 화살표·추적 입자·수면 색용). */
+  fluid: FluidSeries | null;
+  /** 프리뷰용 평면 열(모든 t 블록 공간 행 연결). */
   columns: SampleProbeColumns;
-  /** 실제 적용된 stride(자동 조정 반영). */
+  /** t 블록 Dataset. */
+  dataset: SampleProbeDataset;
+  /** 실제 적용된 시간 블록 stride. */
   stepMultiple: number;
   /** 사용자가 요청한 stride. */
   requestedStepMultiple: number;
@@ -51,7 +61,7 @@ export interface LoadCsvDashboardOptions extends BuildSampleProbeDashboardOption
 
 /**
  * sampledata.csv 양식 CSV 업로드 로더.
- * 1행 = 30초 간격 프로브 시점.
+ * C열 t 마커 순서 = 시간(0, 30, 60, …초). 각 t 블록의 공간장이 한 프레임.
  * 파일을 여러 개(교각 1개당 CSV 1개) 선택하면 교각별 실측 세굴로 조립한다.
  */
 export async function loadCsvDashboard(
@@ -71,7 +81,7 @@ export async function loadCsvDashboard(
 
   const primary = csvFiles[0]!;
   const requestedStepMultiple = Math.max(1, Math.floor(options.stepMultiple ?? 1));
-  const baseIntervalSeconds = options.defaultIntervalSeconds ?? 30;
+  const baseIntervalSeconds = options.defaultIntervalSeconds ?? DEFAULT_T_INTERVAL_SECONDS;
 
   options.onProgress?.({
     phase: 'classify',
@@ -91,7 +101,7 @@ export async function loadCsvDashboard(
 
   options.onProgress?.({
     phase: 'count',
-    message: '행 수 확인 중…',
+    message: 't 블록 수 확인 중…',
     fileName: primary.name,
     fileIndex: 0,
     fileCount: 1,
@@ -99,45 +109,48 @@ export async function loadCsvDashboard(
     fileSize: primary.size,
   });
 
-  const countOpts: Parameters<typeof countSampleProbeDataRows>[1] = {
+  const countOpts: Parameters<typeof countSampleProbeTimeBlocks>[1] = {
     onProgress: (p) => {
-      options.onProgress?.({
+      const progress: CsvLoadProgress = {
         phase: 'count',
-        message: '행 수 확인 중…',
+        message: 't 블록 수 확인 중…',
         fileName: primary.name,
         fileIndex: 0,
         fileCount: 1,
         bytesRead: p.bytesRead,
         fileSize: p.fileSize,
         totalRows: p.totalDataRows,
-      });
+      };
+      if (p.timeBlockCount !== undefined) progress.totalTimeBlocks = p.timeBlockCount;
+      options.onProgress?.(progress);
     },
   };
   if (options.signal) countOpts.signal = options.signal;
 
-  const totalDataRows = await countSampleProbeDataRows(primary, countOpts);
-  const effectiveStep = resolveSafeStepMultiple(requestedStepMultiple, totalDataRows);
+  const totalTimeBlocks = await countSampleProbeTimeBlocks(primary, countOpts);
+  const effectiveStep = resolveSafeStepMultiple(requestedStepMultiple, totalTimeBlocks);
   const autoAdjusted = effectiveStep > requestedStepMultiple;
 
   options.onProgress?.({
     phase: 'parse',
     message: autoAdjusted
-      ? `재생 간격 자동 조정(stride ${effectiveStep}) · CSV 행 파싱 중…`
-      : 'CSV 행 파싱 중…',
+      ? `재생 간격 자동 조정(stride ${effectiveStep}) · CSV 파싱 중…`
+      : 'CSV t 블록 파싱 중…',
     fileName: primary.name,
     fileIndex: 0,
     fileCount: 1,
     bytesRead: 0,
     fileSize: primary.size,
-    totalRows: totalDataRows,
+    totalTimeBlocks,
   });
 
   const parseOpts: Parameters<typeof parseSampleProbeCsvFile>[1] = {
-    stepMultiple: effectiveStep,
+    stepMultiple: 1,
+    baseIntervalSeconds,
     onProgress: (p) => {
       const progress: CsvLoadProgress = {
         phase: 'parse',
-        message: 'CSV 행 파싱 중…',
+        message: 'CSV t 블록 파싱 중…',
         fileName: primary.name,
         fileIndex: 0,
         fileCount: 1,
@@ -145,13 +158,14 @@ export async function loadCsvDashboard(
         fileSize: p.fileSize,
         rowsParsed: p.rowsParsed,
       };
+      if (p.timeBlocksParsed !== undefined) progress.timeBlocksParsed = p.timeBlocksParsed;
       if (p.totalDataRows !== undefined) progress.totalRows = p.totalDataRows;
       options.onProgress?.(progress);
     },
   };
   if (options.signal) parseOpts.signal = options.signal;
 
-  const columns = await parseSampleProbeCsvFile(primary, parseOpts);
+  const dataset = await parseSampleProbeCsvFile(primary, parseOpts);
 
   options.onProgress?.({
     phase: 'build',
@@ -161,13 +175,15 @@ export async function loadCsvDashboard(
     fileCount: 1,
     bytesRead: primary.size,
     fileSize: primary.size,
-    rowsParsed: columns.count,
-    totalRows: columns.stats?.dataRowCount ?? columns.count,
+    rowsParsed: dataset.flatColumns.count,
+    totalRows: dataset.stats.dataRowCount,
+    timeBlocksParsed: dataset.blocks.length,
+    totalTimeBlocks: dataset.stats.timeBlockCount,
   });
 
   const buildOptions: BuildSampleProbeDashboardOptions = {
     baseIntervalSeconds,
-    stepMultiple: 1,
+    stepMultiple: effectiveStep,
   };
   if (options.pierX !== undefined) buildOptions.pierX = options.pierX;
   if (options.pierZ !== undefined) buildOptions.pierZ = options.pierZ;
@@ -180,12 +196,14 @@ export async function loadCsvDashboard(
   if (options.inflowSpeed !== undefined) buildOptions.inflowSpeed = options.inflowSpeed;
   if (options.tankHeightY !== undefined) buildOptions.tankHeightY = options.tankHeightY;
 
-  const built = buildSampleProbeDashboard(columns, buildOptions);
+  const built = buildSampleProbeDashboard(dataset, buildOptions);
 
   return {
     scour: built.scour,
     probeSeries: built.probeSeries,
-    columns,
+    fluid: built.fluid,
+    columns: dataset.flatColumns,
+    dataset,
     stepMultiple: effectiveStep,
     requestedStepMultiple,
     autoAdjusted,
@@ -201,9 +219,9 @@ async function loadMultiPierCsvDashboard(
   options: LoadCsvDashboardOptions,
 ): Promise<CsvDashboardLoadResult> {
   const requestedStepMultiple = Math.max(1, Math.floor(options.stepMultiple ?? 1));
-  const baseIntervalSeconds = options.defaultIntervalSeconds ?? 30;
+  const baseIntervalSeconds = options.defaultIntervalSeconds ?? DEFAULT_T_INTERVAL_SECONDS;
   const fileCount = csvFiles.length;
-  const columnsList: SampleProbeColumns[] = [];
+  const datasets: SampleProbeDataset[] = [];
 
   for (let i = 0; i < fileCount; i += 1) {
     const file = csvFiles[i]!;
@@ -227,6 +245,7 @@ async function loadMultiPierCsvDashboard(
 
     const parseOpts: Parameters<typeof parseSampleProbeCsvFile>[1] = {
       stepMultiple: 1,
+      baseIntervalSeconds,
       onProgress: (p) => {
         const progress: CsvLoadProgress = {
           phase: 'parse',
@@ -238,13 +257,14 @@ async function loadMultiPierCsvDashboard(
           fileSize: p.fileSize,
           rowsParsed: p.rowsParsed,
         };
+        if (p.timeBlocksParsed !== undefined) progress.timeBlocksParsed = p.timeBlocksParsed;
         if (p.totalDataRows !== undefined) progress.totalRows = p.totalDataRows;
         options.onProgress?.(progress);
       },
     };
     if (options.signal) parseOpts.signal = options.signal;
 
-    columnsList.push(await parseSampleProbeCsvFile(file, parseOpts));
+    datasets.push(await parseSampleProbeCsvFile(file, parseOpts));
   }
 
   options.onProgress?.({
@@ -270,13 +290,15 @@ async function loadMultiPierCsvDashboard(
   if (options.inflowSpeed !== undefined) buildOptions.inflowSpeed = options.inflowSpeed;
   if (options.tankHeightY !== undefined) buildOptions.tankHeightY = options.tankHeightY;
 
-  const built = buildSampleProbeDashboardMulti(columnsList, buildOptions);
-  const primaryColumns = columnsList[0]!;
+  const built = buildSampleProbeDashboardMulti(datasets, buildOptions);
+  const primaryDataset = datasets[0]!;
 
   return {
     scour: built.scour,
     probeSeries: built.probeSeries,
-    columns: primaryColumns,
+    fluid: built.fluid,
+    columns: primaryDataset.flatColumns,
+    dataset: primaryDataset,
     stepMultiple: requestedStepMultiple,
     requestedStepMultiple,
     autoAdjusted: false,
@@ -284,26 +306,51 @@ async function loadMultiPierCsvDashboard(
   };
 }
 
-/** 파싱된 열과 stride 로 대시보드 결과만 재조립한다(간격 변경용). */
+/** 파싱된 Dataset 과 시간 블록 stride 로 대시보드 결과만 재조립한다(간격 변경용). */
 export function rebuildCsvDashboard(
-  columns: SampleProbeColumns,
+  dataset: SampleProbeDataset | SampleProbeColumns,
   stepMultiple: number,
-  baseIntervalSeconds = 30,
+  baseIntervalSeconds = DEFAULT_T_INTERVAL_SECONDS,
   buildOptions: BuildSampleProbeDashboardOptions = {},
 ): CsvDashboardLoadResult {
   const requested = Math.max(1, Math.floor(stepMultiple));
-  const totalRows = columns.stats?.dataRowCount ?? columns.count;
-  const effectiveStep = resolveSafeStepMultiple(requested, totalRows);
+  const ds =
+    'blocks' in dataset
+      ? dataset
+      : ({
+          blocks: [
+            {
+              timeIndex: 0,
+              timestampSeconds: 0,
+              rawT: null,
+              columns: dataset,
+            },
+          ],
+          flatColumns: dataset,
+          stats: dataset.stats ?? {
+            fileLineCount: dataset.count + 1,
+            dataRowCount: dataset.count,
+            timeBlockCount: 1,
+            skippedLinesAfterHeader: 0,
+            parseStepMultiple: 1,
+          },
+          baseIntervalSeconds,
+        } satisfies SampleProbeDataset);
+
+  const totalBlocks = ds.blocks.length;
+  const effectiveStep = resolveSafeStepMultiple(requested, totalBlocks);
   const autoAdjusted = effectiveStep > requested;
-  const built = buildSampleProbeDashboard(columns, {
-    baseIntervalSeconds,
+  const built = buildSampleProbeDashboard(ds, {
+    baseIntervalSeconds: ds.baseIntervalSeconds || baseIntervalSeconds,
     stepMultiple: effectiveStep,
     ...buildOptions,
   });
   return {
     scour: built.scour,
     probeSeries: built.probeSeries,
-    columns,
+    fluid: built.fluid,
+    columns: ds.flatColumns,
+    dataset: ds,
     stepMultiple: effectiveStep,
     requestedStepMultiple: requested,
     autoAdjusted,

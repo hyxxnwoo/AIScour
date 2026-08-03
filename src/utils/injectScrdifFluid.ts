@@ -1,4 +1,4 @@
-import type { FluidFrame, FluidGrid3D, FluidSeries } from '@/types/fluid';
+import type { FluidGrid3D, FluidSeries } from '@/types/fluid';
 import type { ScourSeries, TerrainGrid } from '@/types/terrain';
 import { fluidGridOrigin, fluidYiAtWorldY, worldXZToTerrainGrid } from '@/utils/fluidWorld';
 

@@ -9,7 +9,7 @@ import {
 } from 'three';
 import type { ScourFrame, ScourSeries, TerrainGrid } from '@/types/terrain';
 import type { Disposable } from '@/types/disposable';
-import { sampleColorRamp } from '@/utils/colorRamp';
+import { sampleTerrainSandColor } from '@/utils/colorRamp';
 
 // Terrain: 베이스 지형 + 시간에 따른 세굴 변화를 단일 Mesh 로 렌더링한다.
 // 정점 높이는 Δ표고, vertex color 는 초기 지반 대비 세굴/퇴적 변화량(Δ) 컬러맵.
@@ -59,7 +59,7 @@ export class Terrain implements Disposable {
     const material = new MeshStandardMaterial({
       vertexColors: true,
       side: DoubleSide,
-      roughness: 0.85,
+      roughness: 0.94,
       metalness: 0.0,
       flatShading: false,
     });
@@ -179,7 +179,9 @@ export class Terrain implements Disposable {
     for (let i = 0; i < delta.length; i += 1) {
       const z = this.baseZ[i] + delta[i] * this.verticalExaggeration;
       positions.setY(i, z);
-      sampleColorRamp(delta[i], -absMax, absMax, this.tmpColor);
+      const gx = i % this.grid.width;
+      const gy = (i / this.grid.width) | 0;
+      sampleTerrainSandColor(delta[i]!, absMax, gx, gy, this.tmpColor);
       const j = i * 3;
       this.colors[j] = this.tmpColor.r;
       this.colors[j + 1] = this.tmpColor.g;

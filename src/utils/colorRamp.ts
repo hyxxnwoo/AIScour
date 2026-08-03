@@ -14,9 +14,9 @@ export const COLOR_STOPS: readonly ColorStop[] = [
   { t: -1.0, r: 12, g: 36, b: 86 }, // 짙은 청색 (가장 깊은 세굴)
   { t: -0.5, r: 50, g: 110, b: 168 },
   { t: -0.15, r: 122, g: 178, b: 211 },
-  { t: 0.0, r: 220, g: 210, b: 180 }, // 베이지 (변화 없음)
-  { t: 0.3, r: 196, g: 156, b: 92 },
-  { t: 1.0, r: 132, g: 88, b: 36 }, // 황토색 (퇴적)
+  { t: 0.0, r: 214, g: 178, b: 118 }, // 따뜻한 모래 (변화 없음)
+  { t: 0.35, r: 168, g: 118, b: 62 }, // 퇴적 중간
+  { t: 1.0, r: 92, g: 62, b: 26 }, // 진한 퇴적 모래
 ];
 
 // 범례 등 외부 UI 가 동일한 그라디언트를 그릴 수 있게 CSS linear-gradient 문자열을 생성한다.
@@ -56,6 +56,63 @@ export function sampleColorRamp(
   out.r = clamp.r / 255;
   out.g = clamp.g / 255;
   out.b = clamp.b / 255;
+}
+
+/** 격자 위치 기반 미세 명암(±4%) — 평평한 하상에 모래 알갱이 느낌. */
+export function sandGrainFactor(gridX: number, gridY: number): number {
+  return (((gridX * 73 + gridY * 37) & 0xff) / 255) * 0.08 - 0.04;
+}
+
+/**
+ * 하상 메시 정점 색: 기본 모래 톤 + Δ(세굴/퇴적).
+ * 퇴적(+)은 기본 모래보다 진한 갈색으로 구분하고, 세굴(-)은 청색 계열을 유지한다.
+ */
+export function sampleTerrainSandColor(
+  delta: number,
+  absMax: number,
+  gridX: number,
+  gridY: number,
+  out: { r: number; g: number; b: number },
+): void {
+  const grain = sandGrainFactor(gridX, gridY);
+  const baseR = 0.84 + grain;
+  const baseG = 0.7 + grain * 0.75;
+  const baseB = 0.44 + grain * 0.5;
+
+  if (absMax <= 1e-12) {
+    out.r = baseR;
+    out.g = baseG;
+    out.b = baseB;
+    return;
+  }
+
+  const norm = Math.max(-1, Math.min(1, delta / absMax));
+
+  if (norm > 1e-6) {
+    const k = norm ** 0.55;
+    const depR = 0.36;
+    const depG = 0.24;
+    const depB = 0.1;
+    out.r = baseR + (depR - baseR) * k;
+    out.g = baseG + (depG - baseG) * k;
+    out.b = baseB + (depB - baseB) * k;
+    return;
+  }
+
+  if (norm < -1e-6) {
+    sampleColorRamp(delta, -absMax, absMax, out);
+    if (norm > -0.22) {
+      const blend = (norm + 0.22) / 0.22;
+      out.r = out.r * (1 - blend) + baseR * blend;
+      out.g = out.g * (1 - blend) + baseG * blend;
+      out.b = out.b * (1 - blend) + baseB * blend;
+    }
+    return;
+  }
+
+  out.r = baseR;
+  out.g = baseG;
+  out.b = baseB;
 }
 
 /** 하상 모래색 — 표고가 낮을수록(세굴공) 어둡고 습한 색. */

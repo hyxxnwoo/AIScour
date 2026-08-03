@@ -211,6 +211,8 @@ export class TerrainWater implements Disposable {
   /** CSV 프로브 실측값(단일 시점 스칼라)으로 수면 전체를 균일하게 칠할 때 사용. null 이면 격자 샘플링. */
   private probeValue: number | null = null;
   private probeRange: { min: number; max: number } = { min: 0, max: 1 };
+  /** 고정 색 범위. null 이면 프레임마다 자동 측정. */
+  private fixedRange: { min: number; max: number } | null = null;
 
   public constructor(options: TerrainWaterOptions) {
     this.scene = options.scene;
@@ -363,6 +365,18 @@ export class TerrainWater implements Disposable {
     this.recolorSurface();
   }
 
+  /**
+   * 색 범위를 재생 구간 전체 기준으로 고정한다. 프레임마다 다시 측정하면
+   * 같은 색이 시각마다 다른 값을 뜻하게 되므로, CSV 실측 필드처럼 전체 범위를
+   * 미리 알 수 있는 경우에는 고정하는 편이 읽기 정확하다. null 이면 자동 측정.
+   */
+  public setColorRange(range: { min: number; max: number } | null): void {
+    this.fixedRange = range;
+    if (this.currentFluidFrameIndex >= 0) {
+      this.applyFluidFrame(this.currentFluidFrameIndex);
+    }
+  }
+
   /** 프로브 연동을 해제하고 합성 격자 기반 색으로 복귀한다. */
   public clearProbeQuantity(): void {
     if (this.probeValue === null) return;
@@ -393,6 +407,7 @@ export class TerrainWater implements Disposable {
     if (this.probeValue !== null && q === this.currentQuantity && q !== 'scrdif') {
       return this.probeRange;
     }
+    if (this.fixedRange && q === this.currentQuantity) return this.fixedRange;
     if (this.currentFluidFrameIndex < 0) return { min: 0, max: 1 };
     const frame = this.fluidFrames[this.currentFluidFrameIndex];
     if (!frame) return { min: 0, max: 1 };
@@ -554,7 +569,9 @@ export class TerrainWater implements Disposable {
 
     // 프로브 실측값이 있고(scrdif 제외) 현재 선택 양이면, 공간 전체를 단일 색으로 균일하게 칠한다.
     const useProbeColor = this.probeValue !== null && this.currentQuantity !== 'scrdif';
-    const range = useProbeColor ? this.probeRange : this.measureQuantityRange(frame, this.currentQuantity);
+    const range = useProbeColor
+      ? this.probeRange
+      : (this.fixedRange ?? this.measureQuantityRange(frame, this.currentQuantity));
     this.currentRange = range;
     const { min: vMin, max: vMax } = range;
 

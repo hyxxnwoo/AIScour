@@ -52,7 +52,7 @@ export const DEFAULT_SIM_PARAMS: SimParams = {
   tankWidthZ: FLUME.tank.widthZ,
   tankHeightY: FLUME.tank.heightY,
   structureFrontX: FLUME.structureFrontX,
-  pierCount: 3,
+  pierCount: 1,
   pierArrangement: 'along',
   pierDiameter: FLUME.structure.diameterM,
   structureShape: 'circle',
@@ -129,12 +129,14 @@ export const FLUID_FIELD_META: SimParamMeta[] = [
   { key: 'scrdifMax', label: 'scrdif', unit: 'm', min: 0.01, max: 0.5, step: 0.005 },
 ];
 
-export const FLUID_QUANTITY_PARAM_KEYS = {
+export type FluidDashboardQuantity = 'velocityX' | 'velocityY' | 'velocityZ' | 'scrdif';
+
+export const FLUID_QUANTITY_PARAM_KEYS: Record<FluidDashboardQuantity, NumericSimParamKey> = {
   velocityX: 'fluidU',
   velocityY: 'fluidV',
   velocityZ: 'fluidW',
   scrdif: 'scrdifMax',
-} as const satisfies Record<string, keyof SimParams>;
+};
 
 /** 유체 필드 패널이 소유하는 파라미터 키 */
 export const FLUID_PANEL_OWNED_KEYS = FLUID_FIELD_META.map((m) => m.key) as readonly NumericSimParamKey[];
@@ -153,22 +155,29 @@ export const EXPERIMENT_OWNED_KEYS = [
 export const SIM_PANEL_OWNED_KEYS = SIM_PARAM_META.map((m) => m.key) as readonly NumericSimParamKey[];
 
 /** 두 패널의 편집 값을 병합한다. 각 패널은 자신이 소유한 키만 반영한다. */
+function pickSimParams<K extends keyof SimParams>(
+  source: SimParams,
+  keys: readonly K[],
+): Pick<SimParams, K> {
+  const out = {} as Pick<SimParams, K>;
+  for (const key of keys) {
+    out[key] = source[key];
+  }
+  return out;
+}
+
 export function mergePanelParams(
   base: SimParams,
   experiment: SimParams,
   fluidPanel: SimParams,
   simPanel: SimParams = base,
 ): SimParams {
-  const merged = { ...base };
-  for (const key of EXPERIMENT_OWNED_KEYS) {
-    merged[key] = experiment[key];
-  }
-  for (const key of FLUID_PANEL_OWNED_KEYS) {
-    merged[key] = fluidPanel[key];
-  }
-  for (const key of SIM_PANEL_OWNED_KEYS) {
-    merged[key] = simPanel[key];
-  }
+  const merged: SimParams = {
+    ...base,
+    ...pickSimParams(experiment, EXPERIMENT_OWNED_KEYS),
+    ...pickSimParams(fluidPanel, FLUID_PANEL_OWNED_KEYS),
+    ...pickSimParams(simPanel, SIM_PANEL_OWNED_KEYS),
+  };
   merged.inflowSpeed = merged.fluidU;
   return merged;
 }

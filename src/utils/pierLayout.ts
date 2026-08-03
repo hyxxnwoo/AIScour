@@ -18,7 +18,7 @@ type LayoutParams = Pick<
   | 'pierArrangement'
 >;
 
-function pierSpacing(params: LayoutParams, arrangement: PierArrangement): number {
+function pierSpacing(params: LayoutParams, _arrangement: PierArrangement): number {
   const geom = paramsToFlumeGeometry(params);
   const { widthZ } = terrainPhysicalSize(geom);
   const count = clampPierCount(params.pierCount);
@@ -91,6 +91,63 @@ export function pierXPositions(params: LayoutParams): number[] {
   const maxX = lengthX / 2 - params.pierDiameter * 0.5;
 
   return Array.from({ length: count }, (_, i) => Math.min(startX + i * spacing, maxX));
+}
+
+function pierSpacingAlongCentered(params: LayoutParams): number {
+  const count = clampPierCount(params.pierCount);
+  if (count <= 1) return 0;
+
+  const geom = paramsToFlumeGeometry(params);
+  const { lengthX } = terrainPhysicalSize(geom);
+  const maxSpan = lengthX * 0.85;
+  const minSpacing = 2.5 * params.pierDiameter;
+  const preferred = Math.max(minSpacing, params.pierDiameter * 3.5);
+  const maxSpacing = maxSpan / (count - 1);
+  return Math.min(preferred, maxSpacing);
+}
+
+/** 도메인 중심(x=0, z=0) 기준 교각 배치. CSV 대시보드용. */
+export function buildCenteredPierLayout(params: SimParams): PierDefinition[] {
+  const pierHeight = params.tankHeightY + 0.03;
+  const count = clampPierCount(params.pierCount);
+  const arrangement = params.pierArrangement ?? 'along';
+
+  if (count === 1) {
+    return [
+      {
+        id: 'P1',
+        x: 0,
+        z: 0,
+        diameter: params.pierDiameter,
+        height: pierHeight,
+        shape: params.structureShape,
+      },
+    ];
+  }
+
+  if (arrangement === 'along') {
+    const spacing = pierSpacingAlongCentered(params);
+    const xPositions = symmetricLinePositions(count, spacing);
+    return xPositions.map((x, i) => ({
+      id: `P${i + 1}`,
+      x,
+      z: 0,
+      diameter: params.pierDiameter,
+      height: pierHeight,
+      shape: params.structureShape,
+    }));
+  }
+
+  const spacing = pierSpacingZ(params);
+  const zPositions = symmetricLinePositions(count, spacing);
+  return zPositions.map((z, i) => ({
+    id: `P${i + 1}`,
+    x: 0,
+    z,
+    diameter: params.pierDiameter,
+    height: pierHeight,
+    shape: params.structureShape,
+  }));
 }
 
 /** SimParams 기준 교각 정의 배열(P1…Pn). */

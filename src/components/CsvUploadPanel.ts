@@ -5,9 +5,10 @@ import { isCsvParseAbortError } from '@/utils/csvParseAbort';
 import { computeCsvProgressPct } from '@/utils/csvProgress';
 import { snapshotUploadFiles, UPLOAD_SNAPSHOT_MAX_BYTES } from '@/utils/readUploadFile';
 import { CsvDataPreviewModal } from '@/components/CsvDataPreviewModal';
-import type { SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
+import type { SampleProbeDataset } from '@/utils/parseSampleProbeCsv';
+import { DEFAULT_T_INTERVAL_SECONDS } from '@/utils/parseSampleProbeCsv';
 
-/** 재생 간격 UI 옵션: 라벨 → stride(30초 배수). */
+/** 재생 간격 UI 옵션: 라벨 → t 블록 stride(기본 30초 배수). */
 export const SAMPLE_PROBE_INTERVAL_OPTIONS = [
   { label: '30초', stride: 1 },
   { label: '1분', stride: 2 },
@@ -45,13 +46,10 @@ function basename(path: string): string {
   return idx >= 0 ? normalized.slice(idx + 1) : normalized;
 }
 
-function isFullSampleProbeColumns(columns: SampleProbeColumns): boolean {
-  const total = columns.stats?.dataRowCount ?? columns.count;
-  const parseStride = columns.stats?.parseStepMultiple ?? 1;
-  return parseStride === 1 && columns.count === total;
-}
-
-function formatIntervalLabel(stepMultiple: number, baseIntervalSeconds = 30): string {
+function formatIntervalLabel(
+  stepMultiple: number,
+  baseIntervalSeconds = DEFAULT_T_INTERVAL_SECONDS,
+): string {
   const seconds = stepMultiple * baseIntervalSeconds;
   if (seconds < 60) return `${seconds}초`;
   if (seconds % 60 === 0) return `${seconds / 60}분`;
@@ -60,10 +58,10 @@ function formatIntervalLabel(stepMultiple: number, baseIntervalSeconds = 30): st
 
 function formatAutoAdjustedMessage(
   result: CsvDashboardLoadResult,
-  baseIntervalSeconds = 30,
+  baseIntervalSeconds = DEFAULT_T_INTERVAL_SECONDS,
 ): string {
   const intervalLabel = formatIntervalLabel(result.stepMultiple, baseIntervalSeconds);
-  return `행이 많아 재생 간격을 ${intervalLabel}로 자동 조정했습니다 · 프레임 ${result.scour.frames.length}개`;
+  return `t 블록이 많아 재생 간격을 ${intervalLabel}로 자동 조정했습니다 · 프레임 ${result.scour.frames.length}개`;
 }
 
 export class CsvUploadPanel implements Disposable {
@@ -80,7 +78,7 @@ export class CsvUploadPanel implements Disposable {
   private parseReadyFiles: File[] = [];
   private abortController: AbortController | null = null;
   private lastLoadResult: CsvDashboardLoadResult | null = null;
-  private lastColumns: SampleProbeColumns | null = null;
+  private lastDataset: SampleProbeDataset | null = null;
   private readonly previewModal = new CsvDataPreviewModal();
   private pendingProgress: CsvLoadProgress | null = null;
   private progressFrame: number | null = null;
@@ -106,7 +104,7 @@ export class CsvUploadPanel implements Disposable {
     const hint = document.createElement('p');
     hint.className = 'csv-upload-panel__hint';
     hint.textContent =
-      'sampledata.csv 양식(x y z u v w scrdif)만 업로드합니다. 교각별로 다른 세굴을 반영하려면 교각 순서(P1, P2, P3…)대로 CSV를 여러 개 선택하세요.';
+      'sampledata.csv 양식(x y z u v w scrdif, C열 t 마커=시간)만 업로드합니다. t 등장 순서대로 0·30·60…초 프레임이 됩니다. 교각별로 다른 세굴을 반영하려면 교각 순서(P1, P2, P3…)대로 CSV를 여러 개 선택하세요.';
     this.element.appendChild(hint);
 
     const fileRow = document.createElement('div');
@@ -200,7 +198,7 @@ export class CsvUploadPanel implements Disposable {
     this.previewBtn.hidden = true;
     const onPreview = (): void => {
       if (this.lastLoadResult) {
-        this.previewModal.open(this.lastLoadResult, this.lastColumns);
+        this.previewModal.open(this.lastLoadResult, this.lastLoadResult.columns);
       }
     };
     this.previewBtn.addEventListener('click', onPreview);
@@ -276,7 +274,7 @@ export class CsvUploadPanel implements Disposable {
       this.previewBtn.hidden = true;
       this.intervalRow.hidden = true;
       this.lastLoadResult = null;
-      this.lastColumns = null;
+      this.lastDataset = null;
 
       const totalBytes = raw.reduce((sum, f) => sum + f.size, 0);
       const hint = totalBytes > 2 * 1024 * 1024 ? ' · 대용량(스트리밍 파싱)' : ' · 스트리밍 파싱';
@@ -293,7 +291,7 @@ export class CsvUploadPanel implements Disposable {
     this.previewBtn.hidden = true;
     this.intervalRow.hidden = true;
     this.lastLoadResult = null;
-    this.lastColumns = null;
+    this.lastDataset = null;
     if (files.length === 0) {
       this.statusEl.textContent = '선택된 파일 없음';
       this.loadBtn.disabled = true;
@@ -332,6 +330,10 @@ export class CsvUploadPanel implements Disposable {
   private formatLoadCompleteStatus(result: CsvDashboardLoadResult): string {
     const base = `완료 · ${result.scour.baseTerrain.width}×${result.scour.baseTerrain.height} · 프레임 ${result.scour.frames.length}개`;
     const parts = [base];
+    if (result.fluid) {
+      const g = result.fluid.grid;
+      parts.push(`유체장 ${g.width}×${g.height}×${g.depth}`);
+    }
     if (result.csvScrdifAllZero) {
       parts.push('CSV scrdif=0 · 세굴 없음(실측 없음)');
     }
@@ -346,18 +348,15 @@ export class CsvUploadPanel implements Disposable {
   }
 
   private async rebuildWithCurrentInterval(): Promise<void> {
-    if (!this.lastColumns && !this.lastLoadResult) return;
+    if (!this.lastDataset && !this.lastLoadResult) return;
     const stepMultiple = this.getStepMultiple();
     const lastStep = this.lastLoadResult?.stepMultiple ?? 1;
     if (stepMultiple === lastStep) return;
 
-    if (
-      this.parseReadyFiles.length === 1 &&
-      this.lastColumns &&
-      isFullSampleProbeColumns(this.lastColumns)
-    ) {
-      const result = rebuildCsvDashboard(this.lastColumns, stepMultiple);
+    if (this.parseReadyFiles.length === 1 && this.lastDataset) {
+      const result = rebuildCsvDashboard(this.lastDataset, stepMultiple);
       this.lastLoadResult = result;
+      this.lastDataset = result.dataset;
       this.syncIntervalSelect(result.stepMultiple, result.probeSeries.baseIntervalSeconds);
       const applyMessage = result.autoAdjusted
         ? `${formatAutoAdjustedMessage(result, result.probeSeries.baseIntervalSeconds)} · 3D 적용 중…`
@@ -403,7 +402,7 @@ export class CsvUploadPanel implements Disposable {
       });
 
       this.flushProgressFrame();
-      this.lastColumns = result.columns;
+      this.lastDataset = result.dataset;
       this.lastLoadResult = result;
       this.syncIntervalSelect(result.stepMultiple, result.probeSeries.baseIntervalSeconds);
       this.progressBar.style.width = '100%';
@@ -502,7 +501,7 @@ export class CsvUploadPanel implements Disposable {
     this.previewBtn.hidden = true;
     this.intervalRow.hidden = true;
     this.lastLoadResult = null;
-    this.lastColumns = null;
+    this.lastDataset = null;
     this.setLoading(true);
     this.progressBar.style.width = '0%';
     this.blockerProgressBar.style.width = '0%';
@@ -526,7 +525,7 @@ export class CsvUploadPanel implements Disposable {
 
       this.flushProgressFrame();
 
-      this.lastColumns = result.columns;
+      this.lastDataset = result.dataset;
       this.intervalRow.hidden = false;
       this.syncIntervalSelect(result.stepMultiple, result.probeSeries.baseIntervalSeconds);
 

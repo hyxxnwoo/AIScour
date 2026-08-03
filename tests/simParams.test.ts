@@ -10,7 +10,7 @@ describe('mergePanelParams', () => {
       structureShape: 'square' as const,
       pierDiameter: 0.15,
       pierCount: 3,
-      pierArrangement: 'along',
+      pierArrangement: 'along' as const,
       bridgeEnabled: true,
       bridgeType: 'cable-stayed' as const,
     };
