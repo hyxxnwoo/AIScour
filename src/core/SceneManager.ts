@@ -7,9 +7,9 @@ import type { Disposable } from '@/types/disposable';
 export class SceneManager implements Disposable {
   public readonly scene: Scene;
 
-  public constructor(backgroundColor: number = SCENE_BACKGROUND_COLOR) {
+  public constructor() {
     this.scene = new Scene();
-    this.scene.background = new Color(backgroundColor);
+    this.scene.background = new Color(SCENE_BACKGROUND_COLOR);
   }
 
   /** CSS 색 문자열(#rgb / #rrggbb) 또는 숫자 hex 로 배경 즉시 변경 */

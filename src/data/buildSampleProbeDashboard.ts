@@ -244,8 +244,8 @@ function pierDefinitionsFromWorldPositions(
 
 /**
  * CSV 대시보드 교각 배치.
- * 기본은 지형·CSV 데이터 중심(월드 x=0, z=0)에 둔다.
- * pierCount≥2 이고 scrdif 신호가 있으면 국소 최대 위치를 사용한다.
+ * scrdif 신호가 있으면 실제 세굴/퇴적이 발생한 위치(국소 최대)를 기둥 위치로 사용한다.
+ * 신호가 없으면 지형·CSV 데이터 중심(월드 x=0, z=0)에 둔다.
  */
 export function resolveCsvPierLayout(
   dataset: SampleProbeDataset,
@@ -257,9 +257,6 @@ export function resolveCsvPierLayout(
   }
 
   const pierCount = clampPierCount(options.pierCount ?? 1);
-  if (pierCount === 1) {
-    return pierDefinitionsFromWorldPositions([{ x: 0, z: 0 }], options);
-  }
 
   if (csvScrdifIsAllZero(bounds)) {
     return buildCenteredPierLayout(csvLayoutParams(options));
