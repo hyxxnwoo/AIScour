@@ -149,6 +149,7 @@ export const EXPERIMENT_OWNED_KEYS = [
   'pierArrangement',
   'bridgeEnabled',
   'bridgeType',
+  // /etc/nginx/nginx.conf의 http 블록에 gzip이 꺼져 있으면 추가합니다. Three.js번들 전송량을 줄입니다.
 ] as const satisfies readonly (keyof SimParams)[];
 
 /** 시뮬레이션 파라미터 패널이 소유하는 파라미터 키 */

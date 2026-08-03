@@ -9,6 +9,8 @@ import { FluidControls, fluidDashboardLabel, type FluidRangeEntry } from '@/comp
 import { FluidFieldLegend } from '@/components/FluidFieldLegend';
 import { FluidTimeSeriesChart } from '@/components/FluidTimeSeriesChart';
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts';
+import { LoginScreen } from '@/components/LoginScreen';
+import { LogoutButton } from '@/components/LogoutButton';
 import { ScourWarning } from '@/components/ScourWarning';
 import { TimeControls } from '@/components/TimeControls';
 import { AnimationLoop } from '@/core/AnimationLoop';
@@ -64,6 +66,7 @@ import {
 } from '@/utils/fluidWorld';
 
 const MANIFEST_URL = '/data/flow3d/processed/demo/manifest.json';
+const AUTH_STORAGE_KEY = 'aiscour.authenticated';
 
 function fluidUnitForQuantity(q: FluidQuantity, meta?: FluidSeries['metadata']): string {
   if (q === 'scrdif') return meta?.scalarUnits?.scrdif ?? 'm';
@@ -578,6 +581,14 @@ async function bootstrap(): Promise<void> {
   applyFluidPrimaryQuantity(fluidControls.getPrimaryQuantity());
   syncFluidFieldLegend();
 
+  const logoutButton = new LogoutButton({
+    onLogout: () => {
+      sessionStorage.removeItem(AUTH_STORAGE_KEY);
+      window.location.reload();
+    },
+  });
+  dockRight.appendChild(logoutButton.element);
+
   const cameraPresets = new CameraPresets({
     onSelect: (preset) => cameraManager.applyPreset(preset, sceneRadius),
   });
@@ -849,6 +860,7 @@ async function bootstrap(): Promise<void> {
     shortcuts.dispose();
     loop.dispose();
     picking.dispose();
+    logoutButton.dispose();
     cameraPresets.dispose();
     cellSeries.dispose();
     experimentInfoPanel.dispose();
@@ -875,6 +887,33 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-bootstrap().catch((err: unknown) => {
-  console.error('애플리케이션 부트스트랩 실패:', err);
-});
+function start(): void {
+  const appRoot = document.getElementById('app');
+  if (!appRoot) {
+    throw new Error('필수 DOM (#app) 을 찾을 수 없습니다.');
+  }
+
+  const launch = (): void => {
+    appRoot.classList.add('is-authenticated');
+    bootstrap().catch((err: unknown) => {
+      console.error('애플리케이션 부트스트랩 실패:', err);
+    });
+  };
+
+  if (sessionStorage.getItem(AUTH_STORAGE_KEY) === '1') {
+    launch();
+    return;
+  }
+
+  appRoot.classList.remove('is-authenticated');
+  const loginScreen = new LoginScreen({
+    onSuccess: () => {
+      sessionStorage.setItem(AUTH_STORAGE_KEY, '1');
+      loginScreen.dispose();
+      launch();
+    },
+  });
+  document.body.appendChild(loginScreen.element);
+}
+
+start();
