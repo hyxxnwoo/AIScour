@@ -26,7 +26,7 @@ import {
 } from '@/data/buildSampleProbeDashboard';
 import { probeFluidQuantityRange } from '@/data/buildProbeFluidSeries';
 import { buildPierLayout } from '@/utils/pierLayout';
-import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
+import { createEmptyFluidSeries } from '@/data/createEmptyFluidSeries';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
 import { FluidSlicePlane } from '@/modules/FluidSlicePlane';
 import { FluidQuantityPoints } from '@/modules/FluidQuantityPoints';
@@ -44,7 +44,6 @@ import { FlowDirectionBadge } from '@/components/FlowDirectionBadge';
 import {
   fluidGridDims,
   paramsToFlumeGeometry,
-  structureCenterX,
   terrainGridDims,
 } from '@/constants/experiment';
 import type { FluidQuantity, FluidSeries } from '@/types/fluid';
@@ -52,7 +51,6 @@ import type { ScourSeries } from '@/types/terrain';
 import { DEFAULT_SIM_PARAMS, frameIntervalSeconds, mergePanelParams, type SimParams } from '@/types/simParams';
 import { createFpsMeter } from '@/utils/fpsMeter';
 import { captureSceneScreenshot } from '@/utils/screenshot';
-import { injectScrdifFromScour } from '@/utils/injectScrdifFluid';
 import { normalizeFluidQuantityRange } from '@/utils/fluidQuantityColor';
 import { pierScourRatios } from '@/utils/pierScourSample';
 import { yieldToMain } from '@/utils/yieldToMain';
@@ -236,7 +234,6 @@ async function buildSimState(
   const geom = paramsToFlumeGeometry(params);
   const terrainDims = terrainGridDims(geom);
   const fluidDims = fluidGridDims(geom);
-  const pierX = structureCenterX(geom);
   const interval = frameIntervalSeconds(params);
 
   // ── 세굴 데이터
@@ -269,24 +266,17 @@ async function buildSimState(
     resolvedPierDefs,
   );
 
-  // ── 유체 데이터
+  // ── 유체 데이터 (CSV 미적용 시 전 셀 0, CSV 적용 후에만 실측값)
   let fluidSeries =
     baseFluidSeries ??
-    (await new SyntheticFluidSource({
+    createEmptyFluidSeries({
       width: fluidDims.width,
       height: fluidDims.height,
       depth: fluidDims.depth,
       cellSize: fluidDims.cellSize,
       frameCount: params.frameCount,
       frameIntervalSeconds: interval,
-      fluidU: params.fluidU,
-      fluidV: params.fluidV,
-      fluidW: params.fluidW,
-      permeable: params.structurePermeable,
-      pier: resolvedPierDefs[0]
-        ? { x: resolvedPierDefs[0].x, z: resolvedPierDefs[0].z, radius: params.pierDiameter / 2 }
-        : { x: pierX, z: 0, radius: params.pierDiameter / 2 },
-    }).load());
+    });
 
   if (baseFluidSeries) {
     const isProbeCsv = baseFluidSeries.metadata?.simulationId === 'sample-probe-csv';
@@ -306,10 +296,6 @@ async function buildSimState(
         fluidMinY,
         Math.min(fluidMaxY, waterSurfaceElevation(activeSeries.baseTerrain, params.waterDepth)),
       );
-
-  if (!baseFluidSeries) {
-    injectScrdifFromScour(fluidSeries, activeSeries, initialFluidY);
-  }
 
   const slicePlane = new FluidSlicePlane({
     scene,
@@ -719,8 +705,9 @@ async function bootstrap(): Promise<void> {
   const csvUploadPanel = new CsvUploadPanel({
     onLoaded: async (result) => {
       await yieldToMain();
+      const nextParams = { ...params, pierCount: 1 };
       const next = await buildSimState(
-        params,
+        nextParams,
         sceneManager.scene,
         result.scour,
         result.fluid,
@@ -728,7 +715,7 @@ async function bootstrap(): Promise<void> {
         result.probeSeries,
       );
       await yieldToMain();
-      swapSim(next);
+      swapSim(next, nextParams);
       cameraManager.applyPreset(
         'reset',
         sceneViewRadius(next.series.baseTerrain, next.fluidSeries),
@@ -795,10 +782,11 @@ async function bootstrap(): Promise<void> {
     cameraManager.updateAspect(width / height);
   });
 
-  loop.add((delta, elapsed) => {
+  loop.add((delta) => {
     fpsMeter.begin();
     timeControls.tick(delta);
     const t = timeControls.time;
+    const simDelta = timeControls.simulationDelta(delta);
 
     sim.terrain.updateAtTime(t);
     sim.sedimentLayer.updateAtTime(t);
@@ -807,11 +795,11 @@ async function bootstrap(): Promise<void> {
       params.criticalScourDepth,
     );
     sim.terrainWater.updateAtTime(t);
-    sim.terrainWater.tickRipple(elapsed);
+    sim.terrainWater.tickRipple(t);
     sim.terrainWater.setCameraPosition(cameraManager.camera.position);
     sim.tracers.updateAtTime(t);
     syncProbeTracers(sim.tracers, sim.probeSeries, t, sim.probeFluidField);
-    sim.tracers.tick(delta);
+    sim.tracers.tick(simDelta);
     sim.slicePlane.updateAtTime(t);
     sim.arrows.updateAtTime(t);
     sim.fluidPoints.updateAtTime(t);
@@ -845,7 +833,7 @@ async function bootstrap(): Promise<void> {
       sim.terrainWater.setFlowVector(sample?.u ?? 0, sample?.v ?? 0);
     } else {
       sim.terrainWater.clearProbeQuantity();
-      sim.terrainWater.setFlowVector(params.fluidU, params.fluidV);
+      sim.terrainWater.setFlowVector(0, 0);
     }
     syncFluidFieldLegend();
 

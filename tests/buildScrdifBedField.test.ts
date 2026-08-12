@@ -178,14 +178,29 @@ describe('inferScrdifCentroids', () => {
     expect(centroids[0]!.dataY).toBeCloseTo(0.1, 2);
   });
 
-  it('resolveCsvPierLayout 은 기본으로 지형·CSV 중심(0,0)에 교각을 둔다', () => {
+  it('resolveCsvPierLayout 은 scrdif 위치의 세굴공 중심에 교각을 둔다', () => {
     const columns = makeProbeColumns([{ x: 0.55, y: -0.04, z: 0, scrdif: -0.07 }]);
     const dataset = datasetFromColumns(columns);
     const bounds = computeBounds(columns);
     const piers = resolveCsvPierLayout(dataset, bounds, { pierCount: 1 });
     expect(piers.length).toBe(1);
-    expect(piers[0]!.x).toBeCloseTo(0, 5);
-    expect(piers[0]!.z).toBeCloseTo(0, 5);
+    const expected = dataToWorld(0.55, -0.04, 0, bounds);
+    expect(piers[0]!.x).toBeCloseTo(expected.x, 1);
+    expect(piers[0]!.z).toBeCloseTo(expected.z, 1);
+  });
+
+  it('세굴공이 여러 개여도 교각은 1개만 두고 가장 깊은 곳에 배치한다', () => {
+    const columns = makeProbeColumns([
+      { x: 0.45, y: -0.06, z: 0, scrdif: -0.04 },
+      { x: 0.65, y: 0.05, z: 0, scrdif: -0.09 },
+    ]);
+    const dataset = datasetFromColumns(columns);
+    const bounds = computeBounds(columns);
+    const piers = resolveCsvPierLayout(dataset, bounds);
+    expect(piers.length).toBe(1);
+    const expected = dataToWorld(0.65, 0.05, 0, bounds);
+    expect(piers[0]!.x).toBeCloseTo(expected.x, 1);
+    expect(piers[0]!.z).toBeCloseTo(expected.z, 1);
   });
 });
 

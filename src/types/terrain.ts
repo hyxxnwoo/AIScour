@@ -25,6 +25,8 @@ export interface TerrainMetadata {
   simulationId?: string;
   // 캡처 시점(ISO 8601)
   capturedAt?: string;
+  /** CSV 평균 유속 기준 흐름 방향(rad). 교량 데크 축 결정에 사용. */
+  flowHeading?: number;
   // 교각 정의(선택). 메타에 포함되어 있으면 PierMarker 가 자동 생성한다.
   piers?: PierDefinitionMeta[];
 }

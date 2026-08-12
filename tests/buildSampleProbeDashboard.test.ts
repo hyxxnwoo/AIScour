@@ -159,15 +159,16 @@ describe('buildSampleProbeDashboard', () => {
     expect(built.scour.frames[1]!.timestampSeconds).toBe(60);
   });
 
-  it('기본 교각은 도메인 중심(0,0)에 둔다', () => {
+  it('scrdif 가 있는 CSV 는 세굴공 중심에 교각을 둔다', () => {
     const dataset = datasetFromColumns(
       makeProbeColumns([{ x: 0.55, y: -0.04, z: 0, scrdif: -0.07 }]),
     );
     const built = buildSampleProbeDashboard(dataset, { pierCount: 1 });
     const pier = built.scour.baseTerrain.metadata?.piers?.[0];
     expect(pier).toBeDefined();
-    expect(pier!.x).toBeCloseTo(0, 5);
-    expect(pier!.z).toBeCloseTo(0, 5);
+    const expected = dataToWorld(0.55, -0.04, 0, built.probeSeries.bounds);
+    expect(pier!.x).toBeCloseTo(expected.x, 1);
+    expect(pier!.z).toBeCloseTo(expected.z, 1);
   });
 
   it('scrdif 는 CSV 데이터 위치의 지형 셀에 배치된다', () => {
@@ -323,5 +324,26 @@ describe('buildSampleProbeDashboardMulti (교각 1개당 CSV 1개)', () => {
     ]);
     const built = buildSampleProbeDashboardMulti([shortDs, longDs], { pierCount: 2 });
     expect(built.scour.frames.length).toBe(3);
+  });
+
+  it('교각별 CSV 는 각 파일의 세굴 위치에 교각을 배치한다', () => {
+    const pier1 = datasetFromColumns(
+      makeProbeColumns([{ x: 0.45, y: -0.06, z: 0, scrdif: -0.08 }]),
+    );
+    const pier2 = datasetFromColumns(
+      makeProbeColumns([{ x: 0.65, y: 0.05, z: 0, scrdif: -0.07 }]),
+    );
+
+    const built = buildSampleProbeDashboardMulti([pier1, pier2]);
+    const piers = built.scour.baseTerrain.metadata?.piers ?? [];
+    expect(piers.length).toBe(2);
+
+    const bounds = built.probeSeries.bounds;
+    const w1 = dataToWorld(0.45, -0.06, 0, bounds);
+    const w2 = dataToWorld(0.65, 0.05, 0, bounds);
+    expect(piers[0]!.x).toBeCloseTo(w1.x, 1);
+    expect(piers[0]!.z).toBeCloseTo(w1.z, 1);
+    expect(piers[1]!.x).toBeCloseTo(w2.x, 1);
+    expect(piers[1]!.z).toBeCloseTo(w2.z, 1);
   });
 });

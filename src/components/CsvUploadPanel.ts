@@ -336,6 +336,8 @@ export class CsvUploadPanel implements Disposable {
     }
     if (result.csvScrdifAllZero) {
       parts.push('CSV scrdif=0 · 세굴 없음(실측 없음)');
+    } else if (result.piers.length > 0) {
+      parts.push(`교각 ${result.piers.length}개 자동 감지`);
     }
     if (result.autoAdjusted) {
       const intervalLabel = formatIntervalLabel(

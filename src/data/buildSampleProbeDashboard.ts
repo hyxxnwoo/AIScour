@@ -20,7 +20,7 @@ import {
   type SampleProbeDataset,
   type SampleProbeTimeBlock,
 } from '@/utils/parseSampleProbeCsv';
-import { buildCenteredPierLayout, buildPierLayout, clampPierCount } from '@/utils/pierLayout';
+import { buildCenteredPierLayout, buildPierLayout, clampPierCount, pierSpacingZ } from '@/utils/pierLayout';
 import {
   probeDataXToWorldX,
   probeDataYToWorldZ,
@@ -244,7 +244,7 @@ function pierDefinitionsFromWorldPositions(
 
 /**
  * CSV 대시보드 교각 배치.
- * scrdif 신호가 있으면 실제 세굴/퇴적이 발생한 위치(국소 최대)를 기둥 위치로 사용한다.
+ * scrdif 신호가 있으면 가장 깊은 세굴공 1곳에 교각 1개를 둔다.
  * 신호가 없으면 지형·CSV 데이터 중심(월드 x=0, z=0)에 둔다.
  */
 export function resolveCsvPierLayout(
@@ -256,39 +256,97 @@ export function resolveCsvPierLayout(
     return resolveHybridPierLayout(options);
   }
 
-  const pierCount = clampPierCount(options.pierCount ?? 1);
-
   if (csvScrdifIsAllZero(bounds)) {
-    return buildCenteredPierLayout(csvLayoutParams(options));
+    const fallbackCount = clampPierCount(options.pierCount ?? 1);
+    return buildCenteredPierLayout({
+      ...csvLayoutParams(options),
+      pierCount: fallbackCount,
+    });
   }
 
   const pierDiameter = options.pierDiameter ?? FLUME.structure.diameterM;
   const worlds = inferPierWorldPositionsFromDataset(
     dataset,
     boundsWorldAnchor(bounds),
-    pierCount,
+    1,
     2.5 * pierDiameter,
+    undefined,
+    pierDiameter,
   );
 
   if (worlds.length === 0) {
-    return buildCenteredPierLayout(csvLayoutParams(options));
+    const fallbackCount = clampPierCount(options.pierCount ?? 1);
+    return buildCenteredPierLayout({
+      ...csvLayoutParams(options),
+      pierCount: fallbackCount,
+    });
   }
 
   return pierDefinitionsFromWorldPositions(worlds, options);
 }
 
-/** 교각별 CSV 각각에서 도메인 중심(0,0)에 교각 1개씩 배치한다. */
+function separateOverlappingWorldPositions(
+  worlds: Array<{ x: number; z: number }>,
+  minSepM: number,
+): void {
+  for (let i = 0; i < worlds.length; i += 1) {
+    for (let j = i + 1; j < worlds.length; j += 1) {
+      const a = worlds[i]!;
+      const b = worlds[j]!;
+      const dist = Math.hypot(a.x - b.x, a.z - b.z);
+      if (dist >= minSepM || dist < 1e-9) continue;
+      const push = (minSepM - dist) / 2 + 1e-6;
+      a.z -= push;
+      b.z += push;
+    }
+  }
+}
+
+/** 교각별 CSV 각각에서 세굴공 1개씩 추정해 배치한다. */
 export function resolveMultiCsvPierLayout(
   pierDatasets: SampleProbeDataset[],
+  anchor: ProbeWorldAnchor,
   options: BuildSampleProbeDashboardOptions = {},
 ): PierDefinition[] {
   if (options.pierX !== undefined || options.pierZ !== undefined) {
     return resolveHybridPierLayout(options);
   }
 
-  return pierDatasets.map(
-    () => pierDefinitionsFromWorldPositions([{ x: 0, z: 0 }], options)[0]!,
-  );
+  const pierDiameter = options.pierDiameter ?? FLUME.structure.diameterM;
+  const minSep = 2.5 * pierDiameter;
+  const layoutParams = csvLayoutParams(options);
+  const fallbackZ = pierSpacingZ(layoutParams);
+  const count = pierDatasets.length;
+  const symmetricZ =
+    count <= 1
+      ? [0]
+      : Array.from({ length: count }, (_, i) => {
+          const totalSpan = fallbackZ * (count - 1);
+          const start = -totalSpan / 2;
+          return start + i * fallbackZ;
+        });
+
+  const worlds: Array<{ x: number; z: number }> = [];
+
+  for (let i = 0; i < pierDatasets.length; i += 1) {
+    const ds = pierDatasets[i]!;
+    const candidates = inferPierWorldPositionsFromDataset(
+      ds,
+      anchor,
+      1,
+      minSep,
+      undefined,
+      pierDiameter,
+    );
+    if (candidates.length > 0) {
+      worlds.push({ x: candidates[0]!.x, z: candidates[0]!.z });
+    } else {
+      worlds.push({ x: 0, z: symmetricZ[i] ?? 0 });
+    }
+  }
+
+  separateOverlappingWorldPositions(worlds, minSep);
+  return pierDefinitionsFromWorldPositions(worlds, options);
 }
 
 /** 세굴 프레임 한도 안에 들어오도록 시간 블록 stride 를 올린다. */
@@ -303,7 +361,7 @@ export function resolveSafeStepMultiple(
   return Math.max(requested, minStep);
 }
 
-function resolveTerrainGrid(piers: PierDefinition[]): TerrainGrid {
+function resolveTerrainGrid(piers: PierDefinition[], flowHeading?: number): TerrainGrid {
   const dims = terrainGridDims();
   const vertexCount = dims.width * dims.height;
   return {
@@ -314,6 +372,7 @@ function resolveTerrainGrid(piers: PierDefinition[]): TerrainGrid {
     metadata: {
       elevationUnit: 'm',
       simulationId: 'sample-probe-csv',
+      ...(flowHeading !== undefined ? { flowHeading } : {}),
       piers: piers.map((pier) => {
         const meta: { id: string; x: number; z: number; diameter?: number; height?: number } = {
           id: pier.id,
@@ -547,8 +606,9 @@ export function buildSampleProbeDashboard(
   const tankLengthX = options.tankLengthX ?? FLUME.tank.lengthX;
   const bounds = computeBounds(dataset.flatColumns, tankLengthX);
   const anchor = boundsWorldAnchor(bounds);
+  const flowHeading = computeMeanFlow(dataset.flatColumns).flowHeading;
   const pierLayout = resolveCsvPierLayout(dataset, bounds, options);
-  const baseTerrain = resolveTerrainGrid(pierLayout);
+  const baseTerrain = resolveTerrainGrid(pierLayout, flowHeading);
   const bedAxes = buildBedAxes(dataset);
 
   const frameCount = Math.ceil(totalBlocks / loopStep);
@@ -592,18 +652,21 @@ export function buildMultiPierScourFrames(
   loopStep: number,
   maxBlocks: number,
   baseIntervalSeconds: number,
-  bedAxes: BedAxes,
   anchor: ProbeWorldAnchor,
 ): ScourFrame[] {
   const frames: ScourFrame[] = [];
   const { width, height } = terrain;
-  const bedScratch = new Float32Array(bedGridSize(bedAxes));
   const pierDelta = new Float32Array(width * height);
+  const bedAxesPerDataset = pierDatasets.map((ds) => buildBedAxes(ds));
+  const bedScratchPerDataset = bedAxesPerDataset.map((axes) => new Float32Array(bedGridSize(axes)));
 
   for (let timeIndex = 0; timeIndex < maxBlocks; timeIndex += loopStep) {
     const delta = new Float32Array(width * height);
 
-    for (const ds of pierDatasets) {
+    for (let di = 0; di < pierDatasets.length; di += 1) {
+      const ds = pierDatasets[di]!;
+      const bedAxes = bedAxesPerDataset[di]!;
+      const bedScratch = bedScratchPerDataset[di]!;
       const block = ds.blocks[Math.min(timeIndex, Math.max(0, ds.blocks.length - 1))]!;
       reduceScrdifToBed(block.columns, bedAxes.x, bedAxes.y, bedScratch);
       resampleBedToTerrain(
@@ -652,14 +715,13 @@ export function buildSampleProbeDashboardMulti(
     ...options,
     pierCount: pierDatasets.length,
   };
-  const pierLayout = resolveMultiCsvPierLayout(pierDatasets, pierOptions);
-  const baseTerrain = resolveTerrainGrid(pierLayout);
-
   const tankLengthX = options.tankLengthX ?? FLUME.tank.lengthX;
   const primary = pierDatasets[0]!;
   const bounds = computeBounds(primary.flatColumns, tankLengthX);
   const anchor = boundsWorldAnchor(bounds);
-  const bedAxes = buildBedAxes(primary);
+  const flowHeading = computeMeanFlow(primary.flatColumns).flowHeading;
+  const pierLayout = resolveMultiCsvPierLayout(pierDatasets, anchor, pierOptions);
+  const baseTerrain = resolveTerrainGrid(pierLayout, flowHeading);
 
   const frameCount = Math.ceil(maxBlocks / loopStep);
   assertScourMemoryBudget(frameCount, baseTerrain);
@@ -670,7 +732,6 @@ export function buildSampleProbeDashboardMulti(
     loopStep,
     maxBlocks,
     baseIntervalSeconds,
-    bedAxes,
     anchor,
   );
   const samples = buildProbeSamplesFromBlocks(primary.blocks, bounds, loopStep);

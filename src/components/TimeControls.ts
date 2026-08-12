@@ -110,6 +110,16 @@ export class TimeControls implements Disposable {
     return this.playing;
   }
 
+  public get playbackSpeed(): number {
+    return this.speed;
+  }
+
+  /** 재생·배속·스크럽 상태를 반영한 시뮬레이션 Δt(초). 일시정지면 0. */
+  public simulationDelta(deltaSeconds: number): number {
+    if (!this.playing || this.duration === 0 || this.isUserScrubbing) return 0;
+    return deltaSeconds * this.speed;
+  }
+
   public get time(): number {
     return this.currentTime;
   }

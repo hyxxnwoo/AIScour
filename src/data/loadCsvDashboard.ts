@@ -7,7 +7,7 @@ import {
   type SampleProbeSeries,
 } from '@/data/buildSampleProbeDashboard';
 import type { FluidSeries } from '@/types/fluid';
-import type { ScourSeries } from '@/types/terrain';
+import type { ScourSeries, PierDefinitionMeta } from '@/types/terrain';
 import { throwIfAborted } from '@/utils/csvParseAbort';
 import {
   countSampleProbeTimeBlocks,
@@ -41,6 +41,8 @@ export interface CsvDashboardLoadResult {
   columns: SampleProbeColumns;
   /** t 블록 Dataset. */
   dataset: SampleProbeDataset;
+  /** CSV에서 추정·배치된 교각 정의. */
+  piers: PierDefinitionMeta[];
   /** 실제 적용된 시간 블록 stride. */
   stepMultiple: number;
   /** 사용자가 요청한 stride. */
@@ -204,6 +206,7 @@ export async function loadCsvDashboard(
     fluid: built.fluid,
     columns: dataset.flatColumns,
     dataset,
+    piers: built.scour.baseTerrain.metadata?.piers ?? [],
     stepMultiple: effectiveStep,
     requestedStepMultiple,
     autoAdjusted,
@@ -299,6 +302,7 @@ async function loadMultiPierCsvDashboard(
     fluid: built.fluid,
     columns: primaryDataset.flatColumns,
     dataset: primaryDataset,
+    piers: built.scour.baseTerrain.metadata?.piers ?? [],
     stepMultiple: requestedStepMultiple,
     requestedStepMultiple,
     autoAdjusted: false,
@@ -351,6 +355,7 @@ export function rebuildCsvDashboard(
     fluid: built.fluid,
     columns: ds.flatColumns,
     dataset: ds,
+    piers: built.scour.baseTerrain.metadata?.piers ?? [],
     stepMultiple: effectiveStep,
     requestedStepMultiple: requested,
     autoAdjusted,

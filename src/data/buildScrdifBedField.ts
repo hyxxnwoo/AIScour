@@ -13,6 +13,7 @@ import {
   probeWorldZToDataY,
   type ProbeWorldAnchor,
 } from '@/utils/probeWorldCoords';
+import { detectScourHoles, type ScourHole } from '@/utils/scourHoleDetect';
 import type { SampleProbeColumns, SampleProbeDataset } from '@/utils/parseSampleProbeCsv';
 
 export interface BedAxes {
@@ -186,6 +187,33 @@ export function buildMaxAbsScrdifBed(
   return bed;
 }
 
+/** 모든 t 블록을 훑어 (x, y) 셀마다 가장 깊은 세굴(최소 Δ) 하상장을 만든다. */
+export function buildDeepestScourBed(
+  dataset: SampleProbeDataset,
+  bedAxes: BedAxes,
+): Float32Array {
+  const size = bedGridSize(bedAxes);
+  const bed = new Float32Array(size);
+  bed.fill(0);
+  const scratch = new Float32Array(size);
+
+  for (const block of dataset.blocks) {
+    reduceScrdifToBed(block.columns, bedAxes.x, bedAxes.y, scratch);
+    for (let i = 0; i < bed.length; i += 1) {
+      const s = scratch[i]!;
+      if (s < bed[i]!) bed[i] = s;
+    }
+  }
+
+  return bed;
+}
+
+export interface PierWorldCandidate {
+  x: number;
+  z: number;
+  maxDepthM: number;
+}
+
 export interface ScrdifCentroid {
   dataX: number;
   dataY: number;
@@ -286,7 +314,7 @@ export function createTerrainShell(): TerrainGrid {
 }
 
 /**
- * scrdif 를 지형 격자에 보간한 뒤 |Δ| 최대 셀(단일 기둥) 또는 국소 최대(복수)의 월드 XZ 를 반환한다.
+ * scrdif 를 지형 격자에 보간한 뒤 세굴공 중심의 월드 XZ 를 반환한다.
  * 렌더링되는 세굴/퇴적 위치와 교각이 일치하도록 지형 격자 기준으로 찾는다.
  */
 export function inferPierWorldPositionsFromDataset(
@@ -295,41 +323,30 @@ export function inferPierWorldPositionsFromDataset(
   pierCount: number,
   minSeparationM: number,
   terrain: TerrainGrid = createTerrainShell(),
-): Array<{ x: number; z: number }> {
+  pierDiameter = 0.1,
+): PierWorldCandidate[] {
   const bedAxes = buildBedAxes(dataset);
-  const bed = buildMaxAbsScrdifBed(dataset, bedAxes);
+  const bed = buildDeepestScourBed(dataset, bedAxes);
+  const delta = new Float32Array(terrain.width * terrain.height);
 
-  if (pierCount <= 1) {
-    const delta = new Float32Array(terrain.width * terrain.height);
-    resampleBedToTerrain(
-      bed,
-      bedAxes.x,
-      bedAxes.y,
-      anchor,
-      terrain,
-      delta,
-    );
+  resampleBedToTerrain(
+    bed,
+    bedAxes.x,
+    bedAxes.y,
+    anchor,
+    terrain,
+    delta,
+  );
 
-    let bestIdx = -1;
-    let bestAbs = 0;
-    for (let i = 0; i < delta.length; i += 1) {
-      const a = Math.abs(delta[i]!);
-      if (a > bestAbs) {
-        bestAbs = a;
-        bestIdx = i;
-      }
-    }
-    if (bestIdx < 0 || bestAbs <= SCRDIF_SIGNAL_EPS) return [];
+  const holes = detectScourHoles(delta, terrain, {
+    pierDiameter,
+    maxHoles: pierCount,
+    mergeSeparationFactor: minSeparationM / Math.max(pierDiameter, 1e-9),
+  });
 
-    const gx = bestIdx % terrain.width;
-    const gy = (bestIdx / terrain.width) | 0;
-    const { x, z } = terrainGridToWorldXZ(gx, gy, terrain);
-    return [{ x, z }];
-  }
-
-  const centroids = inferScrdifCentroids(bed, bedAxes, pierCount, minSeparationM);
-  return centroids.map((c) => ({
-    x: probeDataXToWorldX(c.dataX, anchor),
-    z: probeDataYToWorldZ(c.dataY, anchor),
+  return holes.map((h: ScourHole) => ({
+    x: h.x,
+    z: h.z,
+    maxDepthM: h.maxDepthM,
   }));
 }

@@ -39,4 +39,22 @@ describe('TimeControls', () => {
     expect(tc.isPlaying).toBe(false);
     tc.dispose();
   });
+
+  it('simulationDelta 는 일시정지·스크럽 중 0, 재생 중에는 배속을 반영한다', () => {
+    const tc = new TimeControls({ durationSeconds: 10, autoPlay: false });
+    expect(tc.simulationDelta(0.016)).toBe(0);
+
+    tc.setPlaying(true);
+    expect(tc.simulationDelta(0.016)).toBeCloseTo(0.016, 6);
+
+    const speedSelect = tc.element.querySelector('.time-controls__speed') as HTMLSelectElement;
+    speedSelect.value = '2';
+    speedSelect.dispatchEvent(new Event('change'));
+    expect(tc.playbackSpeed).toBe(2);
+    expect(tc.simulationDelta(0.016)).toBeCloseTo(0.032, 6);
+
+    tc.setPlaying(false);
+    expect(tc.simulationDelta(0.016)).toBe(0);
+    tc.dispose();
+  });
 });
