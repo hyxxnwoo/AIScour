@@ -25,7 +25,7 @@ import {
   type SampleProbeSeries,
 } from '@/data/buildSampleProbeDashboard';
 import { probeFluidQuantityRange } from '@/data/buildProbeFluidSeries';
-import { buildPierLayout } from '@/utils/pierLayout';
+import { buildPierLayout, clampPierCount } from '@/utils/pierLayout';
 import { createEmptyFluidSeries } from '@/data/createEmptyFluidSeries';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
 import { FluidSlicePlane } from '@/modules/FluidSlicePlane';
@@ -631,8 +631,14 @@ async function bootstrap(): Promise<void> {
       baseFluid,
       coordinateFluid,
       probeSeries,
-    ).then((next) => {
+    ).then(
+      (next) => {
         swapSim(next, newParams);
+        experimentInfoPanel.setLoading(false);
+        fluidControls.setLoading(false);
+      },
+      (err: unknown) => {
+        console.error('[applyParams]', err);
         experimentInfoPanel.setLoading(false);
         fluidControls.setLoading(false);
       },
@@ -705,7 +711,9 @@ async function bootstrap(): Promise<void> {
   const csvUploadPanel = new CsvUploadPanel({
     onLoaded: async (result) => {
       await yieldToMain();
-      const nextParams = { ...params, pierCount: 1 };
+      const detectedPierCount =
+        result.piers.length > 0 ? clampPierCount(result.piers.length) : 1;
+      const nextParams = { ...params, pierCount: detectedPierCount };
       const next = await buildSimState(
         nextParams,
         sceneManager.scene,
@@ -720,6 +728,9 @@ async function bootstrap(): Promise<void> {
         'reset',
         sceneViewRadius(next.series.baseTerrain, next.fluidSeries),
       );
+    },
+    onError: (message) => {
+      console.error('[CSV]', message);
     },
     getLoadOptions: () => ({
       pierCount: params.pierCount,

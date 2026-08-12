@@ -1,4 +1,5 @@
 import type { Disposable } from '@/types/disposable';
+import type { BuildSampleProbeDashboardOptions } from '@/data/buildSampleProbeDashboard';
 import type { CsvDashboardLoadResult, CsvLoadProgress, LoadCsvDashboardOptions } from '@/data/loadCsvDashboard';
 import { loadCsvDashboard, rebuildCsvDashboard } from '@/data/loadCsvDashboard';
 import { isCsvParseAbortError } from '@/utils/csvParseAbort';
@@ -349,6 +350,20 @@ export class CsvUploadPanel implements Disposable {
     return parts.join(' · ');
   }
 
+  /** loadCsvDashboard 의 getLoadOptions 중 대시보드 빌드에 쓰는 필드만 추린다. */
+  private dashboardBuildOptions(): BuildSampleProbeDashboardOptions {
+    const opts = this.handlers.getLoadOptions?.() ?? {};
+    const {
+      stepMultiple: _stepMultiple,
+      signal: _signal,
+      onProgress: _onProgress,
+      defaultCellSize: _defaultCellSize,
+      defaultIntervalSeconds: _defaultIntervalSeconds,
+      ...buildOptions
+    } = opts;
+    return buildOptions;
+  }
+
   private async rebuildWithCurrentInterval(): Promise<void> {
     if (!this.lastDataset && !this.lastLoadResult) return;
     const stepMultiple = this.getStepMultiple();
@@ -356,7 +371,12 @@ export class CsvUploadPanel implements Disposable {
     if (stepMultiple === lastStep) return;
 
     if (this.parseReadyFiles.length === 1 && this.lastDataset) {
-      const result = rebuildCsvDashboard(this.lastDataset, stepMultiple);
+      const result = rebuildCsvDashboard(
+        this.lastDataset,
+        stepMultiple,
+        this.lastLoadResult?.probeSeries.baseIntervalSeconds ?? DEFAULT_T_INTERVAL_SECONDS,
+        this.dashboardBuildOptions(),
+      );
       this.lastLoadResult = result;
       this.lastDataset = result.dataset;
       this.syncIntervalSelect(result.stepMultiple, result.probeSeries.baseIntervalSeconds);

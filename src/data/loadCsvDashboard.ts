@@ -346,8 +346,8 @@ export function rebuildCsvDashboard(
   const autoAdjusted = effectiveStep > requested;
   const built = buildSampleProbeDashboard(ds, {
     baseIntervalSeconds: ds.baseIntervalSeconds || baseIntervalSeconds,
-    stepMultiple: effectiveStep,
     ...buildOptions,
+    stepMultiple: effectiveStep,
   });
   return {
     scour: built.scour,
