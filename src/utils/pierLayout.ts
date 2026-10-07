@@ -1,4 +1,8 @@
-import { paramsToFlumeGeometry, structureCenterX, terrainPhysicalSize } from '@/constants/experiment';
+import {
+  paramsToFlumeGeometry,
+  structureCenterX,
+  terrainPhysicalSize,
+} from '@/constants/experiment';
 import type { PierDefinition } from '@/modules/PierMarker';
 import type { PierArrangement, SimParams } from '@/types/simParams';
 

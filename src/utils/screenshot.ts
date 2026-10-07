@@ -37,3 +37,14 @@ function defaultFileName(): string {
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   return `bridge-scour-${ts}.png`;
 }
+
+/** 목업 규격: SCDT_{화면번호2자리}_{화면명}_{YYYYMMDD_HHmm}.png */
+export function scdtScreenshotName(
+  screenNo: number,
+  screenTitle: string,
+  date: Date = new Date(),
+): string {
+  const p = (n: number): string => String(n).padStart(2, '0');
+  const nm = screenTitle.replace(/[\s·]+/g, '');
+  return `SCDT_${p(screenNo)}_${nm}_${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}_${p(date.getHours())}${p(date.getMinutes())}.png`;
+}

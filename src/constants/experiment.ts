@@ -7,8 +7,19 @@ export const FLUME = {
   tank: { lengthX: 1.116, widthZ: 0.456, heightY: 0.427 },
   // 퇴적층 두께(미터). 수조 바닥은 표고 -sedimentThicknessY 에 위치.
   sedimentThicknessY: 0.127,
+  /** 플룸 케이스 기초 근입(= 퇴적층 두께, m). 등급 잔여 여유율 판정용 */
+  foundationDepthM: 0.127,
   // 입구에서 퇴적물 시작까지의 구간(미터). 구조물이 놓이는 전방 구역.
   structureFrontX: 0.1,
+  /**
+   * FLOW-3D data x 기준 유입 경계(배고픈 물 세굴). 가시화 마스크는 flumeInflowBoundary.ts.
+   * fixedBed x<0.09 m, 이동상 0.10 m~, hungry-water 세굴 ~0.21 m까지 시간에 따라 확장.
+   */
+  inflowBoundary: {
+    fixedBedMaxDataX: 0.09,
+    mobileBedStartDataX: 0.1,
+    hungryWaterScourMaskMaxDataX: 0.22,
+  },
   // 모래 입경(mm)
   sandGrainSizeMm: 0.385,
   // 수심(미터). 퇴적물 표면 위 물 높이.

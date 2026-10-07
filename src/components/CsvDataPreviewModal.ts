@@ -1,9 +1,6 @@
 import type { Disposable } from '@/types/disposable';
 import type { CsvDashboardLoadResult } from '@/data/loadCsvDashboard';
-import {
-  SAMPLE_PROBE_FIELDS,
-  type SampleProbeColumns,
-} from '@/utils/parseSampleProbeCsv';
+import { SAMPLE_PROBE_FIELDS, type SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
 import { computeVirtualWindow } from '@/utils/virtualRows';
 
 const PREVIEW_MAX_COLS = 12;
@@ -24,8 +21,7 @@ function computeStats(values: Float32Array): GridStats {
     return { min: 0, max: 0, mean: 0, sampled: false };
   }
 
-  const step =
-    values.length <= STATS_SAMPLE_CAP ? 1 : Math.ceil(values.length / STATS_SAMPLE_CAP);
+  const step = values.length <= STATS_SAMPLE_CAP ? 1 : Math.ceil(values.length / STATS_SAMPLE_CAP);
   let min = Infinity;
   let max = -Infinity;
   let sum = 0;
@@ -167,9 +163,7 @@ export class CsvDataPreviewModal implements Disposable {
       });
     };
     this.rowsScrollWrap.addEventListener('scroll', onRowsScroll, { passive: true });
-    this.cleanups.push(() =>
-      this.rowsScrollWrap.removeEventListener('scroll', onRowsScroll),
-    );
+    this.cleanups.push(() => this.rowsScrollWrap.removeEventListener('scroll', onRowsScroll));
 
     this.rowsSection.append(rowsHeading, rowsTable);
 
@@ -295,8 +289,7 @@ export class CsvDataPreviewModal implements Disposable {
       row.setAttribute('role', 'row');
 
       const indexCell = document.createElement('span');
-      indexCell.className =
-        'csv-preview-modal__rows-cell csv-preview-modal__rows-cell--index';
+      indexCell.className = 'csv-preview-modal__rows-cell csv-preview-modal__rows-cell--index';
       indexCell.setAttribute('role', 'cell');
       indexCell.textContent = String(rowIndex + 1);
       row.appendChild(indexCell);
@@ -305,7 +298,7 @@ export class CsvDataPreviewModal implements Disposable {
         const cell = document.createElement('span');
         cell.className = 'csv-preview-modal__rows-cell';
         cell.setAttribute('role', 'cell');
-        cell.textContent = formatNumber(columns[field][rowIndex]!);
+        cell.textContent = formatNumber(columns[field][rowIndex]);
         row.appendChild(cell);
       }
 
@@ -329,17 +322,13 @@ export class CsvDataPreviewModal implements Disposable {
           items.push(['t 시간 블록', `${stats.timeBlockCount.toLocaleString()}개`]);
         }
         if (stats.skippedLinesAfterHeader > 0) {
-          items.push([
-            '건너뛴 데이터 줄',
-            `${stats.skippedLinesAfterHeader.toLocaleString()}줄`,
-          ]);
+          items.push(['건너뛴 데이터 줄', `${stats.skippedLinesAfterHeader.toLocaleString()}줄`]);
         }
       } else {
         items.push(['파싱된 데이터 행', `${this.probeColumns.count.toLocaleString()}행`]);
       }
     }
 
-    items.push(['재생 간격', `${probeSeries.baseIntervalSeconds * probeSeries.stepMultiple}초`]);
     items.push(['세굴 격자', `${scour.baseTerrain.width} × ${scour.baseTerrain.height}`]);
     items.push(['세굴 프레임', `${scour.frames.length}개`]);
     if (fluid) {

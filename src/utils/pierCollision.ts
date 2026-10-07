@@ -24,12 +24,7 @@ function isWithinPierHeight(y: number, pier: PierDefinition, baseElevation: numb
   return y >= baseElevation - 0.01 && y <= baseElevation + pierHeight(pier) + 0.01;
 }
 
-function isInsidePierXZ(
-  x: number,
-  z: number,
-  pier: PierDefinition,
-  permeable: boolean,
-): boolean {
+function isInsidePierXZ(x: number, z: number, pier: PierDefinition, permeable: boolean): boolean {
   const radius = pierRadius(pier);
   const dx = x - pier.x;
   const dz = z - pier.z;

@@ -1,18 +1,9 @@
-import {
-  BufferAttribute,
-  BufferGeometry,
-  Points,
-  PointsMaterial,
-  type Scene,
-} from 'three';
+import { BufferAttribute, BufferGeometry, Points, PointsMaterial, type Scene } from 'three';
 import type { Disposable } from '@/types/disposable';
 import type { FluidFrame, FluidGrid3D, FluidQuantity, FluidSeries } from '@/types/fluid';
 import { sampleFluidQuantity } from '@/types/fluid';
 import { fluidCellWorldPosition } from '@/utils/fluidWorld';
-import {
-  colorForFluidQuantity,
-  normalizeFluidQuantityRange,
-} from '@/utils/fluidQuantityColor';
+import { colorForFluidQuantity, normalizeFluidQuantityRange } from '@/utils/fluidQuantityColor';
 
 const MAX_POINTS = 80_000;
 

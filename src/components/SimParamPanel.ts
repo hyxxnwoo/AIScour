@@ -18,7 +18,10 @@ export class SimParamPanel implements Disposable {
   private readonly handlers: SimParamPanelHandlers;
   private readonly debounceMs: number;
   private readonly cleanups: Array<() => void> = [];
-  private readonly numericRows = new Map<NumericSimParamKey, { slider: HTMLInputElement; numInput: HTMLInputElement }>();
+  private readonly numericRows = new Map<
+    NumericSimParamKey,
+    { slider: HTMLInputElement; numInput: HTMLInputElement }
+  >();
   private isLoading = false;
   private applyBtn!: HTMLButtonElement;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;

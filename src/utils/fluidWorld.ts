@@ -21,10 +21,7 @@ export function fluidGridOrigin(grid: FluidGrid3D): WorldVec3 {
  * CSV 유체 격자를 지형·교량과 동일한 좌표 규약(도메인 XZ 중심 = 월드 원점)으로 맞춘다.
  * 셀 값 배열은 그대로 두고 origin 만 조정한다.
  */
-export function alignFluidSeriesToTerrain(
-  fluid: FluidSeries,
-  terrain: TerrainGrid,
-): FluidSeries {
+export function alignFluidSeriesToTerrain(fluid: FluidSeries, terrain: TerrainGrid): FluidSeries {
   const g = fluid.grid;
   const cs = g.cellSize > 0 ? g.cellSize : terrain.cellSize;
 
@@ -63,8 +60,7 @@ export function waterSurfaceElevation(terrain: TerrainGrid, waterDepth: number):
 }
 
 export function sceneViewRadius(terrain: TerrainGrid, fluid?: FluidSeries): number {
-  const tRadius =
-    (Math.hypot(terrain.width, terrain.height) * terrain.cellSize) / 2;
+  const tRadius = (Math.hypot(terrain.width, terrain.height) * terrain.cellSize) / 2;
   const fRadius = fluid ? fluidDomainRadius(fluid.grid) : 0;
   return Math.max(tRadius, fRadius, 0.5);
 }
@@ -97,9 +93,7 @@ export function fluidDomainCenter(grid: FluidGrid3D): WorldVec3 {
 
 export function fluidDomainRadius(grid: FluidGrid3D): number {
   const cs = grid.cellSize;
-  return (
-    Math.hypot((grid.width - 1) * cs, (grid.depth - 1) * cs, (grid.height - 1) * cs) / 2
-  );
+  return Math.hypot((grid.width - 1) * cs, (grid.depth - 1) * cs, (grid.height - 1) * cs) / 2;
 }
 
 export function fluidHeightRange(grid: FluidGrid3D): { min: number; max: number } {

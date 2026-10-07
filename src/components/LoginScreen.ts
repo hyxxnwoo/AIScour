@@ -82,13 +82,21 @@ function buildTerrainMesh(): string {
   const lines: string[] = [];
   for (let r = 0; r <= rows; r++) {
     const v = r / rows;
-    const d = points[r].map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+    const d = points[r]
+      .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+      .join(' ');
     const opacity = (0.06 + v * 0.4).toFixed(2);
-    lines.push(`<path d="${d}" stroke="url(#mesh-line)" stroke-width="1.1" fill="none" opacity="${opacity}"/>`);
+    lines.push(
+      `<path d="${d}" stroke="url(#mesh-line)" stroke-width="1.1" fill="none" opacity="${opacity}"/>`,
+    );
   }
   for (let c = 0; c <= cols; c++) {
-    const d = points.map((row, i) => `${i === 0 ? 'M' : 'L'}${row[c].x.toFixed(1)} ${row[c].y.toFixed(1)}`).join(' ');
-    lines.push(`<path d="${d}" stroke="url(#mesh-line)" stroke-width="1" fill="none" opacity="0.22"/>`);
+    const d = points
+      .map((row, i) => `${i === 0 ? 'M' : 'L'}${row[c].x.toFixed(1)} ${row[c].y.toFixed(1)}`)
+      .join(' ');
+    lines.push(
+      `<path d="${d}" stroke="url(#mesh-line)" stroke-width="1" fill="none" opacity="0.22"/>`,
+    );
   }
 
   return `
@@ -98,7 +106,7 @@ function buildTerrainMesh(): string {
       <stop offset="0" stop-color="#7ec8e3"/>
       <stop offset="1" stop-color="#c9a4e0"/>
     </linearGradient>
-    <radialGradient id="mesh-glow" cx="50%" cy="${((pierCz * pierCz) * 100).toFixed(0)}%" r="26%">
+    <radialGradient id="mesh-glow" cx="50%" cy="${(pierCz * pierCz * 100).toFixed(0)}%" r="26%">
       <stop offset="0" stop-color="#7ec8e3" stop-opacity="0.5"/>
       <stop offset="1" stop-color="#7ec8e3" stop-opacity="0"/>
     </radialGradient>
@@ -142,7 +150,10 @@ export class LoginScreen implements Disposable {
       '<span class="login-screen__orb login-screen__orb--b"></span>' +
       buildTerrainMesh() +
       '<span class="login-screen__particles">' +
-      Array.from({ length: 14 }, (_, i) => `<span class="login-screen__particle" style="--i:${i}"></span>`).join('') +
+      Array.from(
+        { length: 14 },
+        (_, i) => `<span class="login-screen__particle" style="--i:${i}"></span>`,
+      ).join('') +
       '</span>';
     this.element.appendChild(backdrop);
 
@@ -155,12 +166,13 @@ export class LoginScreen implements Disposable {
 
     const introBadge = document.createElement('div');
     introBadge.className = 'login-screen__intro-badge';
-    introBadge.innerHTML = '<span class="login-screen__intro-dot"></span>FLOW-3D 시뮬레이션 대시보드';
+    introBadge.innerHTML =
+      '<span class="login-screen__intro-dot"></span>FLOW-3D 시뮬레이션 대시보드';
     intro.appendChild(introBadge);
 
     const introTitle = document.createElement('h1');
     introTitle.className = 'login-screen__intro-title';
-    introTitle.innerHTML = 'FLOW-3D 시뮬레이션'
+    introTitle.innerHTML = 'FLOW-3D 시뮬레이션';
     intro.appendChild(introTitle);
 
     const introDesc = document.createElement('p');

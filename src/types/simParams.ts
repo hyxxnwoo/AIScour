@@ -25,6 +25,8 @@ export interface SimParams {
   structurePermeable: boolean;
   bridgeEnabled: boolean; // 교량 시각 표시
   bridgeType: BridgeType;
+  /** 기초 근입깊이(m). 잔여 여유율 = (foundationDepth − 세굴심) / foundationDepth */
+  foundationDepth: number;
   // ── 유체
   inflowSpeed: number; // m/s — 하위 호환(미사용 시 fluidU 와 동기)
   fluidU: number; // m/s — 기준 x방향 유속
@@ -52,13 +54,14 @@ export const DEFAULT_SIM_PARAMS: SimParams = {
   tankWidthZ: FLUME.tank.widthZ,
   tankHeightY: FLUME.tank.heightY,
   structureFrontX: FLUME.structureFrontX,
-  pierCount: 1,
+  pierCount: 3,
   pierArrangement: 'along',
   pierDiameter: FLUME.structure.diameterM,
   structureShape: 'circle',
   structurePermeable: false,
   bridgeEnabled: true,
   bridgeType: 'suspension',
+  foundationDepth: FLUME.foundationDepthM,
   inflowSpeed: 0.25,
   fluidU: 0.25,
   fluidV: 0,
@@ -93,7 +96,14 @@ export const SIM_PARAM_META: SimParamMeta[] = [
   { key: 'sandGrainSizeMm', label: '모래 입경', unit: 'mm', min: 0.1, max: 2.0, step: 0.005 },
   { key: 'sedimentThickness', label: '퇴적층 두께', unit: 'm', min: 0.03, max: 0.25, step: 0.005 },
   { key: 'scourRate', label: '세굴 속도 배율', unit: '×', min: 0.2, max: 5.0, step: 0.1 },
-  { key: 'criticalScourDepth', label: '기준 세굴 깊이', unit: 'm', min: 0.02, max: 0.3, step: 0.005 },
+  {
+    key: 'criticalScourDepth',
+    label: '기준 세굴 깊이',
+    unit: 'm',
+    min: 0.02,
+    max: 0.3,
+    step: 0.005,
+  },
   { key: 'frameCount', label: '시뮬레이션 프레임', unit: '개', min: 10, max: 300, step: 10 },
 ];
 
@@ -101,6 +111,14 @@ export const SIM_PARAM_META: SimParamMeta[] = [
 export const EXPERIMENT_NUMERIC_META: SimParamMeta[] = [
   { key: 'waterDepth', label: '수심', unit: 'm', min: 0.05, max: 0.4, step: 0.005 },
   { key: 'pierDiameter', label: '구조물 지름', unit: 'm', min: 0.02, max: 0.4, step: 0.005 },
+  {
+    key: 'foundationDepth',
+    label: '기초 근입깊이',
+    unit: 'm',
+    min: 0.05,
+    max: 10,
+    step: 0.01,
+  },
 ];
 
 export interface SimSelectMeta {
@@ -139,7 +157,9 @@ export const FLUID_QUANTITY_PARAM_KEYS: Record<FluidDashboardQuantity, NumericSi
 };
 
 /** 유체 필드 패널이 소유하는 파라미터 키 */
-export const FLUID_PANEL_OWNED_KEYS = FLUID_FIELD_META.map((m) => m.key) as readonly NumericSimParamKey[];
+export const FLUID_PANEL_OWNED_KEYS = FLUID_FIELD_META.map(
+  (m) => m.key,
+) as readonly NumericSimParamKey[];
 
 /** 실행 조건 패널이 소유하는 파라미터 키 */
 export const EXPERIMENT_OWNED_KEYS = [
@@ -153,7 +173,9 @@ export const EXPERIMENT_OWNED_KEYS = [
 ] as const satisfies readonly (keyof SimParams)[];
 
 /** 시뮬레이션 파라미터 패널이 소유하는 파라미터 키 */
-export const SIM_PANEL_OWNED_KEYS = SIM_PARAM_META.map((m) => m.key) as readonly NumericSimParamKey[];
+export const SIM_PANEL_OWNED_KEYS = SIM_PARAM_META.map(
+  (m) => m.key,
+) as readonly NumericSimParamKey[];
 
 /** 두 패널의 편집 값을 병합한다. 각 패널은 자신이 소유한 키만 반영한다. */
 function pickSimParams<K extends keyof SimParams>(

@@ -79,6 +79,15 @@ export class FluidFieldLegend implements Disposable {
     this.noteEl.style.display = note ? '' : 'none';
   }
 
+  /** 긴 설명은 title(툴팁)에 — 본문은 짧게 유지 */
+  public setNoteTooltip(tooltip: string): void {
+    if (tooltip) {
+      this.noteEl.title = tooltip;
+    } else {
+      this.noteEl.removeAttribute('title');
+    }
+  }
+
   public setCurrentValue(value: number): void {
     const span = this.max - this.min || 1;
     const frac = Math.max(0, Math.min(1, (value - this.min) / span));

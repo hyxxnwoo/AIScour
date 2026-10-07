@@ -1,5 +1,5 @@
+import type { BufferAttribute } from 'three';
 import {
-  BufferAttribute,
   DataTexture,
   DoubleSide,
   Mesh,
@@ -82,11 +82,7 @@ export class FluidSlicePlane implements Disposable {
     });
 
     this.mesh = new Mesh(this.geometry, this.material);
-    this.mesh.position.set(
-      origin.x + ((W - 1) * cs) / 2,
-      initialY,
-      origin.z + ((D - 1) * cs) / 2,
-    );
+    this.mesh.position.set(origin.x + ((W - 1) * cs) / 2, initialY, origin.z + ((D - 1) * cs) / 2);
     this.scene.add(this.mesh);
 
     if (this.frames.length > 0) {

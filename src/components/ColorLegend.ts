@@ -45,15 +45,21 @@ export class ColorLegend implements Disposable {
     scale.append(this.minLabel, this.midLabel, this.maxLabel);
     this.element.appendChild(scale);
 
+    const hint = document.createElement('div');
+    hint.className = 'color-legend__hint';
+    hint.textContent = '음(−) 세굴, 양(+) 퇴적 · 0을 흰색 기준으로 고정';
+    this.element.appendChild(hint);
+
     this.setRange(options.initialAbsMax ?? 1);
   }
 
   // 좌측은 -absMax(세굴), 우측은 +absMax(퇴적), 중앙은 0
   public setRange(absMax: number): void {
     const v = Math.max(0, absMax);
-    this.minLabel.textContent = `-${v.toFixed(2)} ${this.unit}`;
-    this.midLabel.textContent = `0`;
-    this.maxLabel.textContent = `+${v.toFixed(2)} ${this.unit}`;
+    const dec = v >= 1 ? 1 : 2;
+    this.minLabel.textContent = `−${v.toFixed(dec)} 세굴`;
+    this.midLabel.textContent = '0';
+    this.maxLabel.textContent = `+${v.toFixed(dec)} 퇴적`;
   }
 
   public dispose(): void {

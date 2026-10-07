@@ -8,7 +8,10 @@ export class FlowDirectionBadge implements Disposable {
     this.element = document.createElement('div');
     this.element.className = 'flow-direction-badge';
     this.element.setAttribute('role', 'note');
-    this.element.setAttribute('aria-label', '유입에서 유출 방향으로 물이 흐릅니다. 좌측에서 우측으로 +X 방향');
+    this.element.setAttribute(
+      'aria-label',
+      '유입에서 유출 방향으로 물이 흐릅니다. 좌측에서 우측으로 +X 방향',
+    );
 
     const inflow = document.createElement('span');
     inflow.className = 'flow-direction-badge__label';

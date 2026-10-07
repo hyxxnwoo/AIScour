@@ -1,10 +1,6 @@
 import type { FluidQuantity } from '@/types/fluid';
 import { sampleColorRamp, colorRampToCssGradient } from '@/utils/colorRamp';
-import {
-  fluidColorRampToCss,
-  sampleFluidColor,
-  type ColorRGB,
-} from '@/utils/fluidColorRamp';
+import { fluidColorRampToCss, sampleFluidColor, type ColorRGB } from '@/utils/fluidColorRamp';
 
 export type FluidQuantityColorMode = 'field' | 'scour';
 

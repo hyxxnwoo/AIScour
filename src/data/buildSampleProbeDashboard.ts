@@ -4,8 +4,10 @@ import {
   bedGridSize,
   buildBedAxes,
   inferPierWorldPositionsFromDataset,
+  featherDeltaAtPierFootprint,
   mergeDeltaByMaxAbs,
   reduceScrdifToBed,
+  relocateDeltaFieldByWorldShift,
   resampleBedToTerrain,
   type BedAxes,
 } from '@/data/buildScrdifBedField';
@@ -20,7 +22,8 @@ import {
   type SampleProbeDataset,
   type SampleProbeTimeBlock,
 } from '@/utils/parseSampleProbeCsv';
-import { buildCenteredPierLayout, buildPierLayout, clampPierCount, pierSpacingZ } from '@/utils/pierLayout';
+import { buildCenteredPierLayout, buildPierLayout, clampPierCount } from '@/utils/pierLayout';
+import { defaultMaskForTankLength, inflowBoundaryMaskEnabled } from '@/utils/flumeInflowBoundary';
 import {
   probeDataXToWorldX,
   probeDataYToWorldZ,
@@ -97,6 +100,10 @@ export interface BuildSampleProbeDashboardOptions {
   tankHeightY?: number;
   /** CSV x 를 월드 X 로 맞출 때 쓰는 수조 길이(미터). 기본 FLUME.tank.lengthX. */
   tankLengthX?: number;
+  /**
+   * 유입부 배고픈 물 세굴(data x ≤ 0.22 m) 제외. 기본 true(표준 플룸 길이 CSV).
+   */
+  maskInflowBoundaryScour?: boolean;
 }
 
 const SCRDIF_EPS = 1e-12;
@@ -104,6 +111,16 @@ export const MAX_SCOUR_FRAMES = 4096;
 const MAX_SCOUR_FRAME_BYTES = 256 * 1024 * 1024;
 const DEFAULT_INFLOW_SPEED = 0.25;
 const FLOW_SPEED_EPS = 1e-9;
+
+function resolveProbeInflowMask(
+  options: BuildSampleProbeDashboardOptions,
+  tankLengthX: number,
+): boolean {
+  if (options.maskInflowBoundaryScour !== undefined) {
+    return inflowBoundaryMaskEnabled(options);
+  }
+  return defaultMaskForTankLength(tankLengthX);
+}
 
 export interface MeanFlowSnapshot {
   meanU: number;
@@ -120,19 +137,17 @@ export function computeMeanFlow(columns: SampleProbeColumns): MeanFlowSnapshot {
   let sumV = 0;
   let sumW = 0;
   for (let i = 0; i < columns.count; i += 1) {
-    sumU += columns.u[i]!;
-    sumV += columns.v[i]!;
-    sumW += columns.w[i]!;
+    sumU += columns.u[i];
+    sumV += columns.v[i];
+    sumW += columns.w[i];
   }
   const n = Math.max(1, columns.count);
   const meanU = sumU / n;
   const meanV = sumV / n;
   const meanW = sumW / n;
   const horizontalSpeed = Math.hypot(meanU, meanV);
-  const flowHeading =
-    horizontalSpeed >= FLOW_SPEED_EPS ? Math.atan2(meanV, meanU) : 0;
-  const inflowSpeed =
-    horizontalSpeed >= FLOW_SPEED_EPS ? horizontalSpeed : DEFAULT_INFLOW_SPEED;
+  const flowHeading = horizontalSpeed >= FLOW_SPEED_EPS ? Math.atan2(meanV, meanU) : 0;
+  const inflowSpeed = horizontalSpeed >= FLOW_SPEED_EPS ? horizontalSpeed : DEFAULT_INFLOW_SPEED;
   return { meanU, meanV, meanW, horizontalSpeed, flowHeading, inflowSpeed };
 }
 
@@ -156,17 +171,17 @@ function blockAggregate(columns: SampleProbeColumns): {
   let maxAbs = 0;
   const n = Math.max(1, columns.count);
   for (let i = 0; i < columns.count; i += 1) {
-    const u = columns.u[i]!;
-    const v = columns.v[i]!;
-    const w = columns.w[i]!;
-    const s = columns.scrdif[i]!;
+    const u = columns.u[i];
+    const v = columns.v[i];
+    const w = columns.w[i];
+    const s = columns.scrdif[i];
     sumU += u;
     sumV += v;
     sumW += w;
     sumS += s;
-    sumX += columns.x[i]!;
-    sumY += columns.y[i]!;
-    sumZ += columns.z[i]!;
+    sumX += columns.x[i];
+    sumY += columns.y[i];
+    sumZ += columns.z[i];
     const abs = Math.abs(s);
     if (abs > maxAbs) maxAbs = abs;
   }
@@ -216,7 +231,7 @@ export function resolveHybridPierLayout(
   return buildPierLayout(params);
 }
 
-function csvLayoutParams(options: BuildSampleProbeDashboardOptions) {
+function csvLayoutParams(options: BuildSampleProbeDashboardOptions): typeof DEFAULT_SIM_PARAMS {
   return {
     ...DEFAULT_SIM_PARAMS,
     pierCount: options.pierCount ?? DEFAULT_SIM_PARAMS.pierCount,
@@ -265,6 +280,7 @@ export function resolveCsvPierLayout(
   }
 
   const pierDiameter = options.pierDiameter ?? FLUME.structure.diameterM;
+  const maskInflow = resolveProbeInflowMask(options, bounds.originDataX * 2);
   const worlds = inferPierWorldPositionsFromDataset(
     dataset,
     boundsWorldAnchor(bounds),
@@ -272,6 +288,7 @@ export function resolveCsvPierLayout(
     2.5 * pierDiameter,
     undefined,
     pierDiameter,
+    maskInflow,
   );
 
   if (worlds.length === 0) {
@@ -285,51 +302,52 @@ export function resolveCsvPierLayout(
   return pierDefinitionsFromWorldPositions(worlds, options);
 }
 
-function separateOverlappingWorldPositions(
-  worlds: Array<{ x: number; z: number }>,
-  minSepM: number,
-): void {
-  for (let i = 0; i < worlds.length; i += 1) {
-    for (let j = i + 1; j < worlds.length; j += 1) {
-      const a = worlds[i]!;
-      const b = worlds[j]!;
-      const dist = Math.hypot(a.x - b.x, a.z - b.z);
-      if (dist >= minSepM || dist < 1e-9) continue;
-      const push = (minSepM - dist) / 2 + 1e-6;
-      a.z -= push;
-      b.z += push;
-    }
-  }
+export interface MultiCsvPierLayoutResult {
+  piers: PierDefinition[];
+  /** CSV scrdif 기준 세굴공 월드 XZ (파일별, Δ 이동의 from 앵커). */
+  sourceWorlds: Array<{ x: number; z: number }>;
+  /**
+   * true: 교각별 CSV 가 같은 로컬 격자(세굴 위치 겹침) → P1…Pn 슬롯 + Δ 필드 이동.
+   * false: 파일마다 세굴 위치가 flume 상 분리 → 교각=CSV 추정 위치, Δ 는 그대로.
+   */
+  relocateScourToPierSlots: boolean;
 }
 
-/** 교각별 CSV 각각에서 세굴공 1개씩 추정해 배치한다. */
+function minPairwiseWorldSeparation(worlds: Array<{ x: number; z: number }>): number {
+  let min = Infinity;
+  for (let i = 0; i < worlds.length; i += 1) {
+    for (let j = i + 1; j < worlds.length; j += 1) {
+      min = Math.min(min, Math.hypot(worlds[i].x - worlds[j].x, worlds[i].z - worlds[j].z));
+    }
+  }
+  return min;
+}
+
+/**
+ * 교각별 CSV(업로드 순 = P1, P2, P3…).
+ * 세굴 추정 위치가 서로 충분히 떨어져 있으면 교각=CSV, 아니면(교량1·2·3 개별 export 등) flume 슬롯+이동.
+ */
 export function resolveMultiCsvPierLayout(
   pierDatasets: SampleProbeDataset[],
   anchor: ProbeWorldAnchor,
   options: BuildSampleProbeDashboardOptions = {},
-): PierDefinition[] {
+): MultiCsvPierLayoutResult {
   if (options.pierX !== undefined || options.pierZ !== undefined) {
-    return resolveHybridPierLayout(options);
+    const piers = resolveHybridPierLayout(options);
+    return {
+      piers,
+      sourceWorlds: piers.map((p) => ({ x: p.x, z: p.z })),
+      relocateScourToPierSlots: false,
+    };
   }
 
   const pierDiameter = options.pierDiameter ?? FLUME.structure.diameterM;
   const minSep = 2.5 * pierDiameter;
-  const layoutParams = csvLayoutParams(options);
-  const fallbackZ = pierSpacingZ(layoutParams);
-  const count = pierDatasets.length;
-  const symmetricZ =
-    count <= 1
-      ? [0]
-      : Array.from({ length: count }, (_, i) => {
-          const totalSpan = fallbackZ * (count - 1);
-          const start = -totalSpan / 2;
-          return start + i * fallbackZ;
-        });
-
+  const tankLengthX = options.tankLengthX ?? FLUME.tank.lengthX;
+  const maskInflow = resolveProbeInflowMask(options, tankLengthX);
   const worlds: Array<{ x: number; z: number }> = [];
 
-  for (let i = 0; i < pierDatasets.length; i += 1) {
-    const ds = pierDatasets[i]!;
+  for (const ds of pierDatasets) {
     const candidates = inferPierWorldPositionsFromDataset(
       ds,
       anchor,
@@ -337,16 +355,35 @@ export function resolveMultiCsvPierLayout(
       minSep,
       undefined,
       pierDiameter,
+      maskInflow,
     );
     if (candidates.length > 0) {
-      worlds.push({ x: candidates[0]!.x, z: candidates[0]!.z });
+      worlds.push({ x: candidates[0].x, z: candidates[0].z });
     } else {
-      worlds.push({ x: 0, z: symmetricZ[i] ?? 0 });
+      worlds.push({ x: 0, z: 0 });
     }
   }
 
-  separateOverlappingWorldPositions(worlds, minSep);
-  return pierDefinitionsFromWorldPositions(worlds, options);
+  /** 겹침 보정 전 원본 간격만 본다. (보정 후 간격으로 판단하면 세굴은 한곳·교각만 흩어지는 버그) */
+  const spread = worlds.length <= 1 ? Infinity : minPairwiseWorldSeparation(worlds);
+
+  if (spread >= minSep) {
+    return {
+      piers: pierDefinitionsFromWorldPositions(worlds, options),
+      sourceWorlds: worlds.map((w) => ({ x: w.x, z: w.z })),
+      relocateScourToPierSlots: false,
+    };
+  }
+
+  return {
+    piers: buildPierLayout({
+      ...csvLayoutParams(options),
+      pierCount: pierDatasets.length,
+      pierArrangement: options.pierArrangement ?? 'along',
+    }),
+    sourceWorlds: worlds.map((w) => ({ x: w.x, z: w.z })),
+    relocateScourToPierSlots: true,
+  };
 }
 
 /** 세굴 프레임 한도 안에 들어오도록 시간 블록 stride 를 올린다. */
@@ -361,7 +398,11 @@ export function resolveSafeStepMultiple(
   return Math.max(requested, minStep);
 }
 
-function resolveTerrainGrid(piers: PierDefinition[], flowHeading?: number): TerrainGrid {
+function resolveTerrainGrid(
+  piers: PierDefinition[],
+  flowHeading?: number,
+  inflowBoundaryMasked?: boolean,
+): TerrainGrid {
   const dims = terrainGridDims();
   const vertexCount = dims.width * dims.height;
   return {
@@ -372,6 +413,7 @@ function resolveTerrainGrid(piers: PierDefinition[], flowHeading?: number): Terr
     metadata: {
       elevationUnit: 'm',
       simulationId: 'sample-probe-csv',
+      ...(inflowBoundaryMasked ? { inflowBoundaryMasked: true as const } : {}),
       ...(flowHeading !== undefined ? { flowHeading } : {}),
       piers: piers.map((pier) => {
         const meta: { id: string; x: number; z: number; diameter?: number; height?: number } = {
@@ -417,10 +459,10 @@ export function computeBounds(
   let maxScrdif = -Infinity;
 
   for (let i = 0; i < columns.count; i += 1) {
-    const x = columns.x[i]!;
-    const y = columns.y[i]!;
-    const z = columns.z[i]!;
-    const s = columns.scrdif[i]!;
+    const x = columns.x[i];
+    const y = columns.y[i];
+    const z = columns.z[i];
+    const s = columns.scrdif[i];
     if (x < minDataX) minDataX = x;
     if (x > maxDataX) maxDataX = x;
     if (y < minDataY) minDataY = y;
@@ -491,10 +533,7 @@ export function timeIndexAtTime(
   intervalSeconds = 30,
 ): number {
   if (timeBlockCount <= 0) return 0;
-  return Math.min(
-    timeBlockCount - 1,
-    Math.max(0, Math.floor(timeSeconds / intervalSeconds)),
-  );
+  return Math.min(timeBlockCount - 1, Math.max(0, Math.floor(timeSeconds / intervalSeconds)));
 }
 
 /** @deprecated timeIndexAtTime 사용. */
@@ -509,7 +548,7 @@ export function rowIndexAtTime(
 function isProbeDataset(
   input: SampleProbeDataset | SampleProbeColumns,
 ): input is SampleProbeDataset {
-  return 'blocks' in input && Array.isArray((input as SampleProbeDataset).blocks);
+  return 'blocks' in input && Array.isArray(input.blocks);
 }
 
 function toDataset(
@@ -524,30 +563,42 @@ function toDataset(
  * t 블록마다 한 프레임. 각 행의 scrdif 를 (x, y) 위치에 배치해 하상 변화량을 만든다.
  * scrdif 는 초기 지반 대비 누적값이므로 부호(세굴/퇴적)를 그대로 사용한다.
  */
+interface ScourAlignAnchor {
+  pier: PierDefinition;
+  sourceWorld: { x: number; z: number };
+  /** false 면 Δ 전체 형상 유지(단일 CSV 퇴적·세굴 분리 표시). */
+  featherAtPier?: boolean;
+}
+
 function buildScourFramesFromBlocks(
   blocks: SampleProbeTimeBlock[],
   terrain: TerrainGrid,
   loopStep: number,
   bedAxes: BedAxes,
   anchor: ProbeWorldAnchor,
+  maskInflowBoundary: boolean,
+  align?: ScourAlignAnchor,
+  flowHeadingRad = 0,
 ): ScourFrame[] {
   const frames: ScourFrame[] = [];
   const { width, height } = terrain;
   const bedScratch = new Float32Array(bedGridSize(bedAxes));
+  const scratch = new Float32Array(width * height);
 
   for (let i = 0; i < blocks.length; i += loopStep) {
-    const block = blocks[i]!;
-    reduceScrdifToBed(block.columns, bedAxes.x, bedAxes.y, bedScratch);
+    const block = blocks[i];
+    reduceScrdifToBed(block.columns, bedAxes.x, bedAxes.y, bedScratch, maskInflowBoundary);
 
     const delta = new Float32Array(width * height);
-    resampleBedToTerrain(
-      bedScratch,
-      bedAxes.x,
-      bedAxes.y,
-      anchor,
-      terrain,
-      delta,
-    );
+    resampleBedToTerrain(bedScratch, bedAxes.x, bedAxes.y, anchor, terrain, delta);
+
+    if (align) {
+      scratch.set(relocateDeltaFieldByWorldShift(delta, terrain, align.sourceWorld, align.pier));
+      if (align.featherAtPier) {
+        featherDeltaAtPierFootprint(scratch, terrain, align.pier, flowHeadingRad);
+      }
+      delta.set(scratch);
+    }
 
     frames.push({
       timestampSeconds: block.timestampSeconds,
@@ -566,7 +617,7 @@ function buildProbeSamplesFromBlocks(
   const samples: SampleProbeSample[] = [];
 
   for (let i = 0; i < blocks.length; i += loopStep) {
-    const block = blocks[i]!;
+    const block = blocks[i];
     const agg = blockAggregate(block.columns);
     const world = dataToWorld(agg.centerX, agg.centerY, agg.centerZ, bounds);
     samples.push({
@@ -607,12 +658,34 @@ export function buildSampleProbeDashboard(
   const bounds = computeBounds(dataset.flatColumns, tankLengthX);
   const anchor = boundsWorldAnchor(bounds);
   const flowHeading = computeMeanFlow(dataset.flatColumns).flowHeading;
+  const maskInflow = resolveProbeInflowMask(options, tankLengthX);
+  const pierDiameter = options.pierDiameter ?? FLUME.structure.diameterM;
+  const inferredSources = inferPierWorldPositionsFromDataset(
+    dataset,
+    anchor,
+    1,
+    2.5 * pierDiameter,
+    undefined,
+    pierDiameter,
+    maskInflow,
+  );
   const pierLayout = resolveCsvPierLayout(dataset, bounds, options);
-  const baseTerrain = resolveTerrainGrid(pierLayout, flowHeading);
+  const baseTerrain = resolveTerrainGrid(pierLayout, flowHeading, maskInflow);
   const bedAxes = buildBedAxes(dataset);
 
   const frameCount = Math.ceil(totalBlocks / loopStep);
   assertScourMemoryBudget(frameCount, baseTerrain);
+
+  const alignPier = pierLayout[0];
+  const alignSource = inferredSources[0];
+  const scourAlign =
+    alignPier && alignSource && !csvScrdifIsAllZero(bounds)
+      ? {
+          pier: alignPier,
+          sourceWorld: { x: alignSource.x, z: alignSource.z },
+          featherAtPier: false,
+        }
+      : undefined;
 
   const frames = buildScourFramesFromBlocks(
     dataset.blocks,
@@ -620,10 +693,17 @@ export function buildSampleProbeDashboard(
     loopStep,
     bedAxes,
     anchor,
+    maskInflow,
+    scourAlign,
+    flowHeading,
   );
 
   const samples = buildProbeSamplesFromBlocks(dataset.blocks, bounds, loopStep);
-  const fluid = buildProbeFluidSeries(dataset, { stepMultiple: loopStep, tankLengthX });
+  const fluid = buildProbeFluidSeries(dataset, {
+    stepMultiple: loopStep,
+    tankLengthX,
+    maskInflowBoundaryScour: maskInflow,
+  });
 
   return {
     scour: { baseTerrain, frames },
@@ -649,14 +729,20 @@ export function buildSampleProbeDashboard(
 export function buildMultiPierScourFrames(
   pierDatasets: SampleProbeDataset[],
   terrain: TerrainGrid,
+  pierLayout: PierDefinition[],
+  sourceWorlds: Array<{ x: number; z: number }>,
   loopStep: number,
   maxBlocks: number,
   baseIntervalSeconds: number,
   anchor: ProbeWorldAnchor,
+  maskInflowBoundary: boolean,
+  flowHeadingRad = 0,
+  relocateToLayoutPier = true,
 ): ScourFrame[] {
   const frames: ScourFrame[] = [];
   const { width, height } = terrain;
   const pierDelta = new Float32Array(width * height);
+  const relocatedScratch = new Float32Array(width * height);
   const bedAxesPerDataset = pierDatasets.map((ds) => buildBedAxes(ds));
   const bedScratchPerDataset = bedAxesPerDataset.map((axes) => new Float32Array(bedGridSize(axes)));
 
@@ -664,20 +750,22 @@ export function buildMultiPierScourFrames(
     const delta = new Float32Array(width * height);
 
     for (let di = 0; di < pierDatasets.length; di += 1) {
-      const ds = pierDatasets[di]!;
-      const bedAxes = bedAxesPerDataset[di]!;
-      const bedScratch = bedScratchPerDataset[di]!;
-      const block = ds.blocks[Math.min(timeIndex, Math.max(0, ds.blocks.length - 1))]!;
-      reduceScrdifToBed(block.columns, bedAxes.x, bedAxes.y, bedScratch);
-      resampleBedToTerrain(
-        bedScratch,
-        bedAxes.x,
-        bedAxes.y,
-        anchor,
-        terrain,
-        pierDelta,
-      );
-      mergeDeltaByMaxAbs(delta, pierDelta);
+      const ds = pierDatasets[di];
+      const pier = pierLayout[di];
+      if (!pier) continue;
+      const bedAxes = bedAxesPerDataset[di];
+      const bedScratch = bedScratchPerDataset[di];
+      const block = ds.blocks[Math.min(timeIndex, Math.max(0, ds.blocks.length - 1))];
+      reduceScrdifToBed(block.columns, bedAxes.x, bedAxes.y, bedScratch, maskInflowBoundary);
+      resampleBedToTerrain(bedScratch, bedAxes.x, bedAxes.y, anchor, terrain, pierDelta);
+      if (relocateToLayoutPier) {
+        const from = sourceWorlds[di] ?? { x: pier.x, z: pier.z };
+        relocatedScratch.set(relocateDeltaFieldByWorldShift(pierDelta, terrain, from, pier));
+      } else {
+        relocatedScratch.set(pierDelta);
+      }
+      featherDeltaAtPierFootprint(relocatedScratch, terrain, pier, flowHeadingRad);
+      mergeDeltaByMaxAbs(delta, relocatedScratch);
     }
 
     frames.push({
@@ -704,7 +792,7 @@ export function buildSampleProbeDashboardMulti(
   const pierDatasets = pierInputs.map((input) => toDataset(input, baseIntervalSeconds));
 
   if (pierDatasets.length === 1) {
-    return buildSampleProbeDashboard(pierDatasets[0]!, options);
+    return buildSampleProbeDashboard(pierDatasets[0], options);
   }
 
   const requestedStep = Math.max(1, Math.floor(options.stepMultiple ?? 1));
@@ -714,14 +802,17 @@ export function buildSampleProbeDashboardMulti(
   const pierOptions: BuildSampleProbeDashboardOptions = {
     ...options,
     pierCount: pierDatasets.length,
+    pierArrangement: options.pierArrangement ?? 'along',
   };
   const tankLengthX = options.tankLengthX ?? FLUME.tank.lengthX;
-  const primary = pierDatasets[0]!;
+  const primary = pierDatasets[0];
   const bounds = computeBounds(primary.flatColumns, tankLengthX);
   const anchor = boundsWorldAnchor(bounds);
   const flowHeading = computeMeanFlow(primary.flatColumns).flowHeading;
-  const pierLayout = resolveMultiCsvPierLayout(pierDatasets, anchor, pierOptions);
-  const baseTerrain = resolveTerrainGrid(pierLayout, flowHeading);
+  const multiLayout = resolveMultiCsvPierLayout(pierDatasets, anchor, pierOptions);
+  const pierLayout = multiLayout.piers;
+  const maskInflow = resolveProbeInflowMask(pierOptions, tankLengthX);
+  const baseTerrain = resolveTerrainGrid(pierLayout, flowHeading, maskInflow);
 
   const frameCount = Math.ceil(maxBlocks / loopStep);
   assertScourMemoryBudget(frameCount, baseTerrain);
@@ -729,16 +820,25 @@ export function buildSampleProbeDashboardMulti(
   const frames = buildMultiPierScourFrames(
     pierDatasets,
     baseTerrain,
+    pierLayout,
+    multiLayout.sourceWorlds,
     loopStep,
     maxBlocks,
     baseIntervalSeconds,
     anchor,
+    maskInflow,
+    flowHeading,
+    true,
   );
   const samples = buildProbeSamplesFromBlocks(primary.blocks, bounds, loopStep);
 
   return {
     scour: { baseTerrain, frames },
-    fluid: buildProbeFluidSeries(primary, { stepMultiple: loopStep, tankLengthX }),
+    fluid: buildProbeFluidSeries(primary, {
+      stepMultiple: loopStep,
+      tankLengthX,
+      maskInflowBoundaryScour: maskInflow,
+    }),
     probeSeries: {
       samples,
       rowCount: maxBlocks,
@@ -761,9 +861,9 @@ export function probeAtTime(
   let timeIndex = timeIndexAtTime(rowCount, timeSeconds, baseIntervalSeconds);
   timeIndex -= timeIndex % stepMultiple;
 
-  let sample = samples[0]!;
+  let sample = samples[0];
   for (let i = 0; i < samples.length; i += 1) {
-    const s = samples[i]!;
+    const s = samples[i];
     if (s.timeIndex <= timeIndex) sample = s;
     else break;
   }

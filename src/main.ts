@@ -1,17 +1,51 @@
 import '@/styles/main.css';
 
 import { CameraPresets } from '@/components/CameraPresets';
-import { CellTimeSeries } from '@/components/CellTimeSeries';
 import { ColorLegend } from '@/components/ColorLegend';
 import { CsvUploadPanel } from '@/components/CsvUploadPanel';
+import type { CsvDashboardLoadResult } from '@/data/loadCsvDashboard';
 import { DashboardCustomizePanel } from '@/components/DashboardCustomizePanel';
-import { FluidControls, fluidDashboardLabel, type FluidRangeEntry } from '@/components/FluidControls';
+import {
+  FluidControls,
+  fluidDashboardLabel,
+  type FluidRangeEntry,
+} from '@/components/FluidControls';
 import { FluidFieldLegend } from '@/components/FluidFieldLegend';
 import { FluidTimeSeriesChart } from '@/components/FluidTimeSeriesChart';
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts';
 import { LoginScreen } from '@/components/LoginScreen';
 import { LogoutButton } from '@/components/LogoutButton';
-import { ScourWarning } from '@/components/ScourWarning';
+import { PierScourMonitor } from '@/components/PierScourMonitor';
+import { GlobalNav } from '@/components/GlobalNav';
+import { ViewerSubNav } from '@/components/ViewerSubNav';
+import { StatusBar } from '@/components/StatusBar';
+import { ScreenPlaceholder } from '@/components/ScreenPlaceholder';
+import { SectionProfilePanel } from '@/components/SectionProfilePanel';
+import { PlanViewOverlay } from '@/components/PlanViewOverlay';
+import { computeSectionKpi } from '@/utils/sectionProfile';
+import { GradeLegendPanel } from '@/components/GradeLegendPanel';
+import { PierLabelOverlay } from '@/components/PierLabelOverlay';
+import { PierScourTimelinePanel } from '@/components/PierScourTimelinePanel';
+import { RiskJudgmentPanel } from '@/components/RiskJudgmentPanel';
+import { RiskAlertBanner } from '@/components/RiskAlertBanner';
+import { AlertSopPage } from '@/components/AlertSopPage';
+import { MockAlertSopStore } from '@/state/mockAlertSop';
+import { CaseManagementPage } from '@/components/CaseManagementPage';
+import { DataPipelinePage } from '@/components/DataPipelinePage';
+import { ConditionSetupCaseBar } from '@/components/ConditionSetupCaseBar';
+import { stageCsvForConditionSetup, takePendingCsvUpload } from '@/state/pendingCaseUpload';
+import {
+  buildPierDepthSeries,
+  computePierReachTimes,
+  type PierDepthSeries,
+} from '@/utils/pierTimeSeries';
+import { isViewerScreen, ScreenRouter, SCREEN_TITLES, type ScreenId } from '@/app/ScreenRouter';
+import { gradeOf, worstPierByDepth } from '@/constants/grade';
+import {
+  inflowBoundaryLegendNote,
+  inflowBoundaryLegendNoteShort,
+} from '@/utils/flumeInflowBoundary';
+import { ViewerToast } from '@/components/ViewerToast';
 import { TimeControls } from '@/components/TimeControls';
 import { AnimationLoop } from '@/core/AnimationLoop';
 import { CameraManager } from '@/core/CameraManager';
@@ -25,13 +59,12 @@ import {
   type SampleProbeSeries,
 } from '@/data/buildSampleProbeDashboard';
 import { probeFluidQuantityRange } from '@/data/buildProbeFluidSeries';
-import { buildPierLayout, clampPierCount } from '@/utils/pierLayout';
+import { buildPierLayout } from '@/utils/pierLayout';
 import { createEmptyFluidSeries } from '@/data/createEmptyFluidSeries';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
 import { FluidSlicePlane } from '@/modules/FluidSlicePlane';
 import { FluidQuantityPoints } from '@/modules/FluidQuantityPoints';
-import { FluidTracers } from '@/modules/FluidTracers';
-import { Picking } from '@/modules/Picking';
+import { FluidTracers, fluidSeriesHasFlowAtTime } from '@/modules/FluidTracers';
 import { PierMarker, type PierDefinition } from '@/modules/PierMarker';
 import { SedimentLayer } from '@/modules/SedimentLayer';
 import { Terrain } from '@/modules/Terrain';
@@ -40,20 +73,20 @@ import { VelocityArrows } from '@/modules/VelocityArrows';
 import { Vector3 } from 'three';
 import type { Scene } from 'three';
 import { ExperimentInfoPanel } from '@/components/ExperimentInfoPanel';
-import { FlowDirectionBadge } from '@/components/FlowDirectionBadge';
-import {
-  fluidGridDims,
-  paramsToFlumeGeometry,
-  terrainGridDims,
-} from '@/constants/experiment';
+import { fluidGridDims, paramsToFlumeGeometry, terrainGridDims } from '@/constants/experiment';
 import type { FluidQuantity, FluidSeries } from '@/types/fluid';
 import type { ScourSeries } from '@/types/terrain';
-import { DEFAULT_SIM_PARAMS, frameIntervalSeconds, mergePanelParams, type SimParams } from '@/types/simParams';
+import {
+  DEFAULT_SIM_PARAMS,
+  frameIntervalSeconds,
+  mergePanelParams,
+  type SimParams,
+} from '@/types/simParams';
 import { createFpsMeter } from '@/utils/fpsMeter';
-import { captureSceneScreenshot } from '@/utils/screenshot';
 import { normalizeFluidQuantityRange } from '@/utils/fluidQuantityColor';
-import { pierScourRatios } from '@/utils/pierScourSample';
-import { yieldToMain } from '@/utils/yieldToMain';
+import { scalePierScourReadings } from '@/utils/pierScourDisplayScale';
+import { pierScourDepths } from '@/utils/pierScourSample';
+import { captureSceneScreenshot, scdtScreenshotName } from '@/utils/screenshot';
 import {
   alignFluidSeriesToTerrain,
   defaultFluidSliceHeight,
@@ -206,6 +239,35 @@ function syncProbeTracers(
   tracers.setProbeVelocity({ u: sample.u, v: sample.v, w: sample.w });
 }
 
+/** CSV 3D 유체 격자 우선. 해당 시각 격자 유속이 전부 0이면 조건 설정 u,v,w 로 입자를 구동한다. */
+function applyTracerVelocity(
+  state: Pick<SimState, 'tracers' | 'probeSeries' | 'probeFluidField' | 'fluidSeries'>,
+  simParams: SimParams,
+  timeSeconds: number,
+): void {
+  if (state.probeFluidField) {
+    if (fluidSeriesHasFlowAtTime(state.fluidSeries, timeSeconds)) {
+      state.tracers.clearProbeVelocity();
+    } else {
+      state.tracers.setProbeVelocity({
+        u: simParams.fluidU,
+        v: simParams.fluidV,
+        w: simParams.fluidW,
+      });
+    }
+    return;
+  }
+  if (state.probeSeries) {
+    syncProbeTracers(state.tracers, state.probeSeries, timeSeconds, false);
+    return;
+  }
+  state.tracers.setProbeVelocity({
+    u: simParams.fluidU,
+    v: simParams.fluidV,
+    w: simParams.fluidW,
+  });
+}
+
 /** CSV 대시보드가 terrain metadata 에 기록한 교각 정의를 PierMarker 용으로 변환한다. */
 function pierDefsFromScourMetadata(
   series: ScourSeries,
@@ -329,11 +391,10 @@ async function buildSimState(
     structurePermeable: params.structurePermeable,
     baseElevation: 0,
   });
-  tracers.setVisible(true);
+  tracers.setVisible(false);
   // CSV 격자는 측정점 간격을 따르므로 셀 수가 합성 격자보다 훨씬 많을 수 있다 —
   // 점 표시 수가 폭발하지 않도록 격자 크기에서 stride 를 역산한다.
-  const fluidCellCount =
-    fluidSeries.grid.width * fluidSeries.grid.height * fluidSeries.grid.depth;
+  const fluidCellCount = fluidSeries.grid.width * fluidSeries.grid.height * fluidSeries.grid.depth;
   const fluidPoints = new FluidQuantityPoints({
     scene,
     series: fluidSeries,
@@ -385,16 +446,182 @@ async function buildSimState(
   };
 }
 
-async function bootstrap(): Promise<void> {
+async function bootstrap(router: ScreenRouter): Promise<void> {
   const canvas = document.getElementById('scene-canvas') as HTMLCanvasElement | null;
   const appRoot = document.getElementById('app');
   const dockLeft = document.getElementById('dock-left');
   const dockRight = document.getElementById('dock-right');
-  if (!canvas || !appRoot || !dockLeft || !dockRight) {
+  const viewerStage = document.getElementById('viewer-stage');
+  const viewerCenter = document.getElementById('viewer-center');
+  const viewerMain = document.getElementById('viewer-main');
+  const gnbMount = document.getElementById('gnb');
+  const subnavMount = document.getElementById('subnav');
+  const sbarMount = document.getElementById('sbar');
+  const placeholderHost = document.getElementById('screen-placeholder-host');
+  if (
+    !canvas ||
+    !appRoot ||
+    !dockLeft ||
+    !dockRight ||
+    !viewerStage ||
+    !viewerCenter ||
+    !viewerMain ||
+    !gnbMount ||
+    !subnavMount ||
+    !sbarMount ||
+    !placeholderHost
+  ) {
     throw new Error(
-      '필수 DOM (#scene-canvas, #app, #dock-left, #dock-right) 을 찾을 수 없습니다.',
+      '필수 DOM (#scene-canvas, #app, docks, #viewer-stage, #viewer-center, #gnb, #subnav, #sbar) 을 찾을 수 없습니다.',
     );
   }
+
+  const globalNav = new GlobalNav({
+    onNavigate: (screen) => router.goto(screen),
+    onReportUnavailable: () => {
+      console.info('[SCDT] 리포트는 1차년도 범위 밖입니다 (2차년도 예정)');
+    },
+  });
+  gnbMount.appendChild(globalNav.element);
+
+  const logoutButton = new LogoutButton({
+    onLogout: () => {
+      sessionStorage.removeItem(AUTH_STORAGE_KEY);
+      window.location.reload();
+    },
+  });
+  globalNav.element.querySelector('.global-nav__right')?.appendChild(logoutButton.element);
+
+  const viewerSubNav = new ViewerSubNav({
+    onNavigate: (screen) => router.goto(screen),
+  });
+  subnavMount.appendChild(viewerSubNav.element);
+
+  const statusBar = new StatusBar({
+    caseId: 'A-032',
+    coordinateSystem: 'Local (model)',
+    units: 'm, m/s',
+    foundationDepthM: DEFAULT_SIM_PARAMS.foundationDepth,
+    convertedAt: '2026-10-02 09:05',
+    frameIndex: 0,
+    frameCount: DEFAULT_SIM_PARAMS.frameCount,
+  });
+  sbarMount.appendChild(statusBar.element);
+
+  const screenPlaceholder = new ScreenPlaceholder(router.screen);
+  placeholderHost.appendChild(screenPlaceholder.element);
+
+  const mockAlertSopStore = new MockAlertSopStore();
+  const openSopScreen = (): void => router.goto(10);
+  const alertSopPage = new AlertSopPage({
+    store: mockAlertSopStore,
+    caseId: 'A-032',
+    durationSeconds: 0,
+    onChanged: () => {
+      /* 목업 SOP 상태만 갱신 */
+    },
+  });
+  placeholderHost.appendChild(alertSopPage.element);
+
+  const dataPipelinePage = new DataPipelinePage({
+    onOpenCases: () => router.goto(2),
+    onOpenConditionSetup: () => router.goto(4),
+  });
+  placeholderHost.appendChild(dataPipelinePage.element);
+
+  const caseManagementPage = new CaseManagementPage({
+    onOpenViewer: (caseId) => {
+      statusBar.update({ caseId });
+      conditionSetupCaseBar.setCaseId(caseId);
+      router.goto(4);
+    },
+    onOpenDataPipeline: () => router.goto(3),
+    onOpenDataPipelineError: (caseId) => {
+      dataPipelinePage.focusFile(caseId === 'B-015' ? 'B-015_run01.csv' : caseId);
+      router.goto(3);
+    },
+    onStartNewSimulation: (files) => {
+      if (files && files.length > 0) {
+        stageCsvForConditionSetup(files);
+        const stem = files[0].name.replace(/\.csv$/i, '');
+        const caseGuess =
+          stem.match(/^[A-Z]-\d+/i)?.[0]?.toUpperCase() ?? `NEW · ${stem.slice(0, 20)}`;
+        statusBar.update({ caseId: caseGuess });
+      }
+      router.goto(4);
+    },
+  });
+  placeholderHost.appendChild(caseManagementPage.element);
+
+  const syncShellLayout = (screen: ScreenId): void => {
+    viewerSubNav.setVisible(isViewerScreen(screen));
+    if (isViewerScreen(screen)) viewerSubNav.setActive(screen);
+    globalNav.setActiveForScreen(screen);
+
+    const showViewer =
+      screen === 4 || screen === 5 || screen === 6 || screen === 7 || screen === 8 || screen === 9;
+    const showAlertPage = screen === 10;
+    const showCasePage = screen === 2;
+    const showDataPage = screen === 3;
+
+    viewerStage.classList.toggle('is-hidden', !showViewer);
+    placeholderHost.classList.toggle('is-active', !showViewer);
+
+    screenPlaceholder.element.classList.toggle(
+      'is-hidden',
+      showAlertPage || showCasePage || showDataPage,
+    );
+    alertSopPage.setVisible(showAlertPage);
+    caseManagementPage.setVisible(showCasePage);
+    dataPipelinePage.setVisible(showDataPage);
+    if (!showViewer && !showCasePage && !showDataPage && !showAlertPage) {
+      screenPlaceholder.setScreen(screen);
+    }
+  };
+
+  syncShellLayout(router.screen);
+
+  const conditionSetupCaseBar = new ConditionSetupCaseBar({
+    onOpenPipeline: () => router.goto(3),
+    onCaseChange: (caseId) => {
+      statusBar.update({ caseId });
+    },
+  });
+
+  const riskJudgmentPanel = new RiskJudgmentPanel({ onOpenSop: openSopScreen });
+  const riskAlertBanner = new RiskAlertBanner({ onOpenSop: openSopScreen });
+  viewerMain.appendChild(riskAlertBanner.element);
+
+  const planViewOverlay = new PlanViewOverlay();
+  viewerMain.appendChild(planViewOverlay.element);
+  const planViewHint = document.createElement('div');
+  planViewHint.className = 'plan-view-hint';
+  planViewHint.textContent = '평면뷰(TOP) · 교량 레이어 자동 숨김';
+  viewerMain.appendChild(planViewHint);
+
+  const sectionProfilePanel = new SectionProfilePanel({
+    onSectionChange: (sec) => {
+      planViewOverlay.setSection(sec);
+      if (router.screen === 6) {
+        statusBar.update({ extra: sec === 'A' ? '단면 A–A′' : '단면 B–B′' });
+      }
+    },
+  });
+  viewerCenter.appendChild(sectionProfilePanel.element);
+  sectionProfilePanel.element.classList.add('is-hidden');
+
+  const pierTimelinePanel = new PierScourTimelinePanel();
+  viewerCenter.appendChild(pierTimelinePanel.element);
+
+  const pierLabelOverlay = new PierLabelOverlay();
+  viewerMain.appendChild(pierLabelOverlay.element);
+
+  const gradeLegendPanel = new GradeLegendPanel(DEFAULT_SIM_PARAMS.foundationDepth);
+  gradeLegendPanel.element.classList.add('is-hidden');
+
+  const syncPlanViewOverlaySize = (): void => {
+    planViewOverlay.resize(viewerMain.clientWidth, viewerMain.clientHeight);
+  };
 
   const sceneManager = new SceneManager();
   const rendererManager = new RendererManager({ canvas });
@@ -403,7 +630,7 @@ async function bootstrap(): Promise<void> {
     aspect: canvas.clientWidth / canvas.clientHeight,
   });
   const lightManager = new LightManager(sceneManager.scene);
-  const fpsMeter = createFpsMeter(appRoot, { rightInsetPx: 300 });
+  const fpsMeter = createFpsMeter(viewerMain, { rightInsetPx: 12 });
   const loop = new AnimationLoop();
 
   // ── 최초 베이스 데이터 (manifest 있으면 사용, 없으면 null → buildSimState 내부에서 합성)
@@ -411,6 +638,8 @@ async function bootstrap(): Promise<void> {
 
   let params: SimParams = { ...DEFAULT_SIM_PARAMS };
   let sim = await buildSimState(params, sceneManager.scene, null);
+  pierLabelOverlay.setPiers(sim.pierDefs);
+  gradeLegendPanel.setFoundationDepthM(params.foundationDepth);
 
   /** 사용자화 패널에서 유지되는 값 (재시뮬 후에도 동일하게 적용) */
   let fluidSliceOpacity = 0.92;
@@ -427,26 +656,27 @@ async function bootstrap(): Promise<void> {
   );
 
   const timeControls = new TimeControls({
-    durationSeconds: sim.durationSeconds,
-    autoPlay: true,
+    durationSeconds: 0,
+    autoPlay: false,
     loop: true,
   });
-  appRoot.appendChild(timeControls.element);
+  timeControls.setTimelineEnabled(false, '「적용하고 결과 보기」 후 재생');
+  viewerCenter.appendChild(timeControls.element);
 
-  const flowDirectionBadge = new FlowDirectionBadge();
-  appRoot.appendChild(flowDirectionBadge.element);
+  const viewerToast = new ViewerToast();
+  viewerCenter.appendChild(viewerToast.element);
 
   const legend = new ColorLegend({
-    title: '지반 변화량 (세굴 ↔ 퇴적)',
+    title: '범례 — 세굴심 (scrdif)',
     unit: 'm',
     initialAbsMax: sim.terrain.absMax,
   });
 
   // 유체 필드(u/v/w/scrdif) 실측 시계열 오버레이 — 씬 위 플로팅 범례 + 하단 라인 차트.
   const fluidFieldLegend = new FluidFieldLegend();
-  appRoot.appendChild(fluidFieldLegend.element);
+  viewerCenter.appendChild(fluidFieldLegend.element);
   const fluidTimeSeriesChart = new FluidTimeSeriesChart();
-  appRoot.appendChild(fluidTimeSeriesChart.element);
+  viewerCenter.appendChild(fluidTimeSeriesChart.element);
   /** 매 프레임 setProbeQuantity 에 쓰는 현재 항목의 고정 색 범위(재생 중 흔들리지 않도록). */
   let currentProbeRange: { min: number; max: number } | null = null;
 
@@ -472,10 +702,16 @@ async function bootstrap(): Promise<void> {
     sim.terrainWater.setColorRange(sim.probeFluidField ? range : null);
     const label = fluidDashboardLabel(primary);
     const unit = fluidUnitForQuantity(primary, sim.fluidSeries.metadata);
-    const note =
+    let note =
       primary === 'scrdif'
-        ? '파란색 = 세굴(하상이 깊어짐) · 베이지 = 변화 없음 · 황토색 = 퇴적(하상이 쌓임). 아래 물을 투명하게 하면 실제 구덩이 형태를 볼 수 있습니다.'
+        ? '파란=세굴 · 베이지=변화 없음 · 황토=퇴적. 수면을 투명하게 하면 지형 굴곡이 잘 보입니다.'
         : '';
+    if (primary === 'scrdif' && sim.series.baseTerrain.metadata?.inflowBoundaryMasked) {
+      note = note ? `${note} ${inflowBoundaryLegendNoteShort()}` : inflowBoundaryLegendNoteShort();
+      fluidFieldLegend.setNoteTooltip(inflowBoundaryLegendNote());
+    } else {
+      fluidFieldLegend.setNoteTooltip('');
+    }
     fluidFieldLegend.setQuantity(primary, label, range, unit, note);
     const { times, values } = probeSeriesTimesValues(probeSeries, key);
     fluidTimeSeriesChart.setSeries({
@@ -520,9 +756,7 @@ async function bootstrap(): Promise<void> {
     }
   };
 
-  let fluidControls!: FluidControls;
-
-  fluidControls = new FluidControls(
+  const fluidControls = new FluidControls(
     {
       initialParams: params,
       initialQuantities: ['velocityX'],
@@ -530,10 +764,10 @@ async function bootstrap(): Promise<void> {
       minHeight: sim.fluidMinY,
       maxHeight: sim.fluidMaxY,
       initialHeight: sim.waterLevelY,
-      initialTracersVisible: true,
-      initialPointsVisible: false,
+      initialTracersVisible: false,
       velocityUnit: sim.fluidSeries.metadata?.velocityUnit ?? 'm/s',
       scrdifUnit: sim.fluidSeries.metadata?.scalarUnits?.scrdif ?? 'm',
+      readOnlyField: router.screen >= 5 && router.screen <= 9,
     },
     {
       onQuantitiesChange: (_selected, primary) => {
@@ -556,24 +790,66 @@ async function bootstrap(): Promise<void> {
         sim.slicePlane.setVisible(false);
       },
       onTracersVisibilityChange: (v) => sim.tracers.setVisible(v),
-      onPointsVisibilityChange: (v) => {
-        sim.fluidPoints.setVisible(v);
-        lastFluidLegendKey = '';
-        syncFluidFieldLegend();
-      },
     },
   );
   dockLeft.appendChild(fluidControls.element);
   applyFluidPrimaryQuantity(fluidControls.getPrimaryQuantity());
   syncFluidFieldLegend();
+  /** 재생 종료로 자동 해제한 추적 입자 — 슬라이더를 끝 이전으로 되돌리면 다시 켠다. */
+  let tracersAutoOffAtEnd = false;
+  let ephemeralStatusNote = '';
+  let ephemeralStatusTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const logoutButton = new LogoutButton({
-    onLogout: () => {
-      sessionStorage.removeItem(AUTH_STORAGE_KEY);
-      window.location.reload();
-    },
-  });
-  dockRight.appendChild(logoutButton.element);
+  const buildViewerStatusExtra = (screen: ScreenId): string => {
+    const parts: string[] = [];
+    if (screen === 6) {
+      parts.push(sectionProfilePanel.getSection() === 'A' ? '단면 A–A′' : '단면 B–B′');
+    } else if (screen === 7) {
+      parts.push('교각 색·라벨 = 시점별 등급 (우측 범례)');
+    } else if (screen >= 5 && screen <= 9) {
+      const primary = fluidControls.getPrimaryQuantity();
+      if (sim.probeSeries && primary === 'scrdif') {
+        parts.push('지형 색 = 하상 Δ · 수면 = scrdif');
+        if (sim.series.baseTerrain.metadata?.inflowBoundaryMasked) {
+          parts.push(inflowBoundaryLegendNoteShort());
+        }
+      }
+    }
+    if (ephemeralStatusNote) parts.push(ephemeralStatusNote);
+    return parts.join(' · ');
+  };
+
+  const setEphemeralStatusNote = (message: string, durationMs = 8000): void => {
+    ephemeralStatusNote = message;
+    statusBar.update({ extra: buildViewerStatusExtra(router.screen) });
+    if (ephemeralStatusTimer) clearTimeout(ephemeralStatusTimer);
+    ephemeralStatusTimer = setTimeout(() => {
+      ephemeralStatusNote = '';
+      ephemeralStatusTimer = null;
+      statusBar.update({ extra: buildViewerStatusExtra(router.screen) });
+    }, durationMs);
+  };
+
+  const syncTracersWithTimeline = (t: number): void => {
+    const d = timeControls.duration;
+    if (d <= 0) return;
+    if (t >= d - 1e-4) {
+      if (fluidControls.isTracersVisible()) {
+        tracersAutoOffAtEnd = true;
+        fluidControls.setTracersVisible(false);
+        const msg = '재생 종료 — 추적 입자를 껐습니다. 되감으면 다시 켜집니다.';
+        fluidControls.setTracersNotice(msg);
+        setEphemeralStatusNote(msg);
+      }
+      return;
+    }
+    if (tracersAutoOffAtEnd) {
+      tracersAutoOffAtEnd = false;
+      fluidControls.setTracersVisible(true);
+      fluidControls.setTracersNotice(null);
+    }
+  };
+  timeControls.onChange((t) => syncTracersWithTimeline(t));
 
   const cameraPresets = new CameraPresets({
     onSelect: (preset) => cameraManager.applyPreset(preset, sceneRadius),
@@ -581,36 +857,53 @@ async function bootstrap(): Promise<void> {
   dockRight.appendChild(cameraPresets.element);
   dockRight.appendChild(legend.element);
 
-  let activeScourWarning = new ScourWarning({
-    pierCount: sim.pierDefs.length,
+  let activePierMonitor = new PierScourMonitor({
     pierIds: sim.pierDefs.map((p) => p.id),
-    criticalDepthM: params.criticalScourDepth,
+    foundationDepthM: params.foundationDepth,
   });
-  dockRight.insertBefore(activeScourWarning.element, legend.element);
+  dockRight.insertBefore(activePierMonitor.element, legend.element);
+  dockRight.insertBefore(gradeLegendPanel.element, activePierMonitor.element);
+  dockRight.insertBefore(riskJudgmentPanel.element, gradeLegendPanel.element);
 
-  const cellSeries = new CellTimeSeries({ series: sim.series });
-  appRoot.appendChild(cellSeries.element);
+  let pierDepthSeriesCache: PierDepthSeries[] = buildPierDepthSeries(
+    sim.series,
+    sim.pierDefs,
+    params.foundationDepth,
+  );
 
-  const picking = new Picking({
-    canvas,
-    camera: cameraManager.camera,
-    pickables: sim.terrain.pickables,
-    emitOnHover: false,
-  });
-  picking.onClick((hit) => {
-    if (!hit) {
-      cellSeries.clear();
-      cellSeries.element.classList.remove('is-active');
-      return;
-    }
-    const cell = sim.terrain.queryAtWorld(hit.worldX, hit.worldZ);
-    if (!cell) return;
-    cellSeries.setCell(cell.gridX, cell.gridY);
-    cellSeries.element.classList.add('is-active');
-  });
+  const syncAlertSopSnapshot = (): void => {
+    const tEnd = sim.durationSeconds;
+    const raw = pierScourDepths(sim.series, sim.pierDefs, tEnd);
+    const depthsAtEnd = scalePierScourReadings(
+      raw,
+      params.foundationDepth,
+      tEnd,
+      sim.durationSeconds,
+    );
+    alertSopPage.setContext(depthsAtEnd, params.foundationDepth, sim.durationSeconds);
+  };
+  syncAlertSopSnapshot();
 
-  let customizePanel: DashboardCustomizePanel;
-  let experimentInfoPanel!: ExperimentInfoPanel;
+  const syncViewerChrome = (screen: ScreenId): void => {
+    const cellMode = screen === 7;
+    const gradeLabels = screen === 7 || screen === 8 || screen === 9;
+    const riskMode = screen === 9;
+    const setupView = screen === 4;
+    riskAlertBanner.setVisible(riskMode);
+    riskJudgmentPanel.setVisible(riskMode);
+    activePierMonitor.element.classList.toggle('is-hidden', riskMode || setupView);
+    gradeLegendPanel.element.classList.toggle('is-hidden', !cellMode);
+    pierLabelOverlay.setEnabled(gradeLabels);
+  };
+
+  /** 4번에서 적용 완료 후 이동할 화면 */
+  let navigateAfterApply: ScreenId | null = null;
+  /** 4번에서 파싱만 끝난 CSV. 적용 버튼을 누를 때 장면에 넣는다. */
+  let stagedCsv: CsvDashboardLoadResult | null = null;
+  // eslint-disable-next-line prefer-const -- applyParams 가 선언보다 앞에서 csvUploadPanel 참조
+  let csvUploadPanel!: CsvUploadPanel;
+  // eslint-disable-next-line prefer-const -- collectParams 가 선언 전 참조
+  let experimentInfoPanel: ExperimentInfoPanel;
 
   const collectParams = (): SimParams =>
     mergePanelParams(params, experimentInfoPanel.getParams(), fluidControls.getParams(), params);
@@ -622,7 +915,7 @@ async function bootstrap(): Promise<void> {
     coordinateFluid = false,
     probeSeries: SampleProbeSeries | null = null,
   ): void => {
-    experimentInfoPanel.setLoading(true);
+    csvUploadPanel.setApplyLoading(true);
     fluidControls.setLoading(true);
     void buildSimState(
       newParams,
@@ -634,12 +927,12 @@ async function bootstrap(): Promise<void> {
     ).then(
       (next) => {
         swapSim(next, newParams);
-        experimentInfoPanel.setLoading(false);
+        csvUploadPanel.setApplyLoading(false);
         fluidControls.setLoading(false);
       },
       (err: unknown) => {
         console.error('[applyParams]', err);
-        experimentInfoPanel.setLoading(false);
+        csvUploadPanel.setApplyLoading(false);
         fluidControls.setLoading(false);
       },
     );
@@ -649,20 +942,32 @@ async function bootstrap(): Promise<void> {
     loop.stop();
     const old = sim;
     old.dispose();
-    activeScourWarning.dispose();
-    activeScourWarning = new ScourWarning({
-      pierCount: next.pierDefs.length,
+    activePierMonitor.dispose();
+    activePierMonitor = new PierScourMonitor({
       pierIds: next.pierDefs.map((p) => p.id),
-      criticalDepthM: nextParams.criticalScourDepth,
+      foundationDepthM: nextParams.foundationDepth,
     });
-    dockRight.insertBefore(activeScourWarning.element, legend.element);
+    dockRight.insertBefore(activePierMonitor.element, legend.element);
+    pierDepthSeriesCache = buildPierDepthSeries(
+      next.series,
+      next.pierDefs,
+      nextParams.foundationDepth,
+    );
+    syncAlertSopSnapshot();
+    pierLabelOverlay.setPiers(next.pierDefs);
 
-    picking.updatePickables(next.terrain.pickables);
-    cellSeries.updateSeries(next.series);
     legend.setRange(next.terrain.absMax);
     next.terrain.onFrameApplied(({ absMax }) => legend.setRange(absMax));
-    timeControls.setDuration(next.durationSeconds);
-    timeControls.setTime(0);
+    const autoPlayAfterApply = navigateAfterApply === 5;
+    const canPlayback = next.durationSeconds > 1e-6;
+    timeControls.setDuration(canPlayback ? next.durationSeconds : 0);
+    timeControls.setTime(0, { force: true, silent: !canPlayback });
+    timeControls.setTimelineEnabled(canPlayback, '「적용하고 결과 보기」 후 재생');
+    if (!canPlayback) {
+      timeControls.setPlaying(false);
+    } else if (autoPlayAfterApply) {
+      timeControls.setPlaying(true);
+    }
 
     fluidControls.setHeightRange(next.fluidMinY, next.fluidMaxY);
     fluidControls.setSliceHeight(next.waterLevelY);
@@ -673,8 +978,8 @@ async function bootstrap(): Promise<void> {
     next.arrows.setVisible(false);
     next.tracers.setVisible(fluidControls.isTracersVisible());
     next.tracers.setWaterLevel(next.waterLevelY);
-    syncProbeTracers(next.tracers, next.probeSeries, 0, next.probeFluidField);
-    fluidControls.setPointsVisible(false);
+    applyTracerVelocity(next, nextParams, 0);
+    next.fluidPoints.setVisible(false);
 
     // sim 을 next 로 먼저 교체해야 아래 applyFluidPrimaryQuantity(항목·투명도·과장 배율 설정)가
     // 방금 폐기된 옛 인스턴스가 아니라 실제로 화면에 보이는 next 에 적용된다.
@@ -701,50 +1006,79 @@ async function bootstrap(): Promise<void> {
       }
     }
     loop.start();
+    if (navigateAfterApply !== null) {
+      const target = navigateAfterApply;
+      navigateAfterApply = null;
+      router.goto(target);
+      if (canPlayback && target === 5) {
+        viewerToast.show('시뮬레이션 재생 중 — 타임라인에서 일시정지·구간 이동 가능');
+      }
+    }
   };
 
-  experimentInfoPanel = new ExperimentInfoPanel(params, {
-    onApply: () => applyParams(collectParams()),
-  });
-  dockRight.appendChild(experimentInfoPanel.element);
+  experimentInfoPanel = new ExperimentInfoPanel(params);
 
-  const csvUploadPanel = new CsvUploadPanel({
-    onLoaded: async (result) => {
-      await yieldToMain();
-      const detectedPierCount =
-        result.piers.length > 0 ? clampPierCount(result.piers.length) : 1;
-      const nextParams = { ...params, pierCount: detectedPierCount };
-      const next = await buildSimState(
-        nextParams,
-        sceneManager.scene,
-        result.scour,
-        result.fluid,
-        false,
-        result.probeSeries,
+  csvUploadPanel = new CsvUploadPanel({
+    onApplyScene: () => {
+      const staged = stagedCsv;
+      if (!staged) {
+        viewerToast.show('CSV 파싱을 먼저 완료한 뒤 적용해 주세요.');
+        return;
+      }
+      if (router.screen === 4) navigateAfterApply = 5;
+      const next = collectParams();
+      applyParams(next, staged.scour, staged.fluid, false, staged.probeSeries);
+    },
+    onLoaded: (result) => {
+      stagedCsv = result;
+      viewerToast.show(
+        'CSV 파싱이 끝났습니다. 조건을 확인한 뒤 「적용하고 결과 보기」를 누르세요.',
       );
-      await yieldToMain();
-      swapSim(next, nextParams);
-      cameraManager.applyPreset(
-        'reset',
-        sceneViewRadius(next.series.baseTerrain, next.fluidSeries),
-      );
+    },
+    onInvalidated: () => {
+      stagedCsv = null;
     },
     onError: (message) => {
       console.error('[CSV]', message);
     },
-    getLoadOptions: () => ({
-      pierCount: params.pierCount,
-      pierArrangement: params.pierArrangement,
-      pierDiameter: params.pierDiameter,
-      sandGrainSizeMm: params.sandGrainSizeMm,
-      permeable: params.structurePermeable,
-      inflowSpeed: params.inflowSpeed,
-      tankHeightY: params.tankHeightY,
-    }),
+    onAnalysisPierCountChange: (count) => {
+      params = { ...params, pierCount: count };
+      experimentInfoPanel.setParams(params);
+    },
+    onSetupApplied: (selection) => {
+      params = {
+        ...params,
+        pierCount: selection.pierCount,
+        bridgeEnabled: selection.bridgeEnabled,
+        bridgeType: selection.bridgeType,
+      };
+      experimentInfoPanel.setParams(params);
+    },
+    getStructure: () => {
+      const current = experimentInfoPanel.getParams();
+      const count = current.pierCount <= 1 ? 1 : current.pierCount === 2 ? 2 : 3;
+      return {
+        pierCount: count,
+        bridgeEnabled: current.bridgeEnabled,
+        bridgeType: current.bridgeType,
+      };
+    },
+    getLoadOptions: () => {
+      const count = params.pierCount;
+      return {
+        pierCount: count,
+        pierArrangement: count >= 2 ? ('along' as const) : params.pierArrangement,
+        pierDiameter: params.pierDiameter,
+        sandGrainSizeMm: params.sandGrainSizeMm,
+        permeable: params.structurePermeable,
+        inflowSpeed: params.inflowSpeed,
+        tankHeightY: params.tankHeightY,
+      };
+    },
   });
-  dockLeft.prepend(csvUploadPanel.element);
+  dockLeft.append(conditionSetupCaseBar.element, csvUploadPanel.element, fluidControls.element);
 
-  customizePanel = new DashboardCustomizePanel({
+  const customizePanel = new DashboardCustomizePanel({
     onBackgroundHex: (hex) => {
       sceneManager.setBackground(hex);
     },
@@ -764,57 +1098,221 @@ async function bootstrap(): Promise<void> {
   const banner = document.createElement('div');
   banner.className = 'context-banner';
   banner.textContent = 'WebGL 컨텍스트가 손실되었습니다. 복원을 시도하는 중...';
-  appRoot.appendChild(banner);
+  viewerCenter.appendChild(banner);
+
+  const applyScreenLayout = (screen: ScreenId): void => {
+    syncShellLayout(screen);
+    const showViewer =
+      screen === 4 || screen === 5 || screen === 6 || screen === 7 || screen === 8 || screen === 9;
+    const showAlertPage = screen === 10;
+    const setupView = screen === 4;
+    const planView = screen === 6;
+    const timelineView = screen === 8;
+    viewerStage.classList.toggle('is-plan-view', planView);
+    viewerStage.classList.toggle('is-timeline-view', timelineView);
+    if (planView || timelineView) {
+      viewerCenter.appendChild(timeControls.element);
+    }
+    if (showAlertPage) syncAlertSopSnapshot();
+    document.getElementById('app')?.classList.toggle('is-condition-setup', setupView);
+    conditionSetupCaseBar.setVisible(setupView);
+    csvUploadPanel.element.classList.toggle('is-hidden', !setupView);
+    customizePanel.element.classList.toggle('is-hidden', setupView);
+    cameraPresets.element.classList.toggle('is-hidden', setupView);
+    legend.element.classList.toggle('is-hidden', setupView);
+    if (setupView) {
+      const pendingCsv = takePendingCsvUpload();
+      if (pendingCsv && pendingCsv.length > 0) {
+        void csvUploadPanel.ingestExternalFiles(pendingCsv, true);
+        csvUploadPanel.pulseAttention();
+      }
+    }
+    sectionProfilePanel.element.classList.toggle('is-hidden', !planView);
+    pierTimelinePanel.element.classList.toggle('is-hidden', !timelineView);
+    planViewOverlay.element.style.display = planView ? 'block' : 'none';
+    fluidControls.setReadOnlyField(screen >= 5 && screen <= 9);
+    fluidControls.setSetupMode(setupView);
+    syncViewerChrome(screen);
+    gradeLegendPanel.setFoundationDepthM(params.foundationDepth);
+    if (showViewer) {
+      const size = rendererManager.applyCanvasSize();
+      cameraManager.updateAspect(size.width / Math.max(1, size.height));
+      syncPlanViewOverlaySize();
+      pierLabelOverlay.setCamera(cameraManager.camera);
+      if (planView) {
+        cameraManager.applyPreset('top', sceneViewRadius(sim.series.baseTerrain, sim.fluidSeries));
+        sim.pierMarker.setBridgeStructureVisible(false);
+        sim.terrainWater.setVisible(false);
+        sim.tracers.setVisible(false);
+        sim.pierMarker.resetPierShaftColors();
+        statusBar.update({ extra: buildViewerStatusExtra(screen) });
+        requestAnimationFrame(() => sectionProfilePanel.notifyLayout());
+      } else if (screen === 7) {
+        cameraManager.applyPreset('reset', sceneRadius);
+        sim.pierMarker.setBridgeStructureVisible(false);
+        sim.terrainWater.setVisible(fluidControls.isSliceVisible());
+        sim.tracers.setVisible(fluidControls.isTracersVisible());
+        statusBar.update({ extra: buildViewerStatusExtra(screen) });
+      } else {
+        sim.pierMarker.setBridgeStructureVisible(true);
+        sim.terrainWater.setVisible(fluidControls.isSliceVisible());
+        sim.tracers.setVisible(fluidControls.isTracersVisible());
+        if (screen !== 8 && screen !== 9) sim.pierMarker.resetPierShaftColors();
+        statusBar.update({ extra: buildViewerStatusExtra(screen) });
+      }
+      loop.start();
+    } else {
+      loop.stop();
+      sim.pierMarker.resetPierShaftColors();
+      pierLabelOverlay.setEnabled(false);
+    }
+  };
+
   rendererManager.onContextLossEvent(() => {
     banner.classList.add('is-visible');
     loop.stop();
   });
   rendererManager.onContextRestoredEvent(() => {
     banner.classList.remove('is-visible');
-    loop.start();
+    if (router.screen >= 4 && router.screen <= 9) loop.start();
   });
 
   const shortcuts = new KeyboardShortcuts({
-    togglePlay: () => timeControls.setPlaying(!timeControls.isPlaying),
-    seekRelative: (delta) => timeControls.setTime(timeControls.time + delta),
-    seekAbsolute: (t) => timeControls.setTime(t),
+    togglePlay: () => {
+      if (!timeControls.isTimelineEnabled) return;
+      timeControls.setPlaying(!timeControls.isPlaying);
+    },
+    seekRelative: (delta) => {
+      if (!timeControls.isTimelineEnabled) return;
+      timeControls.setTime(timeControls.time + delta);
+    },
+    seekAbsolute: (t) => {
+      if (!timeControls.isTimelineEnabled) return;
+      timeControls.setTime(t);
+    },
     duration: () => timeControls.time + 1,
     applyPreset: (preset) => cameraManager.applyPreset(preset, sceneRadius),
     screenshot: () => {
+      const screen = router.screen;
       void captureSceneScreenshot(
         rendererManager.renderer,
         sceneManager.scene,
         cameraManager.camera,
+        scdtScreenshotName(screen, SCREEN_TITLES[screen]),
       );
     },
   });
 
   rendererManager.registerResizeHandler(({ width, height }) => {
     cameraManager.updateAspect(width / height);
+    syncPlanViewOverlaySize();
   });
+
+  /** 시나리오 시간(t)과 무관 — 수면 리플·줄무늬용 실시간 시계 */
+  let ambientRippleTime = 0;
 
   loop.add((delta) => {
     fpsMeter.begin();
+    const simDt = timeControls.simulationDelta(delta);
+    const dur = timeControls.duration;
+    const crossedPlaybackEnd = simDt > 0 && dur > 0 && timeControls.time + simDt >= dur - 1e-6;
     timeControls.tick(delta);
+    if (crossedPlaybackEnd) {
+      syncTracersWithTimeline(timeControls.duration);
+    }
     const t = timeControls.time;
-    const simDelta = timeControls.simulationDelta(delta);
+    const simDelta =
+      timeControls.isTimelineEnabled && timeControls.isPlaying && timeControls.duration > 0
+        ? simDt
+        : delta;
+    /** 재생 중이 아니어도 추적 입자는 실시간 Δt 로 움직여야 선분이 그려진다(Δt=0 이면 길이 0). */
+    const tracerAdvectDelta = simDelta > 0 ? simDelta : delta;
 
     sim.terrain.updateAtTime(t);
     sim.sedimentLayer.updateAtTime(t);
-    activeScourWarning.update(
-      pierScourRatios(sim.series, sim.pierDefs, t, params.criticalScourDepth),
-      params.criticalScourDepth,
+    const pierDepths = scalePierScourReadings(
+      pierScourDepths(sim.series, sim.pierDefs, t),
+      params.foundationDepth,
+      t,
+      sim.durationSeconds,
     );
+    activePierMonitor.setFoundationDepthM(params.foundationDepth);
+    activePierMonitor.update(pierDepths);
+    const worst = worstPierByDepth(
+      pierDepths.map((d) => ({ pierId: d.pierId, scourDepthM: d.scourDepthM })),
+    );
+    if (worst) {
+      const g = gradeOf(worst.scourDepthM, params.foundationDepth);
+      globalNav.setBadge({ grade: g, pierId: worst.pierId });
+    }
+    const frameIdx = Math.round(
+      (t / Math.max(sim.durationSeconds, 1e-9)) * Math.max(1, params.frameCount - 1),
+    );
+    statusBar.update({
+      foundationDepthM: params.foundationDepth,
+      frameIndex: frameIdx,
+      frameCount: params.frameCount,
+      extra: buildViewerStatusExtra(router.screen),
+    });
+    const gradeColorMap = new Map(
+      pierDepths.map((d) => [d.pierId, gradeOf(d.scourDepthM, params.foundationDepth)] as const),
+    );
+    const viewW = viewerMain.clientWidth;
+    const viewH = viewerMain.clientHeight;
+    if (router.screen === 7 || router.screen === 8 || router.screen === 9) {
+      sim.pierMarker.setPierShaftColors(
+        new Map([...gradeColorMap.entries()].map(([id, g]) => [id, g.color])),
+      );
+      pierLabelOverlay.updateGrades(gradeColorMap, viewW, viewH);
+    }
+    if (router.screen === 9 && worst) {
+      riskJudgmentPanel.update(
+        pierDepths,
+        pierDepthSeriesCache,
+        t,
+        params.foundationDepth,
+        sim.pierDefs,
+      );
+      riskAlertBanner.update(pierDepths, pierDepthSeriesCache, t, params.foundationDepth, worst);
+    }
+    if (router.screen === 8) {
+      const reach = pierDepthSeriesCache.map((ps) =>
+        computePierReachTimes(ps, params.foundationDepth),
+      );
+      pierTimelinePanel.update(
+        pierDepthSeriesCache,
+        reach,
+        t,
+        params.foundationDepth,
+        sim.durationSeconds,
+      );
+    }
+    if (router.screen === 6) {
+      const p2Depth =
+        pierDepths.find((d) => d.pierId === 'P2')?.scourDepthM ?? pierDepths[0]?.scourDepthM ?? 0;
+      const sec = sectionProfilePanel.getSection();
+      const kpi = computeSectionKpi(
+        sim.series,
+        sec,
+        t,
+        params.foundationDepth,
+        p2Depth,
+        sim.pierDefs,
+      );
+      sectionProfilePanel.update(sim.series, t, params.foundationDepth, sim.pierDefs, kpi);
+      planViewOverlay.setContext(sim.series, sim.pierDefs, cameraManager.camera);
+      planViewOverlay.draw();
+    }
     sim.terrainWater.updateAtTime(t);
-    sim.terrainWater.tickRipple(t);
+    ambientRippleTime += delta;
+    sim.terrainWater.tickRipple(ambientRippleTime);
     sim.terrainWater.setCameraPosition(cameraManager.camera.position);
     sim.tracers.updateAtTime(t);
-    syncProbeTracers(sim.tracers, sim.probeSeries, t, sim.probeFluidField);
-    sim.tracers.tick(simDelta);
+    applyTracerVelocity(sim, params, t);
+    sim.tracers.tick(tracerAdvectDelta);
     sim.slicePlane.updateAtTime(t);
     sim.arrows.updateAtTime(t);
     sim.fluidPoints.updateAtTime(t);
-    cellSeries.setTime(t);
     if (sim.probeSeries) {
       const sample = probeAtTime(sim.probeSeries, t);
       if (sample) {
@@ -844,7 +1342,7 @@ async function bootstrap(): Promise<void> {
       sim.terrainWater.setFlowVector(sample?.u ?? 0, sample?.v ?? 0);
     } else {
       sim.terrainWater.clearProbeQuantity();
-      sim.terrainWater.setFlowVector(0, 0);
+      sim.terrainWater.setFlowVector(params.fluidU, params.fluidV);
     }
     syncFluidFieldLegend();
 
@@ -853,15 +1351,14 @@ async function bootstrap(): Promise<void> {
     fpsMeter.end();
   });
 
-  loop.start();
+  router.subscribe((screen) => applyScreenLayout(screen));
+  applyScreenLayout(router.screen);
 
   const dispose = (): void => {
     shortcuts.dispose();
     loop.dispose();
-    picking.dispose();
     logoutButton.dispose();
     cameraPresets.dispose();
-    cellSeries.dispose();
     experimentInfoPanel.dispose();
     csvUploadPanel.dispose();
     customizePanel.dispose();
@@ -870,8 +1367,24 @@ async function bootstrap(): Promise<void> {
     fluidFieldLegend.dispose();
     fluidTimeSeriesChart.dispose();
     timeControls.dispose();
-    activeScourWarning.dispose();
-    flowDirectionBadge.dispose();
+    viewerToast.dispose();
+    activePierMonitor.dispose();
+    globalNav.dispose();
+    viewerSubNav.dispose();
+    statusBar.dispose();
+    screenPlaceholder.dispose();
+    sectionProfilePanel.dispose();
+    pierTimelinePanel.dispose();
+    pierLabelOverlay.dispose();
+    gradeLegendPanel.dispose();
+    riskJudgmentPanel.dispose();
+    riskAlertBanner.dispose();
+    alertSopPage.dispose();
+    caseManagementPage.dispose();
+    dataPipelinePage.dispose();
+    conditionSetupCaseBar.dispose();
+    planViewOverlay.dispose();
+    router.dispose();
     sim.dispose();
     lightManager.dispose();
     cameraManager.dispose();
@@ -892,11 +1405,23 @@ function start(): void {
     throw new Error('필수 DOM (#app) 을 찾을 수 없습니다.');
   }
 
+  let router: ScreenRouter | null = null;
+  let bootstrapped = false;
+
   const launch = (): void => {
     appRoot.classList.add('is-authenticated');
-    bootstrap().catch((err: unknown) => {
-      console.error('애플리케이션 부트스트랩 실패:', err);
-    });
+    if (!router) {
+      window.history.replaceState(null, '', '#s/2');
+      router = new ScreenRouter(2);
+    }
+    if (!bootstrapped) {
+      bootstrapped = true;
+      bootstrap(router).catch((err: unknown) => {
+        console.error('애플리케이션 부트스트랩 실패:', err);
+      });
+    } else {
+      router.goto(2);
+    }
   };
 
   if (sessionStorage.getItem(AUTH_STORAGE_KEY) === '1') {
@@ -909,6 +1434,7 @@ function start(): void {
     onSuccess: () => {
       sessionStorage.setItem(AUTH_STORAGE_KEY, '1');
       loginScreen.dispose();
+      window.history.replaceState(null, '', '#s/2');
       launch();
     },
   });

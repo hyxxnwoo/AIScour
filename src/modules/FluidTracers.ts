@@ -51,7 +51,11 @@ const STUCK_RESPAWN = 0.6;
 const MIN_DEPTH = 0.008;
 
 /** FLOW-3D (u,v,w) → 월드 (vx,vy,vz). x→X, z→Y, y→Z */
-export function probeVelocityToWorld(u: number, v: number, w: number): {
+export function probeVelocityToWorld(
+  u: number,
+  v: number,
+  w: number,
+): {
   vx: number;
   vy: number;
   vz: number;
@@ -63,19 +67,35 @@ export function probeSpeed(u: number, v: number, w: number): number {
   return Math.hypot(u, v, w);
 }
 
-export function fluidSeriesHasFlow(series: FluidSeries, threshold = MIN_SPEED): boolean {
-  for (const frame of series.frames) {
-    const n = frame.velocityX.length;
-    for (let i = 0; i < n; i += 1) {
-      const speed = Math.hypot(
-        frame.velocityX[i]!,
-        frame.velocityY[i]!,
-        frame.velocityZ[i]!,
-      );
-      if (speed >= threshold) return true;
-    }
+function frameHasFlow(frame: FluidSeries['frames'][number], threshold: number): boolean {
+  const n = frame.velocityX.length;
+  for (let i = 0; i < n; i += 1) {
+    const speed = Math.hypot(frame.velocityX[i], frame.velocityY[i], frame.velocityZ[i]);
+    if (speed >= threshold) return true;
   }
   return false;
+}
+
+export function fluidSeriesHasFlow(series: FluidSeries, threshold = MIN_SPEED): boolean {
+  for (const frame of series.frames) {
+    if (frameHasFlow(frame, threshold)) return true;
+  }
+  return false;
+}
+
+/** 재생 시각에 해당하는 유체 프레임만 보고 유속 유무를 판단한다. */
+export function fluidSeriesHasFlowAtTime(
+  series: FluidSeries,
+  timeSeconds: number,
+  threshold = MIN_SPEED,
+): boolean {
+  if (series.frames.length === 0) return false;
+  let idx = 0;
+  for (let i = 0; i < series.frames.length; i += 1) {
+    if (series.frames[i].timestampSeconds <= timeSeconds) idx = i;
+    else break;
+  }
+  return frameHasFlow(series.frames[idx], threshold);
 }
 
 /** FluidTracers: 유속장에 따라 이동하는 추적 입자(스트릭)로 유체 흐름을 표현한다. */
@@ -172,10 +192,7 @@ export class FluidTracers implements Disposable {
   }
 
   private applyMeshVisibility(): void {
-    const flowActive =
-      this.probeSpeedValue >= 0
-        ? this.probeSpeedValue >= MIN_SPEED
-        : this.hasFlow;
+    const flowActive = this.probeSpeedValue >= 0 ? this.probeSpeedValue >= MIN_SPEED : this.hasFlow;
     this.mesh.visible = this.userVisible && flowActive && !this.forceHidden;
   }
 
@@ -235,7 +252,7 @@ export class FluidTracers implements Disposable {
     const probeVel = this.probeVelocity;
 
     for (let i = 0; i < this.tracers.length; i += 1) {
-      const t = this.tracers[i]!;
+      const t = this.tracers[i];
       t.px = t.x;
       t.py = t.y;
       t.pz = t.z;
@@ -320,9 +337,7 @@ export class FluidTracers implements Disposable {
 
     for (let attempt = 0; attempt < 24; attempt += 1) {
       const x =
-        this.domain.minX +
-        cs * 0.6 +
-        Math.random() * Math.max(cs, this.domain.sizeX * 0.22);
+        this.domain.minX + cs * 0.6 + Math.random() * Math.max(cs, this.domain.sizeX * 0.22);
       const z = this.domain.minZ + cs + Math.random() * Math.max(cs, this.domain.sizeZ - cs * 2);
       const bed = sampleTerrainBedAtWorld(terrain, delta, x, z);
       if (bed === null) continue;
@@ -331,10 +346,7 @@ export class FluidTracers implements Disposable {
       if (depth < MIN_DEPTH * 2) continue;
 
       const y = bed + depth * (0.35 + Math.random() * 0.55);
-      if (
-        this.piers.length > 0 &&
-        isBlockedByPiers(x, y, z, this.piers, this.pierCollision)
-      ) {
+      if (this.piers.length > 0 && isBlockedByPiers(x, y, z, this.piers, this.pierCollision)) {
         continue;
       }
 
@@ -359,7 +371,7 @@ export class FluidTracers implements Disposable {
 
   private writeGeometry(): void {
     for (let i = 0; i < this.tracers.length; i += 1) {
-      const t = this.tracers[i]!;
+      const t = this.tracers[i];
       const base = i * 6;
       this.positions[base] = t.px;
       this.positions[base + 1] = t.py;

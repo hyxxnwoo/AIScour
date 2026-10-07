@@ -28,10 +28,7 @@ import {
   terrainDomainXZExtents,
   worldXZToTerrainGrid,
 } from '@/utils/fluidWorld';
-import {
-  colorForFluidQuantity,
-  normalizeFluidQuantityRange,
-} from '@/utils/fluidQuantityColor';
+import { colorForFluidQuantity, normalizeFluidQuantityRange } from '@/utils/fluidQuantityColor';
 
 export interface TerrainWaterOptions {
   scene: Scene;
@@ -317,7 +314,7 @@ export class TerrainWater implements Disposable {
 
   public setOpacity(opacity: number): void {
     const o = Math.min(1, Math.max(0.05, opacity));
-    this.surfaceMaterial.uniforms['uOpacity']!.value = o;
+    this.surfaceMaterial.uniforms['uOpacity'].value = o;
     this.surfaceMaterial.transparent = o < 1 - 1e-6;
     this.surfaceMaterial.needsUpdate = true;
     this.fillMaterial.opacity = Math.min(0.92, 0.35 + o * 0.6);
@@ -416,12 +413,12 @@ export class TerrainWater implements Disposable {
 
   public tickRipple(elapsedSeconds: number): void {
     if (!this.surfaceMesh.visible) return;
-    this.surfaceMaterial.uniforms['uTime']!.value = elapsedSeconds;
+    this.surfaceMaterial.uniforms['uTime'].value = elapsedSeconds;
   }
 
   /** 카메라 위치를 매 프레임 전달해 스페큘러 하이라이트(윤슬)가 시점에 반응하게 한다. */
   public setCameraPosition(position: Vector3): void {
-    (this.surfaceMaterial.uniforms['uCameraPos']!.value as Vector3).copy(position);
+    (this.surfaceMaterial.uniforms['uCameraPos'].value as Vector3).copy(position);
   }
 
   /**
@@ -431,10 +428,10 @@ export class TerrainWater implements Disposable {
    */
   public setFlowVector(u: number, v: number): void {
     const speed = Math.hypot(u, v);
-    this.surfaceMaterial.uniforms['uFlowSpeed']!.value = speed;
-    this.surfaceMaterial.uniforms['uHasFlow']!.value = speed > 1e-4 ? 1 : 0;
+    this.surfaceMaterial.uniforms['uFlowSpeed'].value = speed;
+    this.surfaceMaterial.uniforms['uHasFlow'].value = speed > 1e-4 ? 1 : 0;
     if (speed > 1e-4) {
-      (this.surfaceMaterial.uniforms['uFlowDir']!.value as Vector2).set(u / speed, v / speed);
+      (this.surfaceMaterial.uniforms['uFlowDir'].value as Vector2).set(u / speed, v / speed);
     }
   }
 
@@ -483,7 +480,15 @@ export class TerrainWater implements Disposable {
       return { wet: false, bed: 0, depth: 0 };
     }
 
-    const bed = sampleTerrainBed(this.baseZ, delta, width, height, gx, gy, this.verticalExaggeration);
+    const bed = sampleTerrainBed(
+      this.baseZ,
+      delta,
+      width,
+      height,
+      gx,
+      gy,
+      this.verticalExaggeration,
+    );
     const depth = this.waterLevel - bed;
     if (depth < this.minDepth) {
       return { wet: false, bed, depth };
@@ -501,11 +506,7 @@ export class TerrainWater implements Disposable {
     const cs = this.fluidGrid.cellSize;
     const xi = Math.round((worldX - o.x) / cs);
     const zi = Math.round((worldZ - o.z) / cs);
-    const inside =
-      xi >= 0 &&
-      zi >= 0 &&
-      xi < this.fluidGrid.width &&
-      zi < this.fluidGrid.depth;
+    const inside = xi >= 0 && zi >= 0 && xi < this.fluidGrid.width && zi < this.fluidGrid.depth;
     return {
       xi: Math.max(0, Math.min(this.fluidGrid.width - 1, xi)),
       zi: Math.max(0, Math.min(this.fluidGrid.depth - 1, zi)),
@@ -581,7 +582,9 @@ export class TerrainWater implements Disposable {
 
     const yi = fluidYiAtWorldY(this.fluidGrid, this.waterLevel);
     const frameDelta =
-      this.currentFrameIndex >= 0 ? this.scourFrames[this.currentFrameIndex]?.deltaElevations : undefined;
+      this.currentFrameIndex >= 0
+        ? this.scourFrames[this.currentFrameIndex]?.deltaElevations
+        : undefined;
 
     for (let ty = 0; ty < this.texH; ty += 1) {
       const tz = ty / Math.max(1, this.texH - 1);
@@ -609,7 +612,10 @@ export class TerrainWater implements Disposable {
         this.pixels[px] = Math.round(this.tmpColor.r * 255);
         this.pixels[px + 1] = Math.round(this.tmpColor.g * 255);
         this.pixels[px + 2] = Math.round(this.tmpColor.b * 255);
-        const shore = Math.min(1, (sample.depth - this.minDepth) / Math.max(0.02, this.minDepth * 6));
+        const shore = Math.min(
+          1,
+          (sample.depth - this.minDepth) / Math.max(0.02, this.minDepth * 6),
+        );
         this.pixels[px + 3] = Math.round(250 + shore * 5);
       }
     }
@@ -626,7 +632,9 @@ export class TerrainWater implements Disposable {
   ): { min: number; max: number } {
     const yi = fluidYiAtWorldY(this.fluidGrid, this.waterLevel);
     const frameDelta =
-      this.currentFrameIndex >= 0 ? this.scourFrames[this.currentFrameIndex]?.deltaElevations : undefined;
+      this.currentFrameIndex >= 0
+        ? this.scourFrames[this.currentFrameIndex]?.deltaElevations
+        : undefined;
 
     let vMin = Infinity;
     let vMax = -Infinity;
@@ -641,9 +649,7 @@ export class TerrainWater implements Disposable {
         if (!sample.wet) continue;
 
         const { xi, zi, inside } = this.fluidCellAtWorld(worldX, worldZ);
-        const v = inside
-          ? sampleFluidQuantity(this.fluidGrid, frame, quantity, xi, yi, zi)
-          : 0;
+        const v = inside ? sampleFluidQuantity(this.fluidGrid, frame, quantity, xi, yi, zi) : 0;
         if (v < vMin) vMin = v;
         if (v > vMax) vMax = v;
       }

@@ -1,5 +1,9 @@
 import { throwIfAborted } from '@/utils/csvParseAbort';
-import { readUploadFilePrefix, readUploadFileText, uploadFileByteStream } from '@/utils/readUploadFile';
+import {
+  readUploadFilePrefix,
+  readUploadFileText,
+  uploadFileByteStream,
+} from '@/utils/readUploadFile';
 import { yieldToMain } from '@/utils/yieldToMain';
 
 /** sampledata.csv 열 이름. */
@@ -175,18 +179,14 @@ function createColumnBuffers(capacity: number, maxCapacity: number): ColumnBuffe
 
 function growColumnBuffers(buf: ColumnBuffers, maxCapacity: number): void {
   if (buf.length >= maxCapacity) {
-    throw new Error(
-      'parseSampleProbeCsv: CSV 행 수가 브라우저 메모리 한도를 초과했습니다.',
-    );
+    throw new Error('parseSampleProbeCsv: CSV 행 수가 브라우저 메모리 한도를 초과했습니다.');
   }
   const next = Math.min(
     Math.max(buf.capacity * 2, buf.capacity + INITIAL_COLUMN_CAPACITY),
     maxCapacity,
   );
   if (next <= buf.capacity) {
-    throw new Error(
-      'parseSampleProbeCsv: CSV 행 수가 브라우저 메모리 한도를 초과했습니다.',
-    );
+    throw new Error('parseSampleProbeCsv: CSV 행 수가 브라우저 메모리 한도를 초과했습니다.');
   }
   const x = new Float32Array(next);
   const y = new Float32Array(next);
@@ -476,9 +476,7 @@ function buildDataset(
   baseIntervalSeconds: number,
 ): SampleProbeDataset {
   if (!state.columns && state.blocks.length === 0 && buf.length === 0) {
-    throw new Error(
-      'parseSampleProbeCsv: "x y z u v w scrdif" 헤더 행을 찾을 수 없습니다.',
-    );
+    throw new Error('parseSampleProbeCsv: "x y z u v w scrdif" 헤더 행을 찾을 수 없습니다.');
   }
 
   finalizeOpenBlock(state, buf, maxCapacity, baseIntervalSeconds);
@@ -523,9 +521,7 @@ export function countSampleProbeDataRowsText(text: string): number {
     countDataLine(state, rawLine);
   }
   if (!state.columns && state.totalDataRowsInFile === 0) {
-    throw new Error(
-      'parseSampleProbeCsv: "x y z u v w scrdif" 헤더 행을 찾을 수 없습니다.',
-    );
+    throw new Error('parseSampleProbeCsv: "x y z u v w scrdif" 헤더 행을 찾을 수 없습니다.');
   }
   return state.totalDataRowsInFile;
 }
@@ -537,9 +533,7 @@ export function countSampleProbeTimeBlocksText(text: string): number {
     countDataLine(state, rawLine);
   }
   if (!state.columns && state.totalDataRowsInFile === 0 && state.blocks.length === 0) {
-    throw new Error(
-      'parseSampleProbeCsv: "x y z u v w scrdif" 헤더 행을 찾을 수 없습니다.',
-    );
+    throw new Error('parseSampleProbeCsv: "x y z u v w scrdif" 헤더 행을 찾을 수 없습니다.');
   }
   return finalizeCountState(state);
 }
@@ -554,10 +548,7 @@ export interface CountSampleProbeRowsOptions {
   }) => void;
 }
 
-async function streamCount(
-  file: File,
-  options: CountSampleProbeRowsOptions,
-): Promise<ParseState> {
+async function streamCount(file: File, options: CountSampleProbeRowsOptions): Promise<ParseState> {
   const state = createParseState();
   const { signal } = options;
   let bytesRead = 0;
@@ -632,9 +623,7 @@ export async function countSampleProbeDataRows(
 
   const state = await streamCount(file, options);
   if (!state.columns && state.totalDataRowsInFile === 0) {
-    throw new Error(
-      'parseSampleProbeCsv: "x y z u v w scrdif" 헤더 행을 찾을 수 없습니다.',
-    );
+    throw new Error('parseSampleProbeCsv: "x y z u v w scrdif" 헤더 행을 찾을 수 없습니다.');
   }
   return state.totalDataRowsInFile;
 }
@@ -658,9 +647,7 @@ export async function countSampleProbeTimeBlocks(
 
   const state = await streamCount(file, options);
   if (!state.columns && state.totalDataRowsInFile === 0 && state.blocks.length === 0) {
-    throw new Error(
-      'parseSampleProbeCsv: "x y z u v w scrdif" 헤더 행을 찾을 수 없습니다.',
-    );
+    throw new Error('parseSampleProbeCsv: "x y z u v w scrdif" 헤더 행을 찾을 수 없습니다.');
   }
   return finalizeCountState(state);
 }

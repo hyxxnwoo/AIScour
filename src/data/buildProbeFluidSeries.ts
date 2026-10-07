@@ -1,12 +1,9 @@
 import { FLUME } from '@/constants/experiment';
 import type { FluidFrame, FluidGrid3D, FluidQuantity, FluidSeries } from '@/types/fluid';
 import { normalizeFluidQuantityRange } from '@/utils/fluidQuantityColor';
-import {
-  buildDataAxis,
-  nearestIndex,
-  type DataAxis,
-} from '@/utils/probeDataAxis';
+import { buildDataAxis, nearestIndex, type DataAxis } from '@/utils/probeDataAxis';
 import type { SampleProbeColumns, SampleProbeDataset } from '@/utils/parseSampleProbeCsv';
+import { isHungryWaterScourDataX } from '@/utils/flumeInflowBoundary';
 
 /**
  * t 블록의 행 단위 공간 데이터를 3D 유체 필드로 변환한다.
@@ -40,6 +37,8 @@ export interface BuildProbeFluidSeriesOptions {
   maxFrames?: number;
   /** CSV x → 월드 X 앵커(수조 길이). */
   tankLengthX?: number;
+  /** 유입부 배고픈 물 scrdif 제외. */
+  maskInflowBoundaryScour?: boolean;
 }
 
 /** 네이티브 좌표 인덱스 → 균일 격자 인덱스 구간(양끝 포함). -1 이면 격자에서 탈락. */
@@ -64,7 +63,7 @@ function buildAxisMapping(axis: DataAxis, cellSize: number, uniformCount: number
 
   for (let i = 0; i < uniformCount; i += 1) {
     const j = nativeCount === 1 ? 0 : nearestIndex(axis.values, axis.min + i * cellSize);
-    if (start[j]! < 0) start[j] = i;
+    if (start[j] < 0) start[j] = i;
     end[j] = i;
   }
 
@@ -161,26 +160,28 @@ function fillFrameFromColumns(
   axes: { flow: DataAxis; vertical: DataAxis; lateral: DataAxis },
   maps: { flow: AxisMapping; vertical: AxisMapping; lateral: AxisMapping },
   out: FrameBuffers,
+  maskInflowBoundaryScour = false,
 ): void {
   const { width: W, height: H } = grid;
 
   for (let r = 0; r < columns.count; r += 1) {
-    const ix = nearestIndex(axes.flow.values, columns.x[r]!);
-    const iy = nearestIndex(axes.vertical.values, columns.z[r]!);
-    const iz = nearestIndex(axes.lateral.values, columns.y[r]!);
+    const dataX = columns.x[r];
+    const ix = nearestIndex(axes.flow.values, dataX);
+    const iy = nearestIndex(axes.vertical.values, columns.z[r]);
+    const iz = nearestIndex(axes.lateral.values, columns.y[r]);
 
-    const x0 = maps.flow.start[ix]!;
-    const y0 = maps.vertical.start[iy]!;
-    const z0 = maps.lateral.start[iz]!;
+    const x0 = maps.flow.start[ix];
+    const y0 = maps.vertical.start[iy];
+    const z0 = maps.lateral.start[iz];
     if (x0 < 0 || y0 < 0 || z0 < 0) continue;
-    const x1 = maps.flow.end[ix]!;
-    const y1 = maps.vertical.end[iy]!;
-    const z1 = maps.lateral.end[iz]!;
+    const x1 = maps.flow.end[ix];
+    const y1 = maps.vertical.end[iy];
+    const z1 = maps.lateral.end[iz];
 
-    const u = columns.u[r]!;
-    const v = columns.v[r]!;
-    const w = columns.w[r]!;
-    const s = columns.scrdif[r]!;
+    const u = columns.u[r];
+    const v = columns.v[r];
+    const w = columns.w[r];
+    const s = maskInflowBoundaryScour && isHungryWaterScourDataX(dataX) ? 0 : columns.scrdif[r];
 
     for (let zi = z0; zi <= z1; zi += 1) {
       for (let yi = y0; yi <= y1; yi += 1) {
@@ -243,14 +244,21 @@ export function buildProbeFluidSeries(
   const emptyScalar = new Float32Array(cellCount);
 
   const frames: FluidFrame[] = indices.map((blockIndex) => {
-    const block = blocks[blockIndex]!;
+    const block = blocks[blockIndex];
     const buffers: FrameBuffers = {
       velocityX: new Float32Array(cellCount),
       velocityY: new Float32Array(cellCount),
       velocityZ: new Float32Array(cellCount),
       scrdif: new Float32Array(cellCount),
     };
-    fillFrameFromColumns(block.columns, grid, axes, maps, buffers);
+    fillFrameFromColumns(
+      block.columns,
+      grid,
+      axes,
+      maps,
+      buffers,
+      options.maskInflowBoundaryScour ?? false,
+    );
     return {
       timestampSeconds: block.timestampSeconds,
       velocityX: buffers.velocityX,
@@ -287,11 +295,7 @@ function valueAtIndex(frame: FluidFrame, quantity: FluidQuantity, i: number): nu
     case 'velocityZ':
       return frame.velocityZ[i] ?? 0;
     case 'speed':
-      return Math.hypot(
-        frame.velocityX[i] ?? 0,
-        frame.velocityY[i] ?? 0,
-        frame.velocityZ[i] ?? 0,
-      );
+      return Math.hypot(frame.velocityX[i] ?? 0, frame.velocityY[i] ?? 0, frame.velocityZ[i] ?? 0);
     default:
       return frame.scalars?.[quantity]?.[i] ?? 0;
   }

@@ -10,7 +10,7 @@ import {
   probeSeriesValueRange,
   resolveSafeStepMultiple,
 } from '@/data/buildSampleProbeDashboard';
-import { terrainGridDims } from '@/constants/experiment';
+import { structureCenterX, terrainGridDims } from '@/constants/experiment';
 import {
   datasetFromColumns,
   datasetFromTimeBlocks,
@@ -292,7 +292,7 @@ describe('buildSampleProbeDashboardMulti (교각 1개당 CSV 1개)', () => {
     expect(multi.scour.baseTerrain.width).toBe(single.scour.baseTerrain.width);
   });
 
-  it('교각별 CSV 는 셀 단위 |scrdif| 최대로 병합된다', () => {
+  it('교각별 CSV 는 pier 슬롯마다 세굴을 옮겨 병합한다', () => {
     const pier1 = datasetFromColumns(
       makeProbeColumns([{ x: 0.5, y: 0, z: 0, scrdif: -0.09 }]),
     );
@@ -302,17 +302,20 @@ describe('buildSampleProbeDashboardMulti (교각 1개당 CSV 1개)', () => {
 
     const built = buildSampleProbeDashboardMulti([pier1, pier2], {
       pierCount: 2,
-      pierArrangement: 'across',
+      pierArrangement: 'along',
     });
 
     const terrain = built.scour.baseTerrain;
-    const bounds = built.probeSeries.bounds;
+    const piers = built.scour.baseTerrain.metadata?.piers ?? [];
     const frame = built.scour.frames[0]!;
-    const world = dataToWorld(0.5, 0, 0, bounds);
-    const cell = worldXZToTerrainGrid(world.x, world.z, terrain);
-    const idx = Math.round(cell.gy) * terrain.width + Math.round(cell.gx);
 
-    expect(frame.deltaElevations[idx]).toBeCloseTo(-0.09);
+    let minDelta = 0;
+    for (let i = 0; i < frame.deltaElevations.length; i += 1) {
+      const v = frame.deltaElevations[i]!;
+      if (v < minDelta) minDelta = v;
+    }
+    expect(minDelta).toBeLessThan(-0.05);
+    expect(piers.length).toBe(2);
   });
 
   it('t 블록 수가 다른 CSV 는 짧은 쪽이 마지막 값을 유지(hold)한다', () => {
@@ -326,7 +329,7 @@ describe('buildSampleProbeDashboardMulti (교각 1개당 CSV 1개)', () => {
     expect(built.scour.frames.length).toBe(3);
   });
 
-  it('교각별 CSV 는 각 파일의 세굴 위치에 교각을 배치한다', () => {
+  it('동일 로컬 좌표 CSV 는 along 슬롯으로 배치하고 Δ 를 이동한다', () => {
     const pier1 = datasetFromColumns(
       makeProbeColumns([{ x: 0.45, y: -0.06, z: 0, scrdif: -0.08 }]),
     );
@@ -334,16 +337,48 @@ describe('buildSampleProbeDashboardMulti (교각 1개당 CSV 1개)', () => {
       makeProbeColumns([{ x: 0.65, y: 0.05, z: 0, scrdif: -0.07 }]),
     );
 
-    const built = buildSampleProbeDashboardMulti([pier1, pier2]);
+    const built = buildSampleProbeDashboardMulti([pier1, pier2], { pierArrangement: 'along' });
     const piers = built.scour.baseTerrain.metadata?.piers ?? [];
     expect(piers.length).toBe(2);
+    expect(piers[0]!.x).toBeCloseTo(structureCenterX(), 2);
+    expect(piers[1]!.x).toBeGreaterThan(piers[0]!.x);
+    expect(piers[0]!.z).toBeCloseTo(0, 2);
+    expect(piers[1]!.z).toBeCloseTo(0, 2);
+  });
 
+  it('완전히 겹치는 로컬 격자(교량1·2·3 export)는 along 슬롯·세굴 이동(원본 CSV 좌표엔 세굴 없음)', () => {
+    const row = { x: 0.52, y: -0.04, z: -0.05, scrdif: -0.09 };
+    const pier1 = datasetFromColumns(makeProbeColumns([row]));
+    const pier2 = datasetFromColumns(makeProbeColumns([{ ...row, scrdif: -0.06 }]));
+
+    const built = buildSampleProbeDashboardMulti([pier1, pier2], { pierArrangement: 'along' });
+    const terrain = built.scour.baseTerrain;
+    const piers = terrain.metadata?.piers ?? [];
+    const delta = built.scour.frames[0]!.deltaElevations;
     const bounds = built.probeSeries.bounds;
-    const w1 = dataToWorld(0.45, -0.06, 0, bounds);
-    const w2 = dataToWorld(0.65, 0.05, 0, bounds);
-    expect(piers[0]!.x).toBeCloseTo(w1.x, 1);
-    expect(piers[0]!.z).toBeCloseTo(w1.z, 1);
-    expect(piers[1]!.x).toBeCloseTo(w2.x, 1);
-    expect(piers[1]!.z).toBeCloseTo(w2.z, 1);
+
+    function minDeltaNear(world: { x: number; z: number }): number {
+      const { gx, gy } = worldXZToTerrainGrid(world.x, world.z, terrain);
+      let min = 0;
+      const r = 4;
+      for (let dy = -r; dy <= r; dy += 1) {
+        for (let dx = -r; dx <= r; dx += 1) {
+          const ix = Math.round(gx) + dx;
+          const iy = Math.round(gy) + dy;
+          if (ix < 0 || iy < 0 || ix >= terrain.width || iy >= terrain.height) continue;
+          const v = delta[iy * terrain.width + ix]!;
+          if (v < min) min = v;
+        }
+      }
+      return min;
+    }
+
+    const rawWorld = dataToWorld(row.x, row.y, row.z, bounds);
+
+    expect(piers.length).toBe(2);
+    expect(piers[0]!.x).toBeCloseTo(structureCenterX(), 2);
+    expect(minDeltaNear(piers[0]!)).toBeLessThan(-0.04);
+    expect(minDeltaNear(piers[1]!)).toBeLessThan(-0.03);
+    expect(minDeltaNear(rawWorld)).toBeGreaterThan(-0.02);
   });
 });

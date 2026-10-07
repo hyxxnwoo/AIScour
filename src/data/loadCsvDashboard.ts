@@ -81,7 +81,7 @@ export async function loadCsvDashboard(
     return loadMultiPierCsvDashboard(csvFiles, options);
   }
 
-  const primary = csvFiles[0]!;
+  const primary = csvFiles[0];
   const requestedStepMultiple = Math.max(1, Math.floor(options.stepMultiple ?? 1));
   const baseIntervalSeconds = options.defaultIntervalSeconds ?? DEFAULT_T_INTERVAL_SECONDS;
 
@@ -136,7 +136,7 @@ export async function loadCsvDashboard(
   options.onProgress?.({
     phase: 'parse',
     message: autoAdjusted
-      ? `재생 간격 자동 조정(stride ${effectiveStep}) · CSV 파싱 중…`
+      ? `프레임 자동 축소(stride ${effectiveStep}) · CSV 파싱 중…`
       : 'CSV t 블록 파싱 중…',
     fileName: primary.name,
     fileIndex: 0,
@@ -227,7 +227,7 @@ async function loadMultiPierCsvDashboard(
   const datasets: SampleProbeDataset[] = [];
 
   for (let i = 0; i < fileCount; i += 1) {
-    const file = csvFiles[i]!;
+    const file = csvFiles[i];
     throwIfAborted(options.signal);
 
     options.onProgress?.({
@@ -273,7 +273,7 @@ async function loadMultiPierCsvDashboard(
   options.onProgress?.({
     phase: 'build',
     message: '교각별 세굴·프로브 시리즈 조립 중…',
-    fileName: csvFiles[fileCount - 1]!.name,
+    fileName: csvFiles[fileCount - 1].name,
     fileIndex: fileCount - 1,
     fileCount,
     bytesRead: 0,
@@ -284,6 +284,7 @@ async function loadMultiPierCsvDashboard(
     baseIntervalSeconds,
     stepMultiple: requestedStepMultiple,
     pierCount: fileCount,
+    pierArrangement: options.pierArrangement ?? 'along',
   };
   if (options.pierArrangement !== undefined) buildOptions.pierArrangement = options.pierArrangement;
   if (options.pierDiameter !== undefined) buildOptions.pierDiameter = options.pierDiameter;
@@ -294,7 +295,7 @@ async function loadMultiPierCsvDashboard(
   if (options.tankHeightY !== undefined) buildOptions.tankHeightY = options.tankHeightY;
 
   const built = buildSampleProbeDashboardMulti(datasets, buildOptions);
-  const primaryDataset = datasets[0]!;
+  const primaryDataset = datasets[0];
 
   return {
     scour: built.scour,

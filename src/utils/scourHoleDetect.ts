@@ -46,14 +46,15 @@ export function detectScourHoles(
   const minHoleCells = options.minHoleCells ?? DEFAULT_MIN_HOLE_CELLS;
   const pierDiameter = options.pierDiameter ?? 0.1;
   const maxHoles = options.maxHoles ?? DEFAULT_MAX_HOLES;
-  const mergeSep = pierDiameter * (options.mergeSeparationFactor ?? DEFAULT_MERGE_SEPARATION_FACTOR);
+  const mergeSep =
+    pierDiameter * (options.mergeSeparationFactor ?? DEFAULT_MERGE_SEPARATION_FACTOR);
 
   const { width, height, cellSize } = terrain;
   const cellArea = cellSize * cellSize;
 
   let maxDepth = 0;
   for (let i = 0; i < delta.length; i += 1) {
-    const d = -delta[i]!;
+    const d = -delta[i];
     if (d > maxDepth) maxDepth = d;
   }
 
@@ -70,7 +71,7 @@ export function detectScourHoles(
       const idx = gy * width + gx;
       if (visited[idx]) continue;
 
-      const depth = -delta[idx]!;
+      const depth = -delta[idx];
       if (depth <= threshold) continue;
 
       const stack: number[] = [idx];
@@ -86,7 +87,7 @@ export function detectScourHoles(
         const cur = stack.pop()!;
         const cgy = (cur / width) | 0;
         const cgx = cur % width;
-        const cDepth = -delta[cur]!;
+        const cDepth = -delta[cur];
 
         const w = (cDepth - threshold) ** 2;
         gxSum += cgx * w;
@@ -105,7 +106,7 @@ export function detectScourHoles(
           if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
           const nIdx = ny * width + nx;
           if (visited[nIdx]) continue;
-          const nDepth = -delta[nIdx]!;
+          const nDepth = -delta[nIdx];
           if (nDepth <= threshold) continue;
           visited[nIdx] = 1;
           stack.push(nIdx);
@@ -153,7 +154,7 @@ function detectDepositFallback(
   let bestIdx = -1;
   let bestAbs = 0;
   for (let i = 0; i < delta.length; i += 1) {
-    const a = Math.abs(delta[i]!);
+    const a = Math.abs(delta[i]);
     if (a > bestAbs) {
       bestAbs = a;
       bestIdx = i;
@@ -183,12 +184,12 @@ function mergeNearbyHoles(holes: ScourHole[], minSepM: number): ScourHole[] {
 
   for (let i = 0; i < holes.length; i += 1) {
     if (used.has(i)) continue;
-    let acc = { ...holes[i]! };
+    const acc = { ...holes[i] };
     used.add(i);
 
     for (let j = i + 1; j < holes.length; j += 1) {
       if (used.has(j)) continue;
-      const other = holes[j]!;
+      const other = holes[j];
       const dist = Math.hypot(acc.x - other.x, acc.z - other.z);
       if (dist >= minSepM) continue;
 

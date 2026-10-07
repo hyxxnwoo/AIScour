@@ -34,7 +34,7 @@ function normalizeFileReadError(err: unknown): Error {
   if (!(err instanceof DOMException) && !(err instanceof Error)) {
     return new Error('파일을 읽을 수 없습니다.');
   }
-  const name = err instanceof DOMException ? err.name : (err as Error).name;
+  const name = err instanceof DOMException ? err.name : err.name;
   const message = err instanceof Error ? err.message : String(err);
   if (isNotReadableError(err)) {
     return new Error(
@@ -71,7 +71,10 @@ function fileReaderAsArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
 function fileReaderAsText(blob: Blob): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onload = () => {
+      const raw = reader.result;
+      resolve(typeof raw === 'string' ? raw : '');
+    };
     reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'));
     reader.readAsText(blob);
   });
@@ -188,11 +191,7 @@ export async function readUploadFileText(file: File | Blob): Promise<string> {
 }
 
 /** fetch 로 받은 텍스트를 메모리 File 로 만든다 (디스크 읽기 우회). */
-export function createInMemoryUploadFile(
-  text: string,
-  name: string,
-  type = 'text/csv',
-): File {
+export function createInMemoryUploadFile(text: string, name: string, type = 'text/csv'): File {
   return new File([text], name, { type });
 }
 

@@ -40,7 +40,9 @@ const DEFAULTS: Required<Omit<SyntheticFluidOptions, 'pier'>> = {
 
 // 교각 주변 흐름을 단순 모사하는 합성 유체 데이터 소스.
 export class SyntheticFluidSource implements FluidDataSource {
-  private readonly opts: Required<Omit<SyntheticFluidOptions, 'pier' | 'fluidU' | 'fluidV' | 'fluidW'>> & {
+  private readonly opts: Required<
+    Omit<SyntheticFluidOptions, 'pier' | 'fluidU' | 'fluidV' | 'fluidW'>
+  > & {
     pier: NonNullable<SyntheticFluidOptions['pier']>;
     fluidU: number;
     fluidV: number;
@@ -120,7 +122,7 @@ export class SyntheticFluidSource implements FluidDataSource {
           const r = Math.hypot(dx, dz);
 
           let u = U0 * yNorm;
-          let v = V0;
+          const v = V0;
           let w = 0;
 
           if (r > pier.radius * 0.5) {

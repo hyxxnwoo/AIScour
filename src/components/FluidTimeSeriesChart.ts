@@ -128,8 +128,8 @@ export class FluidTimeSeriesChart implements Disposable {
 
     let d = '';
     for (let i = 0; i < this.values.length; i += 1) {
-      const x = xAt(this.times[i]!);
-      const y = yAt(this.values[i]!);
+      const x = xAt(this.times[i]);
+      const y = yAt(this.values[i]);
       d += i === 0 ? `M${x.toFixed(1)} ${y.toFixed(1)}` : ` L${x.toFixed(1)} ${y.toFixed(1)}`;
     }
     this.path.setAttribute('d', d);
@@ -142,14 +142,14 @@ export class FluidTimeSeriesChart implements Disposable {
 
     let idx = 0;
     for (let i = 0; i < this.times.length; i += 1) {
-      if (this.times[i]! <= t) idx = i;
+      if (this.times[i] <= t) idx = i;
       else break;
     }
 
     const w = this.width - this.padding * 2;
     const h = this.height - this.padding * 2;
     const x = this.padding + ((t - this.tMin) / (this.tMax - this.tMin)) * w;
-    const value = this.values[idx]!;
+    const value = this.values[idx];
     const y = this.padding + h - ((value - this.vMin) / (this.vMax - this.vMin)) * h;
 
     this.cursorLine.setAttribute('x1', x.toFixed(1));

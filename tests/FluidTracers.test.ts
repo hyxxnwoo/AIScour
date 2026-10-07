@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
-import { FluidTracers, probeSpeed } from '@/modules/FluidTracers';
+import {
+  FluidTracers,
+  fluidSeriesHasFlow,
+  fluidSeriesHasFlowAtTime,
+  probeSpeed,
+} from '@/modules/FluidTracers';
+import { buildSampleProbeDashboard } from '@/data/buildSampleProbeDashboard';
+import { readFileSync } from 'node:fs';
+import { parseSampleProbeCsvText } from '@/utils/parseSampleProbeCsv';
 import { structureCenterX } from '@/constants/experiment';
 import { defaultFluidSliceHeight } from '@/utils/fluidWorld';
 import { Scene } from 'three';
@@ -305,6 +313,47 @@ describe('FluidTracers', () => {
     }
     expect(insidePier).toBe(0);
 
+    tracers.dispose();
+  });
+
+  it('sampledata.csv t=0 은 격자 유속 0 → fluidSeriesHasFlowAtTime(0) false', () => {
+    const dataset = parseSampleProbeCsvText(
+      readFileSync('public/data/sampledata.csv', 'utf8'),
+    );
+    const built = buildSampleProbeDashboard(dataset);
+    expect(built.fluid).not.toBeNull();
+    expect(fluidSeriesHasFlow(built.fluid!)).toBe(false);
+    expect(fluidSeriesHasFlowAtTime(built.fluid!, 0)).toBe(false);
+  });
+
+  it('격자 유속 0 이라도 setProbeVelocity(조건 u)면 입자 메쉬를 표시한다', async () => {
+    const scour = await new SyntheticScourSource({
+      width: 21,
+      height: 21,
+      cellSize: 0.05,
+      frameCount: 1,
+    }).load();
+    const fluid = await new SyntheticFluidSource({
+      width: 21,
+      height: 8,
+      depth: 21,
+      cellSize: 0.05,
+      frameCount: 1,
+      inflowSpeed: 0,
+    }).load();
+    const scene = new Scene();
+    const tracers = new FluidTracers({
+      scene,
+      fluidSeries: fluid,
+      scourSeries: scour,
+      waterLevel: defaultFluidSliceHeight(fluid, scour.baseTerrain),
+      particleCount: 20,
+    });
+    tracers.setVisible(true);
+    tracers.setProbeVelocity({ u: 0.25, v: 0, w: 0 });
+    expect(
+      (scene.children[0] as unknown as { visible: boolean }).visible,
+    ).toBe(true);
     tracers.dispose();
   });
 });

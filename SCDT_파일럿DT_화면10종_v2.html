@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI SCOUR 파일럿 디지털트윈 — 1차년도 화면 10종 v2</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+/* ============ 서체 (사용자 PC 설치 폰트 참조) ============ */
+@font-face{font-family:'FS';font-weight:300;src:local('Freesentation 3 Light'),local('Freesentation3Light');}
+@font-face{font-family:'FS';font-weight:400;src:local('Freesentation 4 Regular'),local('Freesentation4Regular');}
+@font-face{font-family:'FS';font-weight:500;src:local('Freesentation 5 Medium'),local('Freesentation5Medium');}
+@font-face{font-family:'FS';font-weight:600;src:local('Freesentation 6 SemiBold'),local('Freesentation6SemiBold');}
+@font-face{font-family:'FS';font-weight:700;src:local('Freesentation 7 Bold'),local('Freesentation7Bold');}
+@font-face{font-family:'FS';font-weight:800;src:local('Freesentation 8 ExtraBold'),local('Freesentation8ExtraBold');}
+@font-face{font-family:'FS';font-weight:900;src:local('Freesentation 9 Black'),local('Freesentation9Black');}
+@font-face{font-family:'FS';font-weight:200;src:local('Freesentation 2 ExtraLight'),local('Freesentation2ExtraLight');}
+
+:root{
+  --bg:#0B1C2E; --panel:#13293F; --panel2:#17324F; --gnb:#0A1B2B; --well:#0E2235;
+  --line:#24415F; --line2:#1B3350;
+  --ink:#E6EEF6; --ink2:#9FB6C8; --ink3:#6B8299;
+  --mint:#00D4B0; --teal:#2A9FC4;
+  --a1:#2E7DD1; --a2:#E8B21A; --a3:#E8791A; --a4:#D02B2B; --ok:#2EA36B;
+  --font:'FS','Pretendard','Malgun Gothic','맑은 고딕',system-ui,-apple-system,sans-serif;
+  --nav-h:46px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#06121E;color:var(--ink);font-family:var(--font);font-weight:400;-webkit-font-smoothing:antialiased;overflow:hidden}
+
+/* ============ 상단 개발용 네비 (캡처 시 숨김) ============ */
+#nav{height:var(--nav-h);display:flex;align-items:center;gap:2px;background:#071320;border-bottom:1px solid #16304A;padding:0 10px;position:relative;z-index:50}
+#nav .brand{font-weight:800;font-size:12px;color:var(--mint);letter-spacing:.3px;margin-right:12px;white-space:nowrap}
+#nav .tabs{display:flex;gap:2px;flex:1;overflow-x:auto;scrollbar-width:none}
+#nav .tabs::-webkit-scrollbar{display:none}
+#nav button.t{background:transparent;border:1px solid transparent;color:var(--ink3);font-family:var(--font);font-size:11.5px;font-weight:500;padding:5px 9px;border-radius:5px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:5px}
+#nav button.t:hover{color:var(--ink2);background:#0E2032}
+#nav button.t.on{background:#123A52;color:#fff;border-color:#1D5878}
+#nav button.t .n{font-weight:700;font-size:10px;color:var(--mint);opacity:.85}
+#nav .cap{background:#123A52;border:1px solid #1D5878;color:#CFE6F2;font-family:var(--font);font-size:11px;font-weight:600;padding:6px 11px;border-radius:5px;cursor:pointer;white-space:nowrap;margin-left:8px}
+#nav .cap:hover{background:#17506F}
+body.capture #nav{display:none}
+body.capture .scr-badge{display:none}
+
+#stage{height:calc(100vh - var(--nav-h));position:relative;background:var(--bg)}
+body.capture #stage{height:100vh}
+.screen{display:none;height:100%;position:relative}
+.screen.on{display:block}
+
+.scr-badge{position:absolute;right:10px;bottom:30px;z-index:40;display:flex;gap:6px;align-items:center;background:rgba(7,19,32,.82);border:1px solid #1C3952;border-radius:5px;padding:4px 8px;font-size:10px;color:var(--ink3)}
+.scr-badge b{color:var(--mint);font-weight:700;letter-spacing:.3px}
+.scr-badge .st{padding:1px 6px;border-radius:3px;font-weight:600;font-size:9.5px}
+.st.impl{background:#10402F;color:#5BD6A0}
+.st.mod{background:#3D2A0C;color:#E8B21A}
+.st.plan{background:#102C45;color:#6FB6DE}
+
+/* ============ 앱 셸 ============ */
+.app{height:100%;display:flex;flex-direction:column;background:var(--bg)}
+.gnb{height:46px;flex:0 0 46px;background:var(--gnb);border-bottom:1px solid var(--line2);display:flex;align-items:center;padding:0 14px;gap:20px}
+.gnb .logo{font-weight:800;font-size:14px;color:#fff;letter-spacing:.4px}
+.gnb .logo i{color:var(--mint);font-style:normal}
+.gnb nav{display:flex;gap:4px;flex:1}
+.gnb nav a{font-size:12.5px;font-weight:500;color:#8CA6BD;padding:7px 13px;border-radius:5px;text-decoration:none;cursor:pointer}
+.gnb nav a:hover{color:#CFE0EC}
+.gnb nav a.on{color:#fff;background:#17364F;font-weight:600}
+.gnb .right{display:flex;align-items:center;gap:14px;font-size:11.5px;color:#8CA6BD}
+.gnb .sel{background:#102A42;border:1px solid var(--line);border-radius:5px;padding:5px 10px;font-size:11.5px;color:#CFE0EC;font-weight:500}
+.gnb .alertdot{display:flex;align-items:center;gap:5px;font-weight:600}
+.gnb .alertdot .d{width:8px;height:8px;border-radius:50%}
+.subnav{height:34px;flex:0 0 34px;background:#0C2134;border-bottom:1px solid var(--line2);display:flex;align-items:center;gap:2px;padding:0 12px}
+.subnav .lbl{font-size:10.5px;color:#4E6F8C;margin-right:8px;font-weight:700;letter-spacing:.3px}
+.subnav a{font-size:11.5px;font-weight:500;color:#7E9BB5;padding:5px 11px;border-radius:4px;cursor:pointer}
+.subnav a:hover{color:#CFE0EC}
+.subnav a.on{background:#123A52;color:#fff;font-weight:600}
+.subnav a .k{font-size:9.5px;color:var(--mint);margin-right:4px;font-weight:700}
+
+.body3{flex:1;display:flex;min-height:0}
+.lp,.rp{background:var(--panel);display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+.lp{flex:0 0 252px;border-right:1px solid var(--line2)}
+.rp{flex:0 0 300px;border-left:1px solid var(--line2)}
+.lp::-webkit-scrollbar,.rp::-webkit-scrollbar{width:7px}
+.lp::-webkit-scrollbar-thumb,.rp::-webkit-scrollbar-thumb{background:#1E3A57;border-radius:4px}
+.center{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+.sbar{height:26px;flex:0 0 26px;background:#081726;border-top:1px solid var(--line2);display:flex;align-items:center;padding:0 12px;gap:14px;font-size:10.5px;color:var(--ink3)}
+.sbar b{color:#9FC4DC;font-weight:600}
+.sbar .sp{color:#1F3B55}
+
+.grp{border-bottom:1px solid var(--line2)}
+.grp>h3{font-size:11px;font-weight:700;color:var(--mint);letter-spacing:.3px;padding:9px 13px 7px;background:#102339;display:flex;align-items:center;justify-content:space-between}
+.grp>h3 .tag{font-size:9px;font-weight:600;color:var(--ink3);letter-spacing:0}
+.grp .in{padding:10px 13px 13px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.row:last-child{margin-bottom:0}
+.row label{font-size:11.5px;color:#BCD0E0}
+.row .v{font-size:11.5px;font-weight:600;color:#fff}
+.chk{display:flex;align-items:center;gap:7px;margin-bottom:7px;font-size:11.5px;color:#BCD0E0;cursor:pointer}
+.chk:last-child{margin-bottom:0}
+.box{width:13px;height:13px;border-radius:3px;border:1.5px solid #3A5B7C;flex:0 0 13px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#06121E;font-weight:800}
+.chk.on .box{background:var(--mint);border-color:var(--mint)}
+.chk.on{color:#fff;font-weight:500}
+.chk.dis{opacity:.55;cursor:default}
+.chk.dis.on .box{background:#4E6F8C;border-color:#4E6F8C}
+.rad{width:12px;height:12px;border-radius:50%;border:1.5px solid #3A5B7C;flex:0 0 12px;position:relative}
+.chk.on .rad{border-color:var(--mint)}
+.chk.on .rad::after{content:'';position:absolute;inset:2.5px;border-radius:50%;background:var(--mint)}
+.inp{background:var(--well);border:1px solid var(--line);border-radius:4px;color:#fff;font-family:var(--font);font-size:11.5px;font-weight:500;padding:4px 8px;width:68px;text-align:right}
+.inp.ro{background:transparent;border-color:transparent;color:#9FC4DC}
+.unit{font-size:10px;color:var(--ink3);width:26px}
+.sld{height:3px;background:#1E3A57;border-radius:2px;position:relative;margin:7px 0 2px}
+.sld i{position:absolute;left:0;top:0;bottom:0;background:var(--teal);border-radius:2px}
+.sld b{position:absolute;top:-4px;width:11px;height:11px;border-radius:50%;background:var(--mint);transform:translateX(-50%);box-shadow:0 0 0 3px rgba(0,212,176,.18)}
+.seg{display:flex;gap:4px}
+.seg span{flex:1;text-align:center;font-size:11px;font-weight:500;padding:5px 0;border-radius:4px;border:1px solid var(--line);color:#A8C0D4;background:var(--well);cursor:pointer;white-space:nowrap}
+.seg span.on{background:var(--teal);border-color:var(--teal);color:#06121E;font-weight:700}
+.btn{display:block;width:100%;text-align:center;background:var(--teal);color:#06121E;border:none;font-family:var(--font);font-size:12px;font-weight:700;padding:8px;border-radius:5px;cursor:pointer;margin-top:10px}
+.btn.ghost{background:transparent;border:1px solid var(--teal);color:var(--teal)}
+.btn.sm{font-size:11px;padding:6px}
+.btn.dis{background:#2B3A47;color:#7E8C99;cursor:not-allowed}
+.hint{font-size:10px;color:var(--ink3);line-height:1.5;margin-top:6px;white-space:normal}
+.lnk{color:var(--teal);font-weight:600;cursor:pointer}
+.lnk:hover{text-decoration:underline}
+.tag-ro{font-size:9px;font-weight:700;color:#E8B21A;background:#3D2A0C;padding:1px 6px;border-radius:3px}
+.prov{font-size:9px;font-weight:700;color:#6FB6DE;background:#102C45;padding:1px 6px;border-radius:3px;white-space:nowrap}
+.drop{border:1.5px dashed #2E5273;border-radius:6px;padding:12px 10px;text-align:center;font-size:11px;color:#7E9BB5;line-height:1.6;background:#0E2235;cursor:pointer}
+.drop:hover{border-color:var(--teal)}
+
+/* 3D 뷰포트 */
+.vp{flex:1;position:relative;min-height:0;background:#0A1D30;overflow:hidden}
+.vp canvas{display:block;width:100%;height:100%}
+.vp canvas.pick{cursor:crosshair}
+.vptool{position:absolute;left:12px;top:12px;z-index:5;display:flex;gap:4px;align-items:center;background:rgba(8,22,36,.88);border:1px solid #1E3C58;border-radius:6px;padding:4px}
+.vptool span{font-size:11px;font-weight:500;color:#A8C0D4;padding:4px 9px;border-radius:4px;cursor:pointer}
+.vptool span.on{background:#19476A;color:#fff;font-weight:600}
+.vptool .div{width:1px;height:16px;background:#23455F;margin:0 3px}
+.vptool .tg{display:flex;align-items:center;gap:6px;font-size:10.5px;color:#A8C0D4;padding:4px 8px}
+.flowmark{position:absolute;left:14px;bottom:12px;z-index:5;font-size:11px;font-weight:600;color:#7FD4E8;background:rgba(8,22,36,.7);padding:4px 10px;border-radius:4px}
+.fps{position:absolute;right:14px;bottom:12px;z-index:5;font-size:10.5px;color:#5E7F9A;font-weight:500}
+
+/* 타임라인 */
+.tl{flex:0 0 auto;background:#0C2034;border-top:1px solid var(--line2)}
+.tlbar{height:44px;display:flex;align-items:center;gap:12px;padding:0 14px}
+.tlbar .pl{display:flex;gap:9px;align-items:center;color:#BCD0E0;font-size:13px}
+.tlbar .pl b{cursor:pointer;font-weight:400;user-select:none}
+.tlbar .pl b:hover{color:#fff}
+.tlbar .pl .main{font-size:15px;color:var(--mint)}
+.track{flex:1;height:4px;background:#1A3350;border-radius:3px;position:relative;cursor:pointer}
+.track::before{content:'';position:absolute;left:0;right:0;top:-8px;bottom:-8px}
+.track i{position:absolute;left:0;top:0;bottom:0;background:var(--teal);border-radius:3px;pointer-events:none}
+.track b{position:absolute;top:-5px;width:14px;height:14px;border-radius:50%;background:var(--mint);transform:translateX(-50%);box-shadow:0 0 0 4px rgba(0,212,176,.16);pointer-events:none}
+.tlbar .t{font-size:11px;color:#9FB6C8;font-weight:500;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tlbar select{background:var(--well);border:1px solid var(--line);border-radius:4px;color:#CFE0EC;font-family:var(--font);font-size:11px;padding:3px 5px}
+
+/* 카드 · 표 · 기타 */
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:12px;margin:11px 13px}
+.kv{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:var(--ink2);margin-bottom:4px;gap:8px}
+.kv b{color:#fff;font-weight:600;font-size:11.5px;text-align:right}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;color:#fff;white-space:nowrap}
+.pill.a1{background:var(--a1)}.pill.a2{background:var(--a2);color:#3D2A00}.pill.a3{background:var(--a3)}.pill.a4{background:var(--a4)}
+.legend-bar{display:flex;height:11px;border-radius:3px;overflow:hidden}
+.legend-bar div{flex:1}
+.legend-sc{display:flex;justify-content:space-between;font-size:9.5px;color:var(--ink3);margin-top:3px}
+table.t{width:100%;border-collapse:collapse;font-size:11.5px}
+table.t th{background:#102339;color:#9FC4DC;font-weight:600;font-size:10.5px;text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.t td{padding:7px 9px;border-bottom:1px solid var(--line2);color:#CFDCE7}
+table.t tr:hover td{background:#152E46}
+table.t tr.sel td{background:#12374D}
+table.t td.num{text-align:right;font-variant-numeric:tabular-nums}
+table.t td.c{text-align:center}
+.h2{font-size:12.5px;font-weight:700;color:#fff}
+.sub{font-size:11px;color:var(--ink3)}
+.mono{font-variant-numeric:tabular-nums}
+.big{font-size:30px;font-weight:800;line-height:1.05;letter-spacing:-.5px}
+.mid{font-size:19px;font-weight:800;line-height:1.1}
+.tabs2{display:flex;gap:3px;padding:10px 14px 0}
+.tabs2 span{font-size:12px;font-weight:600;padding:7px 15px;border-radius:6px 6px 0 0;cursor:pointer;color:#8CA6BD;background:#0E2235;border:1px solid var(--line2);border-bottom:none}
+.tabs2 span.on{background:var(--panel);color:#fff;border-color:var(--line)}
+.stchip{display:flex;align-items:center;gap:6px;background:#0E2235;border:1px solid var(--line2);border-radius:6px;padding:6px 11px;font-size:11px;color:#9FB6C8;cursor:pointer}
+.stchip b{font-size:14px;font-weight:800}
+.stchip.on{border-color:var(--teal)}
+.sbadge{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;white-space:nowrap}
+.dots{display:flex;gap:4px;align-items:center}
+.dots i{width:9px;height:9px;border-radius:50%;background:#1E3A57;display:inline-block}
+
+/* 교각 모니터 */
+.pm{margin-bottom:12px}
+.pm-wrap{position:relative;padding:3px 0}
+.pm-track{position:relative;height:12px;border-radius:6px;background:#15293D;overflow:hidden}
+.pm-zone{position:absolute;top:0;bottom:0;opacity:.2}
+.pm-fill{position:absolute;left:0;top:0;bottom:0;border-radius:6px}
+.pm-tick{position:absolute;top:0;bottom:0;width:1.5px;background:rgba(255,255,255,.55)}
+.pm-knob{position:absolute;top:50%;width:15px;height:15px;border-radius:50%;transform:translate(-50%,-50%);border:2px solid #fff;box-shadow:0 0 0 3px rgba(0,0,0,.3)}
+.pm-scale{position:relative;height:13px;font-size:9.5px;color:var(--ink3);margin-top:-4px}
+.pm-scale span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+
+.toast{position:fixed;left:50%;bottom:44px;transform:translateX(-50%);background:#123A52;border:1px solid #1D5878;color:#E6EEF6;font-size:12px;padding:9px 16px;border-radius:6px;z-index:100;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="brand">AI SCOUR · 1차년도 화면 10종 v2</div>
+  <div class="tabs" id="tabs"></div>
+  <button class="cap" id="capBtn">화면 캡처 (PNG 저장)</button>
+</div>
+<div id="stage"></div>
+<div class="toast" id="toast"></div>
+<script>
+/* ======================================================================
+   1. 기준값 · 등급 로직
+   ----------------------------------------------------------------------
+   계획서 p.43·59: 경보 4단계(관심·주의·경계·심각)는 신뢰성 지수 β 또는
+   세굴 여유고의 잔여 비율로 구분. 구간 수치는 3차년도(F-1-③) 확정 예정.
+   → 아래 GRADES.min 값은 '잠정'. 확정 시 이 부분만 수정하면 전 화면에 반영됨.
+   ====================================================================== */
+const FD = 5.2;   // 기초 근입깊이 (m)
+const GRADES = [
+  { k:'a1', name:'관심', en:'Blue',   min:70, act:'정상 모니터링 유지' },
+  { k:'a2', name:'주의', en:'Yellow', min:40, act:'점검 주기 단축' },
+  { k:'a3', name:'경계', en:'Orange', min:20, act:'현장 긴급 점검 실시' },
+  { k:'a4', name:'심각', en:'Red',    min:-1e9, act:'통행 제한 및 긴급 보강 검토' },
+];
+const GCOL = { a1:'#2E7DD1', a2:'#E8B21A', a3:'#E8791A', a4:'#D02B2B' };
+const remainPct  = d => Math.max(0, (FD - d) / FD * 100);
+const gradeOf    = d => GRADES.find(g => remainPct(d) >= g.min);
+const gradeIdx   = g => GRADES.indexOf(g);
+const depthAtPct = pct => FD * (1 - pct / 100);           // 70→1.56, 40→3.12, 20→4.16
+const TH_DEPTH   = [depthAtPct(70), depthAtPct(40), depthAtPct(20)];
+
+/* 교각 기본 3개 */
+const PIERS = [
+  { id:'P1', x:-7.2, z:0, dmax:1.85 },
+  { id:'P2', x: 0.0, z:0, dmax:3.42 },
+  { id:'P3', x: 7.2, z:0, dmax:2.10 },
+];
+const PC = { P1:'#7FD4E8', P2:'#C792EA', P3:'#9FE07A' };   // 시계열 계열색 (등급색과 구분)
+const DOM = { x0:-15, x1:15, z0:-9.5, z1:9.5, nx:76, nz:50 };
+const TMAX = 1780, NFRAME = 60, VEXG = 1.5;
+
+function growth(t){ return 1 - Math.exp(-t/300); }
+function pierDepth(p, t){ return p.dmax * growth(t); }
+function reachTime(p, D){ return D < p.dmax ? -300 * Math.log(1 - D / p.dmax) : null; }
+function worstPier(t){ return PIERS.reduce((a,b)=> pierDepth(b,t) > pierDepth(a,t) ? b : a); }
+function hex2rgb(h){ const n=parseInt(h.slice(1),16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+const fmt = (v,n=2)=>Number(v).toFixed(n);
+
+/* scrdif(x,z,t): 음(−) 세굴 / 양(+) 퇴적 */
+function scrdifAt(x, z, t){
+  const g = growth(t); let v = 0;
+  for (const p of PIERS){
+    const dx=(x-p.x)/3.15, dz=(z-p.z)/2.55;
+    v -= p.dmax*g*Math.exp(-(dx*dx+dz*dz)*1.15);
+    const bx=(x-p.x-5.4)/3.2, bz=(z-p.z)/2.3;
+    v += 0.24*p.dmax*g*Math.exp(-(bx*bx+bz*bz));
+  }
+  v += 0.11*Math.sin(x*0.42+1.3)*Math.cos(z*0.55-0.4);
+  return v;
+}
+function cellVel(x,z){ let m=1e9; for(const p of PIERS) m=Math.min(m,Math.hypot(x-p.x,z-p.z)); return 0.85+1.0*Math.exp(-(m*m)/4); }
+
+/* ======================================================================
+   2. 상태
+   ====================================================================== */
+const ST = {
+  t: TMAX, playing:false, speed:1, sec:'A',
+  cell: { x:DOM.x0+41*(30/76), z:DOM.z0+22*(19/50), i:41, j:22 },
+  alertClosed:false,
+  sop: [
+    { g:'a1', t:'정상 모니터링 유지', done:true,  when:'10-02 09:22', who:'시스템' },
+    { g:'a2', t:'점검 주기 단축 (주 1회 → 일 1회)', done:true, when:'10-02 09:40', who:'김○○' },
+    { g:'a3', t:'현장 긴급 점검 실시', done:false },
+    { g:'a3', t:'관리주체 보고', done:false },
+    { g:'a4', t:'통행 제한 및 긴급 보강 검토', done:false, na:true },
+  ],
+  hist: [
+    ['10-02 09:40','김○○','점검 주기 단축 완료 (주 1회 → 일 1회)'],
+    ['10-02 09:22','시스템','경보 자동 발령 — P2 교각 주의 → 경계 상승 (잔여 여유율 40 % 미만)'],
+    ['10-02 09:05','시스템','케이스 A-032 서비스 반영 — 모니터링 시작'],
+  ],
+};
+
+/* ======================================================================
+   3. 3D 렌더러 (Canvas 2D 투영, 외부 의존 없음)
+   ====================================================================== */
+function divColor(v){
+  const lo=-4.0, hi=1.0;
+  if (v < 0){ const k=Math.min(1, v/lo); return [228+(206-228)*k, 234+(46-234)*k, 240+(46-240)*k]; }
+  const k=Math.min(1, v/hi); return [228+(46-228)*k, 234+(125-234)*k, 240+(209-240)*k];
+}
+const SAND=[200,190,158];
+const PRESETS = {
+  iso  :{ yaw:34, pitch:31, dist:41, tgt:[0,-1.4,0], fov:1.40 },
+  top  :{ yaw:0.5, pitch:88.4, dist:62, tgt:[0,-1.0,0], fov:3.95 },
+  side :{ yaw:90, pitch:9, dist:42, tgt:[0,-1.0,0], fov:1.45 },
+  flow :{ yaw:2, pitch:16, dist:38, tgt:[0,-1.0,0], fov:1.45 },
+  closeup:{ yaw:44, pitch:29, dist:30, tgt:[0.4,-1.8,0], fov:1.5 },
+};
+function camBasis(c){
+  const ry=c.yaw*Math.PI/180, rp=c.pitch*Math.PI/180;
+  const cp=Math.cos(rp), sp=Math.sin(rp), cy=Math.cos(ry), sy=Math.sin(ry);
+  const eye=[c.tgt[0]+c.dist*cp*sy, c.tgt[1]+c.dist*sp, c.tgt[2]+c.dist*cp*cy];
+  const f=[c.tgt[0]-eye[0], c.tgt[1]-eye[1], c.tgt[2]-eye[2]];
+  const fl=Math.hypot(...f); f[0]/=fl; f[1]/=fl; f[2]/=fl;
+  let r=[-f[2],0,f[0]]; const rl=Math.hypot(...r)||1; r=[r[0]/rl,0,r[2]/rl];
+  const u=[r[1]*f[2]-r[2]*f[1], r[2]*f[0]-r[0]*f[2], r[0]*f[1]-r[1]*f[0]];
+  return {eye,f,r,u};
+}
+function makeProj(c, W, H){
+  const b=camBasis(c), s=Math.min(W,H)*c.fov;
+  return p=>{
+    const d=[p[0]-b.eye[0], p[1]-b.eye[1], p[2]-b.eye[2]];
+    const zc=d[0]*b.f[0]+d[1]*b.f[1]+d[2]*b.f[2]; if (zc<0.4) return null;
+    const xc=d[0]*b.r[0]+d[1]*b.r[1]+d[2]*b.r[2];
+    const yc=d[0]*b.u[0]+d[1]*b.u[1]+d[2]*b.u[2];
+    return [W/2 + xc*s/zc, H/2 - yc*s/zc, zc];
+  };
+}
+const LIGHT=(()=>{const v=[-0.42,0.84,0.34];const l=Math.hypot(...v);return v.map(a=>a/l);})();
+
+function pierBase(p, o){
+  if (o.pier===p.id) return [214,110,78];
+  if (o.pierGrade) return hex2rgb(GCOL[gradeOf(pierDepth(p,o.t)).k]);
+  return [204,214,224];
+}
+function buildScene(o){
+  const t=o.t, polys=[], VEX=1.5;
+  const {x0,x1,z0,z1,nx,nz}=DOM, dx=(x1-x0)/nx, dz=(z1-z0)/nz;
+  const H=[], S=[];
+  for(let i=0;i<=nx;i++){ H[i]=[]; S[i]=[];
+    for(let j=0;j<=nz;j++){ const v=scrdifAt(x0+i*dx, z0+j*dz, t); S[i][j]=v; H[i][j]=v*VEX; } }
+  const GY=-4.6*VEX;
+  polys.push({p:[[x0,GY,z0],[x1,GY,z0],[x1,GY,z1],[x0,GY,z1]], c:[44,38,30], a:1, bg:1});
+  for(let i=0;i<nx;i++){
+    const xa=x0+i*dx, xb=x0+(i+1)*dx;
+    polys.push({p:[[xa,H[i][0],z0],[xb,H[i+1][0],z0],[xb,GY,z0],[xa,GY,z0]], c:[112,100,80], a:1});
+    polys.push({p:[[xa,H[i][nz],z1],[xb,H[i+1][nz],z1],[xb,GY,z1],[xa,GY,z1]], c:[88,79,63], a:1});
+  }
+  for(let j=0;j<nz;j++){
+    const za=z0+j*dz, zb=z0+(j+1)*dz;
+    polys.push({p:[[x0,H[0][j],za],[x0,H[0][j+1],zb],[x0,GY,zb],[x0,GY,za]], c:[96,86,69], a:1});
+    polys.push({p:[[x1,H[nx][j],za],[x1,H[nx][j+1],zb],[x1,GY,zb],[x1,GY,za]], c:[104,93,75], a:1});
+  }
+  for(let i=0;i<nx;i++) for(let j=0;j<nz;j++){
+    const q=[[x0+i*dx,H[i][j],z0+j*dz],[x0+(i+1)*dx,H[i+1][j],z0+j*dz],[x0+(i+1)*dx,H[i+1][j+1],z0+(j+1)*dz],[x0+i*dx,H[i][j+1],z0+(j+1)*dz]];
+    const sv=(S[i][j]+S[i+1][j]+S[i+1][j+1]+S[i][j+1])/4;
+    const nxv=(H[i][j]+H[i][j+1]-H[i+1][j]-H[i+1][j+1])/(2*dx);
+    const nzv=(H[i][j]+H[i+1][j]-H[i][j+1]-H[i+1][j+1])/(2*dz);
+    let n=[nxv,1,nzv]; const nl=Math.hypot(...n); n=n.map(a=>a/nl);
+    const sh=0.40+0.68*Math.max(0, n[0]*LIGHT[0]+n[1]*LIGHT[1]+n[2]*LIGHT[2]);
+    const base=o.colormap?divColor(sv):SAND;
+    polys.push({p:q, c:[base[0]*sh, base[1]*sh, base[2]*sh], a:1});
+  }
+  if (o.water){
+    const wy=0.95*VEX, wn=26;
+    for(let i=0;i<wn;i++) for(let j=0;j<18;j++){
+      const ax=x0+(x1-x0)*i/wn, bx=x0+(x1-x0)*(i+1)/wn, az=z0+(z1-z0)*j/18, bz=z0+(z1-z0)*(j+1)/18;
+      const w=(X,Z)=>wy+0.045*Math.sin(X*0.9+t*0.013)+0.03*Math.cos(Z*1.1-t*0.009);
+      polys.push({p:[[ax,w(ax,az),az],[bx,w(bx,az),az],[bx,w(bx,bz),bz],[ax,w(ax,bz),bz]], c:[46,110,150], a:0.40});
+    }
+  }
+  for(const p of PIERS){
+    const R=0.8, SEGN=22, yb=-5.2*VEX, yt=(o.pierCut?1.05:3.35)*VEX, base=pierBase(p,o);
+    for(let k=0;k<SEGN;k++){
+      const a0=k/SEGN*Math.PI*2, a1=(k+1)/SEGN*Math.PI*2;
+      const nrm=[Math.cos((a0+a1)/2),0,Math.sin((a0+a1)/2)];
+      const lam=Math.max(0,nrm[0]*LIGHT[0]+nrm[2]*LIGHT[2])*0.75+0.42;
+      polys.push({p:[[p.x+R*Math.cos(a0),yb,p.z+R*Math.sin(a0)],[p.x+R*Math.cos(a1),yb,p.z+R*Math.sin(a1)],
+        [p.x+R*Math.cos(a1),yt,p.z+R*Math.sin(a1)],[p.x+R*Math.cos(a0),yt,p.z+R*Math.sin(a0)]], c:base.map(v=>v*lam), a:1});
+    }
+    const cap=[]; for(let k=0;k<SEGN;k++){ const a0=k/SEGN*Math.PI*2; cap.push([p.x+R*Math.cos(a0), yt, p.z+R*Math.sin(a0)]); }
+    polys.push({p:cap, c:base.map(v=>Math.min(255,v*1.12+14)), a:1});
+  }
+  if (o.deck){
+    const yb=3.35*VEX, yt=3.78*VEX, zb=-2.9, zt=2.9, DN=16, ax=x0+1, bx=x1-1;
+    for(let i=0;i<DN;i++){
+      const xa=ax+(bx-ax)*i/DN, xb2=ax+(bx-ax)*(i+1)/DN;
+      polys.push({p:[[xa,yt,zb],[xb2,yt,zb],[xb2,yt,zt],[xa,yt,zt]], c:[96,108,122], a:1});
+      polys.push({p:[[xa,yb,zb],[xb2,yb,zb],[xb2,yt,zb],[xa,yt,zb]], c:[62,72,84], a:1});
+      polys.push({p:[[xa,yb,zt],[xb2,yb,zt],[xb2,yt,zt],[xa,yt,zt]], c:[72,82,94], a:1});
+    }
+  }
+  const pts=[];
+  if (o.particles){
+    for(let i=0;i<190;i++){
+      const seed=i*17.3, z=z0+1.2+((seed*0.37)%1)*(z1-z0-2.4), yy=(0.1+((seed*0.71)%1)*0.75)*VEX;
+      const x=x0+1+(((seed*0.53)%1)*(x1-x0-2)+t*0.9*(0.6+((seed*0.29)%1)*0.7))%(x1-x0-2);
+      pts.push([x,yy,z]);
+    }
+  }
+  return {polys, pts};
+}
+function renderScene(canvas, o){
+  const dpr=Math.min(window.devicePixelRatio||1, 2), W=canvas.clientWidth, H=canvas.clientHeight;
+  if (!W||!H) return null;
+  canvas.width=W*dpr; canvas.height=H*dpr;
+  const g=canvas.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0);
+  const grd=g.createLinearGradient(0,0,0,H); grd.addColorStop(0,'#0A1E33'); grd.addColorStop(1,'#071624');
+  g.fillStyle=grd; g.fillRect(0,0,W,H);
+  const proj=makeProj(PRESETS[o.preset||'iso'],W,H), sc=buildScene(o);
+  const list=[], bgl=[];
+  for(const q of sc.polys){
+    const pr=q.p.map(proj); if (pr.some(v=>v===null)) continue;
+    let zs=0; for(const v of pr) zs+=v[2]; zs/=pr.length;
+    (q.bg?bgl:list).push({pr,c:q.c,a:q.a,z:zs});
+  }
+  const op=list.filter(v=>v.a>=1).sort((A,B)=>B.z-A.z), tr=list.filter(v=>v.a<1).sort((A,B)=>B.z-A.z);
+  for(const it of bgl.concat(op,tr)){
+    g.beginPath(); g.moveTo(it.pr[0][0],it.pr[0][1]);
+    for(let i=1;i<it.pr.length;i++) g.lineTo(it.pr[i][0],it.pr[i][1]);
+    g.closePath(); const col=`rgba(${it.c[0]|0},${it.c[1]|0},${it.c[2]|0},`;
+    g.fillStyle=col+it.a+')'; g.fill();
+    if (it.a>=1){ g.strokeStyle=col+'1)'; g.lineWidth=0.6; g.stroke(); }
+  }
+  if (sc.pts.length){ g.fillStyle='rgba(126,222,236,.78)';
+    for(const p of sc.pts){ const v=proj(p); if(!v) continue; g.beginPath(); g.arc(v[0],v[1],1.5,0,6.283); g.fill(); } }
+  if (o.labels!==false){
+    g.font='600 11px FS, sans-serif'; g.textAlign='center';
+    for(const p of PIERS){
+      const v=proj([p.x,(o.pierCut?1.6:4.25)*VEXG,p.z]); if(!v) continue;
+      const gr=gradeOf(pierDepth(p,o.t)), txt=o.pierGrade?`${p.id} · ${gr.name}`:p.id;
+      const w=g.measureText(txt).width+12;
+      g.fillStyle=o.pierGrade?GCOL[gr.k]:(o.pier===p.id?'rgba(232,121,26,.92)':'rgba(10,26,42,.78)');
+      g.fillRect(v[0]-w/2, v[1]-19, w, 15);
+      g.fillStyle=(o.pierGrade&&gr.k==='a2')?'#3D2A00':(o.pierGrade||o.pier===p.id?'#fff':'#9FC4DC');
+      g.fillText(txt, v[0], v[1]-8);
+    }
+  }
+  if (o.sec){
+    let a,b,la,lb;
+    if (o.sec==='A'){ a=proj([DOM.x0, scrdifAt(DOM.x0,0,o.t)*VEXG, 0]); b=proj([DOM.x1, scrdifAt(DOM.x1,0,o.t)*VEXG, 0]); la='A'; lb='A′'; }
+    else { a=proj([0, scrdifAt(0,DOM.z0,o.t)*VEXG, DOM.z0]); b=proj([0, scrdifAt(0,DOM.z1,o.t)*VEXG, DOM.z1]); la='B'; lb='B′'; }
+    if(a&&b){
+      g.strokeStyle='#00D4B0'; g.lineWidth=2.2; g.setLineDash([8,5]);
+      g.beginPath(); g.moveTo(a[0],a[1]); g.lineTo(b[0],b[1]); g.stroke(); g.setLineDash([]);
+      const L=Math.hypot(b[0]-a[0],b[1]-a[1])||1, ux=(b[0]-a[0])/L, uy=(b[1]-a[1])/L;
+      g.font='700 12px FS, sans-serif'; g.fillStyle='#00D4B0'; g.textAlign='center';
+      g.fillText(la, a[0]-ux*14, a[1]-uy*14+4); g.fillText(lb, b[0]+ux*16, b[1]+uy*16+4);
+    }
+  }
+  if (o.cell){
+    const v=proj([o.cell.x, scrdifAt(o.cell.x,o.cell.z,o.t)*VEXG, o.cell.z]);
+    if(v){ g.strokeStyle='#00D4B0'; g.lineWidth=2;
+      g.beginPath(); g.arc(v[0],v[1],9,0,6.283); g.stroke();
+      g.beginPath(); g.moveTo(v[0],v[1]-12); g.lineTo(v[0],v[1]-34); g.stroke();
+      g.fillStyle='#00D4B0'; g.beginPath(); g.arc(v[0],v[1],2.6,0,6.283); g.fill(); }
+  }
+  return {proj};
+}
+function pickCell(cv, e){
+  const proj=cv._proj; if(!proj) return;
+  const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  const {x0,x1,z0,z1,nx,nz}=DOM, dx=(x1-x0)/nx, dz=(z1-z0)/nz;
+  let best=null, bd=24*24;
+  for(let i=0;i<=nx;i++) for(let j=0;j<=nz;j++){
+    const x=x0+i*dx, z=z0+j*dz;
+    if (PIERS.some(p=>Math.hypot(x-p.x,z-p.z)<0.9)) continue;
+    const v=proj([x, scrdifAt(x,z,ST.t)*VEXG, z]); if(!v) continue;
+    const d=(v[0]-mx)**2+(v[1]-my)**2; if(d<bd){ bd=d; best={x,z,i,j}; }
+  }
+  if (best){ ST.cell=best; rerender(); }
+}
+
+/* ======================================================================
+   4. 차트 (SVG)
+   ====================================================================== */
+const CH={ grid:'#1C3650', ink2:'#6B8299', cur:'#E8796B', mid:'#199e70', foot:'#3987e5' };
+const svgEl=(w,h)=>`viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:100%;display:block"`;
+const pathFrom=pts=>pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+
+/* 단면 샘플링 · 지표 */
+function secLen(sec){ return sec==='A' ? DOM.x1-DOM.x0 : DOM.z1-DOM.z0; }
+function sectionSamples(t, sec, n=160){
+  const out=[], L=secLen(sec);
+  for(let i=0;i<=n;i++){ const s=L*i/n;
+    out.push({s, v: sec==='A' ? scrdifAt(DOM.x0+s,0,t) : scrdifAt(0,DOM.z0+s,t)}); }
+  return out;
+}
+function piersOnSection(sec){ return sec==='A' ? PIERS.map(p=>({id:p.id,s:p.x-DOM.x0})) : [{id:'P2',s:0-DOM.z0}]; }
+function sectionKPI(t, sec){
+  const n=300, pts=sectionSamples(t,sec,n), ds=secLen(sec)/n, c=sec==='A'?15:9.5, ci=Math.round(c/ds);
+  let l=ci, r=ci; const R0=Math.round(0.8/ds);
+  l=ci-R0; r=ci+R0;
+  const lim=Math.round(3.6/ds);   // 인접 교각과의 중간 지점까지만
+  while(l>0 && ci-l<lim && pts[l-1].v<-0.15) l--;
+  while(r<n && r-ci<lim && pts[r+1].v<-0.15) r++;
+  let area=0; for(let k=l;k<=r;k++) area+=Math.max(0,-pts[k].v)*ds;
+  const md=pierDepth(PIERS[1],t);
+  return { depth:md, width:(r-l)*ds, area, margin:FD-md };
+}
+function profChart(t, sec){
+  const W=1000,H=250,L=56,R=150,T=16,B=34, iw=W-L-R, ih=H-T-B, len=secLen(sec);
+  const yMin=-5.8, yMax=1.4, Y=v=>T+ih*(1-(v-yMin)/(yMax-yMin)), X=s=>L+iw*s/len;
+  const tm=Math.round(t/4), cur=sectionSamples(t,sec), mid=sectionSamples(tm,sec);
+  const P=a=>pathFrom(a.map(p=>[X(p.s),Y(p.v)]));
+  let grid='';
+  for(let v=-5;v<=1;v++){ const y=Y(v);
+    grid+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="${CH.grid}"/>`+
+          `<text x="${L-8}" y="${y+4}" fill="${CH.ink2}" font-size="11" text-anchor="end" font-family="FS, Pretendard, Malgun Gothic, sans-serif">${v}</text>`; }
+  for(let s=0;s<=len+0.01;s+=5){ grid+=`<text x="${X(s)}" y="${H-16}" fill="${CH.ink2}" font-size="10.5" text-anchor="middle" font-family="FS, Pretendard, Malgun Gothic, sans-serif">${s}</text>`; }
+  const piers=piersOnSection(sec).map(p=>{ const x=X(p.s-0.8), w=X(1.6)-X(0);
+    return `<rect x="${x}" y="${T}" width="${w}" height="${Y(-5.2)-T}" fill="#8FA4B8" opacity=".45"/>`+
+           `<text x="${X(p.s)}" y="${T+12}" fill="#CFE0EC" font-size="11" font-weight="700" text-anchor="middle" font-family="FS, Pretendard, Malgun Gothic, sans-serif">${p.id}</text>`; }).join('');
+  return `<svg ${svgEl(W,H)}>${grid}${piers}
+    <line x1="${L}" y1="${Y(0)}" x2="${W-R}" y2="${Y(0)}" stroke="#7E93A8" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="${W-R+8}" y="${Y(0)+4}" fill="#9FB6C8" font-size="11" font-family="FS, Pretendard, Malgun Gothic, sans-serif">초기 하상 0.0 m</text>
+    <line x1="${L}" y1="${Y(-5.2)}" x2="${W-R}" y2="${Y(-5.2)}" stroke="${CH.foot}" stroke-width="2"/>
+    <text x="${W-R+8}" y="${Y(-5.2)+4}" fill="${CH.foot}" font-size="11" font-weight="600" font-family="FS, Pretendard, Malgun Gothic, sans-serif">기초 저면고 −${FD} m</text>
+    <path d="${P(mid)}" fill="none" stroke="${CH.mid}" stroke-width="2" stroke-dasharray="5 4"/>
+    <path d="${P(cur)}" fill="none" stroke="${CH.cur}" stroke-width="2.6"/>
+    <text x="${L+iw/2}" y="${H-2}" fill="${CH.ink2}" font-size="11" text-anchor="middle" font-family="FS, Pretendard, Malgun Gothic, sans-serif">단면 거리 (m)</text>
+    <text x="${L-8}" y="${T-4}" fill="${CH.ink2}" font-size="10" text-anchor="end" font-family="FS, Pretendard, Malgun Gothic, sans-serif">표고 m</text>
+  </svg>`;
+}
+/* 교각별 세굴심 시계열 */
+function tsChart(t){
+  const W=1000,H=230,L=48,R=118,T=12,B=26, iw=W-L-R, ih=H-T-B;
+  const Y=d=>T+ih*(1-d/FD), X=tt=>L+iw*tt/TMAX;
+  const bands=[[0,TH_DEPTH[0],'a1'],[TH_DEPTH[0],TH_DEPTH[1],'a2'],[TH_DEPTH[1],TH_DEPTH[2],'a3'],[TH_DEPTH[2],FD,'a4']];
+  let s=bands.map(b=>`<rect x="${L}" y="${Y(b[1])}" width="${iw}" height="${Y(b[0])-Y(b[1])}" fill="${GCOL[b[2]]}" opacity=".07"/>`).join('');
+  for(let v=0;v<=5;v++) s+=`<line x1="${L}" y1="${Y(v)}" x2="${W-R}" y2="${Y(v)}" stroke="${CH.grid}"/><text x="${L-7}" y="${Y(v)+4}" fill="${CH.ink2}" font-size="11" text-anchor="end" font-family="FS, Pretendard, Malgun Gothic, sans-serif">${v}.0</text>`;
+  [0,300,600,900,1200,1500,1780].forEach(tt=>{ s+=`<text x="${X(tt)}" y="${H-7}" fill="${CH.ink2}" font-size="10.5" text-anchor="middle" font-family="FS, Pretendard, Malgun Gothic, sans-serif">${tt}s</text>`; });
+  TH_DEPTH.forEach((d,i)=>{ const g=GRADES[i+1];
+    s+=`<line x1="${L}" y1="${Y(d)}" x2="${W-R}" y2="${Y(d)}" stroke="${GCOL[g.k]}" stroke-width="1.4" stroke-dasharray="7 5"/>`+
+       `<text x="${W-R+7}" y="${Y(d)+4}" fill="${GCOL[g.k]}" font-size="11" font-weight="700" font-family="FS, Pretendard, Malgun Gothic, sans-serif">${g.name} ${fmt(d)} m</text>`; });
+  s+=`<line x1="${L}" y1="${Y(FD)}" x2="${W-R}" y2="${Y(FD)}" stroke="${CH.foot}" stroke-width="2"/><text x="${W-R+7}" y="${Y(FD)+9}" fill="${CH.foot}" font-size="10.5" font-weight="600" font-family="FS, Pretendard, Malgun Gothic, sans-serif">기초 근입 ${FD} m</text>`;
+  for(const p of PIERS){
+    const pts=[]; for(let i=0;i<=89;i++){ const tt=TMAX*i/89; pts.push([X(tt),Y(pierDepth(p,tt))]); }
+    s+=`<path d="${pathFrom(pts)}" fill="none" stroke="${PC[p.id]}" stroke-width="2.4" stroke-linejoin="round"/>`;
+  }
+  const cx=X(t);
+  s+=`<line x1="${cx}" y1="${T}" x2="${cx}" y2="${T+ih}" stroke="#00D4B0" stroke-width="1.5"/>`;
+  for(const p of PIERS){ const d=pierDepth(p,t), cy=Y(d);
+    s+=`<circle cx="${cx}" cy="${cy}" r="4.5" fill="${PC[p.id]}" stroke="#0C2034" stroke-width="2"/>`+
+       `<text x="${cx-9}" y="${cy-7}" fill="${PC[p.id]}" font-size="11.5" font-weight="700" text-anchor="end" font-family="FS, Pretendard, Malgun Gothic, sans-serif">${p.id} ${fmt(d)}</text>`; }
+  return `<svg ${svgEl(W,H)}>${s}</svg>`;
+}
+/* 셀 시계열 미니 차트 */
+function cellMini(cell, t){
+  const W=300,H=96,L=30,R=6,T=8,B=14, iw=W-L-R, ih=H-T-B;
+  const vals=[]; for(let i=0;i<=44;i++) vals.push(scrdifAt(cell.x,cell.z,TMAX*i/44));
+  const mn=Math.min(...vals,-0.2), mx=Math.max(...vals,0.2), Y=v=>T+ih*(1-(v-mn)/(mx-mn));
+  const p=vals.map((v,i)=>[L+iw*i/44, Y(v)]), cx=L+iw*(t/TMAX), cv=scrdifAt(cell.x,cell.z,t);
+  return `<svg ${svgEl(W,H)}>
+    <line x1="${L}" y1="${Y(0)}" x2="${W-R}" y2="${Y(0)}" stroke="#4E6F8C" stroke-dasharray="4 3"/>
+    <text x="${L-4}" y="${Y(mx)+4}" fill="#6B8299" font-size="9" text-anchor="end" font-family="FS, Pretendard, Malgun Gothic, sans-serif">${fmt(mx,1)}</text>
+    <text x="${L-4}" y="${Y(0)+3}" fill="#6B8299" font-size="9" text-anchor="end" font-family="FS, Pretendard, Malgun Gothic, sans-serif">0</text>
+    <text x="${L-4}" y="${Y(mn)}" fill="#6B8299" font-size="9" text-anchor="end" font-family="FS, Pretendard, Malgun Gothic, sans-serif">${fmt(mn,1)}</text>
+    <text x="${L}" y="${H-2}" fill="#6B8299" font-size="9" font-family="FS, Pretendard, Malgun Gothic, sans-serif">0 s</text>
+    <text x="${W-R}" y="${H-2}" fill="#6B8299" font-size="9" text-anchor="end" font-family="FS, Pretendard, Malgun Gothic, sans-serif">${TMAX} s</text>
+    <path d="${pathFrom(p)}" fill="none" stroke="${GCOL.a3}" stroke-width="2"/>
+    <line x1="${cx}" y1="${T}" x2="${cx}" y2="${T+ih}" stroke="#00D4B0" stroke-width="1.2"/>
+    <circle cx="${cx}" cy="${Y(cv)}" r="3.5" fill="#00D4B0"/></svg>`;
+}
+
+/* ======================================================================
+   5. 공통 UI 조각
+   ====================================================================== */
+function gnb(active){
+  const menus=[['케이스',1],['시뮬레이션 뷰어',4],['경보 · SOP',9],['리포트',-1]];
+  const w=worstPier(ST.t), g=gradeOf(pierDepth(w,ST.t));
+  return `<div class="gnb">
+    <div class="logo">AI <i>SCOUR</i></div>
+    <nav>${menus.map((m,i)=>`<a class="${i===active?'on':''}" ${m[1]>=0?`data-act="goto" data-to="${m[1]}"`:`data-act="toast" data-msg="리포트는 1차년도 범위 밖입니다 (2차년도 예정)"`}>${m[0]}</a>`).join('')}</nav>
+    <div class="right">
+      <div class="sel">Case A-032 · 원기둥 D=1.6 m · 교각 3 ▾</div>
+      <div class="alertdot" style="color:${GCOL[g.k]}"><span class="d" style="background:${GCOL[g.k]};box-shadow:0 0 0 3px ${GCOL[g.k]}33"></span>${g.name} · ${w.id}</div>
+      <span>admin ▾</span>
+    </div>
+  </div>`;
+}
+const VIEW_TABS=[[3,'조건 설정'],[4,'3D 세굴 가시화'],[5,'평면 · 단면'],[6,'셀 상세'],[7,'타임라인 · 시계열'],[8,'위험 판정']];
+function subnav(idx){
+  return `<div class="subnav"><span class="lbl">뷰어</span>${VIEW_TABS.map(v=>`<a class="${v[0]===idx?'on':''}" data-act="goto" data-to="${v[0]}"><span class="k">${v[0]+1}</span>${v[1]}</a>`).join('')}</div>`;
+}
+function sbar(extra){
+  const fr=Math.round(ST.t/TMAX*NFRAME);
+  return `<div class="sbar">
+    <span>Case <b>A-032</b></span><span class="sp">|</span>
+    <span>좌표계 <b>Local (model)</b></span><span class="sp">|</span>
+    <span>단위 <b>m, m/s</b></span><span class="sp">|</span>
+    <span>기초 근입 <b>${FD} m</b></span><span class="sp">|</span>
+    <span>변환 <b>2026-10-02 09:05</b></span><span class="sp">|</span>
+    <span>프레임 <b>${fr} / ${NFRAME}</b></span>${extra?`<span class="sp">|</span><span>${extra}</span>`:''}
+  </div>`;
+}
+function badge(id, name, status){
+  const map={impl:['파일럿 구현','impl'],mod:['구현 + 개선','mod'],plan:['1차년도 설계','plan']}, m=map[status];
+  return `<div class="scr-badge"><b>${id}</b><span>${name}</span><span class="st ${m[1]}">${m[0]}</span></div>`;
+}
+function vptool(active, hideDeck){
+  const views=['Reset','Top','Side','Flow','수중'];
+  return `<div class="vptool">${views.map((v,i)=>`<span class="${i===active?'on':''}">${v}</span>`).join('')}
+    <div class="div"></div>
+    <div class="tg"><span style="width:12px;height:12px;border-radius:3px;border:1.5px solid ${hideDeck?'#00D4B0':'#3A5B7C'};background:${hideDeck?'#00D4B0':'transparent'};display:inline-block"></span>교량 숨김</div></div>`;
+}
+function timeline(){
+  const t=ST.t, pct=(t/TMAX*100).toFixed(1);
+  return `<div class="tl"><div class="tlbar">
+    <div class="pl"><b data-act="tl-start" title="처음">⏮</b><b data-act="tl-back" title="−30 s">◀</b>
+      <b class="main" data-act="tl-play" title="재생/일시정지">${ST.playing?'❚❚':'▶'}</b>
+      <b data-act="tl-fwd" title="+30 s">▶▶</b><b data-act="tl-end" title="끝">⏭</b></div>
+    <div class="track" data-act="tl-seek"><i style="width:${pct}%"></i><b style="left:${pct}%"></b></div>
+    <div class="t mono">${t.toFixed(1)} / ${TMAX.toFixed(1)} s</div>
+    <select data-speed>${[0.5,1,2,4].map(s=>`<option value="${s}" ${s===ST.speed?'selected':''}>${s}x</option>`).join('')}</select>
+    <div class="t">스텝 30 s</div>
+  </div></div>`;
+}
+/* 교각별 세굴 모니터 (슬라이드바 · 색상 · 수치) */
+function pierMonitor(t){
+  const zones=[[0,30,'a1'],[30,60,'a2'],[60,80,'a3'],[80,100,'a4']];
+  const rows=PIERS.map(p=>{
+    const d=pierDepth(p,t), g=gradeOf(d), r=remainPct(d), pct=Math.min(100,d/FD*100), c=GCOL[g.k];
+    return `<div class="pm">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:5px">
+        <span style="font-size:12px;font-weight:800;color:#fff;width:22px">${p.id}</span>
+        <span class="pill ${g.k}">${g.name}</span>
+        <span class="mono" style="margin-left:auto;font-size:13px;font-weight:800;color:${c}">${fmt(d)} m</span>
+        <span class="mono" style="font-size:10.5px;color:#8CA6BD;width:58px;text-align:right">여유 ${r.toFixed(0)}%</span>
+      </div>
+      <div class="pm-wrap">
+        <div class="pm-track">${zones.map(z=>`<div class="pm-zone" style="left:${z[0]}%;width:${z[1]-z[0]}%;background:${GCOL[z[2]]}"></div>`).join('')}
+          <div class="pm-fill" style="width:${pct}%;background:${c}"></div></div>
+        ${[30,60,80].map(x=>`<span class="pm-tick" style="left:${x}%"></span>`).join('')}
+        <span class="pm-knob" style="left:${pct}%;background:${c}"></span>
+      </div>
+    </div>`;
+  }).join('');
+  const sc=[[0,'0'],[30,fmt(TH_DEPTH[0])],[60,fmt(TH_DEPTH[1])],[80,fmt(TH_DEPTH[2])],[100,FD+' m']];
+  return rows+`<div class="pm-scale">${sc.map((s,i)=>`<span style="left:${s[0]}%;${i===0?'transform:none':''}${i===4?';transform:translateX(-100%)':''}">${s[1]}</span>`).join('')}</div>
+    <div class="hint" style="margin-top:8px">세굴심 / 기초 근입 ${FD} m · 잔여 여유율 70 / 40 / 20 % 기준 <span class="prov">잠정</span></div>`;
+}
+function gradeLegend(){
+  const rng=['≥ 70 %','40 – 70 %','20 – 40 %','< 20 %'];
+  const dr=[`< ${fmt(TH_DEPTH[0])} m`,`${fmt(TH_DEPTH[0])} – ${fmt(TH_DEPTH[1])} m`,`${fmt(TH_DEPTH[1])} – ${fmt(TH_DEPTH[2])} m`,`≥ ${fmt(TH_DEPTH[2])} m`];
+  return GRADES.map((g,i)=>`<div style="display:flex;align-items:center;gap:8px;font-size:11px;margin-bottom:6px">
+      <span style="width:22px;height:12px;border-radius:3px;background:${GCOL[g.k]}"></span>
+      <b style="color:#fff;width:30px">${g.name}</b><span style="color:#6B8299;width:44px">${g.en}</span>
+      <span class="mono" style="color:#BCD0E0;width:62px">${rng[i]}</span><span class="mono" style="color:#8CA6BD;margin-left:auto">${dr[i]}</span></div>`).join('')+
+    `<div class="hint">잔여 여유율 = (기초 근입 − 세굴심) / 기초 근입. 구간 수치는 3차년도(F-1-③) 확정 예정 <span class="prov">잠정</span></div>`;
+}
+function divLegend(){
+  const stops=['#D02B2B','#E58B7A','#EDF2F6','#8FBBD9','#2E7DD1'];
+  return `<div class="legend-bar">${stops.map(c=>`<div style="background:${c}"></div>`).join('')}</div>
+    <div class="legend-sc"><span>−4.0 세굴</span><span>0</span><span>+1.0 퇴적</span></div>`;
+}
+
+/* ---------- 좌패널 ---------- */
+function lpCase(){
+  return `<div class="grp"><h3>케이스 · 데이터<span class="tag">DT-110</span></h3><div class="in">
+    <div style="font-size:10.5px;color:#6B8299;margin-bottom:4px">케이스 선택</div>
+    <div style="background:var(--well);border:1px solid var(--line);border-radius:4px;padding:6px 9px;font-size:11.5px;color:#fff;font-weight:500;margin-bottom:8px">A-032 · 원기둥 D=1.6 m ▾</div>
+    <div style="background:#0E2235;border:1px solid var(--line2);border-radius:5px;padding:8px 9px">
+      <div class="kv"><span>유량</span><b>0.085 m³/s</b></div>
+      <div class="kv"><span>입경 d50</span><b>0.5 mm</b></div>
+      <div class="kv"><span>해석시간</span><b>${TMAX.toLocaleString()} s / ${NFRAME} 프레임</b></div>
+      <div class="kv" style="margin:0"><span>상태</span><b style="color:#5BD6A0">검증완료 · NRMSE 0.72%</b></div>
+    </div>
+    <div style="font-size:11px;font-weight:700;color:#CFE0EC;margin:12px 0 6px">CSV 업로드 <span style="font-weight:400;color:#6B8299">(FLOW-3D 결과)</span></div>
+    <div class="drop" data-act="toast" data-msg="파일 선택 창 (목업) — 업로드 후 데이터 연동 화면에서 처리 현황 확인">파일을 끌어다 놓거나 클릭<br><span style="font-size:10px;color:#5E7F9A">.csv · x y z u v w scrdif · C열 t 마커</span></div>
+    <div style="display:flex;align-items:center;gap:7px;background:#0E2235;border:1px solid var(--line2);border-radius:5px;padding:7px 9px;margin-top:7px;font-size:11px">
+      <span style="color:#fff;font-weight:600">sampledata.csv</span><span style="color:#6B8299">12 MB</span>
+      <span class="sbadge" style="margin-left:auto;background:#102C45;color:#6FB6DE">파싱 중</span></div>
+    <div class="hint">처리 현황은 <span class="lnk" data-act="goto" data-to="2">데이터 연동 →</span> 에서 확인</div>
+  </div></div>`;
+}
+function lpField(o){
+  o=o||{}; const ro=!!o.ro;
+  const f=[['on','흐름 방향 유속 u','0.25','m/s'],['','연직 유속 w','0','m/s'],['','횡단 유속 v','0.15','m/s'],['on','세굴심 scrdif','0.12','m']];
+  return `<div class="grp"><h3>유체 필드${ro?'<span class="tag-ro">읽기 전용</span>':'<span class="tag">DT-120</span>'}</h3><div class="in">
+    ${f.map(r=>`<div class="row"><div class="chk ${r[0]} ${ro?'dis':''}" style="margin:0;flex:1"><span class="box">${r[0]?'✓':''}</span>${r[1]}</div>
+      <input class="inp ${ro?'ro':''}" value="${r[2]}" readonly><span class="unit">${r[3]}</span></div>`).join('')}
+    ${ro?`<div class="hint">값 변경은 <span class="lnk" data-act="goto" data-to="3">조건 설정</span> 화면에서</div>`:
+    `<div style="border-top:1px solid var(--line2);margin:9px 0 8px"></div>
+    <div class="chk on" style="font-size:11px"><span class="rad"></span>컬러맵 표출 대상 : 세굴심</div>
+    <div class="chk on" style="font-size:11px"><span class="box">✓</span>값 변경 시 자동 재생성 (380 ms)</div>
+    <button class="btn sm" data-act="toast" data-msg="재시뮬레이션 요청 (목업)">적용 (재시뮬레이션)</button>`}
+  </div></div>
+  <div class="grp"><h3>표시 옵션</h3><div class="in">
+    <div class="chk ${o.noWater?'':'on'}"><span class="box">${o.noWater?'':'✓'}</span>지형 위 수면</div>
+    <div class="row" style="margin:-2px 0 8px"><div class="sld" style="flex:1"><i style="width:46%"></i><b style="left:46%"></b></div><span style="font-size:10.5px;color:#8CA6BD;white-space:nowrap">Y = 0.95 m</span></div>
+    <div class="chk ${o.noWater?'':'on'}"><span class="box">${o.noWater?'':'✓'}</span>유체 추적 입자 (흐름)</div>
+    <div class="chk ${o.grade?'on':''}"><span class="box">${o.grade?'✓':''}</span>교각 등급 색상</div>
+    <div class="chk ${o.sec?'on':''}"><span class="box">${o.sec?'✓':''}</span>단면선 표시</div>
+    <div class="chk"><span class="box"></span>세굴 등고선</div>
+    <div class="row" style="margin-top:9px"><label>수직 과장</label><span class="v">1.5 ×</span></div>
+    <div class="sld"><i style="width:34%"></i><b style="left:34%"></b></div>
+  </div></div>`;
+}
+/* ---------- 우패널 ---------- */
+function rpCond(){
+  return `<div class="grp"><h3>실행 조건<span class="tag">DT-140</span></h3><div class="in">
+    <div style="background:#0E3028;border:1px solid #16614E;border-radius:5px;padding:7px 9px;margin-bottom:10px">
+      <div class="row" style="margin:0"><label style="color:#5BD6A0;font-weight:600">스케일</label>
+        <div class="seg" style="width:150px"><span class="on">실험실</span><span>실교량</span></div></div></div>
+    <div class="row"><label>수심</label><div><input class="inp" value="0.95" readonly><span class="unit">m</span></div></div>
+    <div class="sld"><i style="width:38%"></i><b style="left:38%"></b></div>
+    <div class="row" style="margin-top:10px"><label>교각 단면 형상</label><span class="v">원형 ▾</span></div>
+    <div class="row"><label>교각 직경</label><div><input class="inp" value="1.6" readonly><span class="unit">m</span></div></div>
+    <div class="sld"><i style="width:32%"></i><b style="left:32%"></b></div>
+    <div class="row" style="margin-top:11px"><label>교각 수 <span style="font-size:9.5px;color:#6B8299">(기본 3)</span></label>
+      <div class="seg" style="width:150px">${[1,2,3,4,5].map(n=>`<span class="${n===3?'on':''}">${n}</span>`).join('')}</div></div>
+    <div class="row"><label>배치 방향</label><div class="seg" style="width:110px"><span>세로</span><span class="on">가로</span></div></div>
+    <div class="row"><label>기초 근입깊이</label><div><input class="inp" value="${FD}" readonly><span class="unit">m</span></div></div>
+    <div class="row"><label>교량 표시</label><div class="chk on" style="margin:0"><span class="box">✓</span>설치</div></div>
+    <div class="row"><label>교량 형식 <span style="font-size:9.5px;color:#6B8299">(표시 전용)</span></label><span class="v">거더교 ▾</span></div>
+    <div class="hint">교각 배치·세굴은 재생성 / 교량은 표시만</div>
+    <button class="btn" data-act="goto" data-to="4">적용 (재시뮬레이션) → 결과 보기</button>
+  </div></div>`;
+}
+function rpViz(){
+  const t=ST.t, w=worstPier(t);
+  return `<div class="grp"><h3>교각별 세굴 모니터<span class="tag">DT-130</span></h3><div class="in">${pierMonitor(t)}</div></div>
+    <div class="grp"><h3>범례 — 세굴심 (scrdif)</h3><div class="in">${divLegend()}
+      <div class="hint">음(−) 세굴, 양(+) 퇴적 · 0을 흰색 기준으로 고정 (−4.0 ~ +1.0 m)</div></div></div>
+    <div class="grp"><h3>카메라 프리셋</h3><div class="in">
+      <div class="seg" style="flex-wrap:wrap;gap:4px">
+        <span class="on" style="flex:0 0 46%">등각 (3D)</span><span style="flex:0 0 46%" data-act="goto" data-to="5">평면 Top</span>
+        <span style="flex:0 0 46%">측면 Side</span><span style="flex:0 0 46%">흐름 Flow</span>
+        <span style="flex:0 0 46%">수중 시점</span><span style="flex:0 0 46%">초기화</span></div></div></div>
+    <div class="grp"><h3>현재 시점 정보</h3><div class="in">
+      <div class="kv"><span>시각</span><b class="mono">${t.toFixed(1)} s</b></div>
+      <div class="kv"><span>유량 / 수위</span><b>0.085 m³/s · 0.95 m</b></div>
+      <div class="kv"><span>최대 세굴심</span><b style="color:${GCOL[gradeOf(pierDepth(w,t)).k]}">${fmt(pierDepth(w,t))} m (${w.id})</b></div>
+      <div class="kv" style="margin:0"><span>세굴공 체적 (P2)</span><b>${fmt(18.4*growth(t)/growth(TMAX),1)} m³</b></div>
+    </div></div>`;
+}
+
+/* ======================================================================
+   6. 화면 10종
+   ====================================================================== */
+/* 1 · 로그인 */
+function S1(){
+  return `<div style="height:100%;position:relative;overflow:hidden">
+    <canvas class="v3d" data-preset="iso" data-opt='{"deck":true,"water":true,"particles":true,"colormap":true,"labels":false}' style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+    <div style="position:absolute;inset:0;background:linear-gradient(100deg,rgba(6,18,30,.93) 0%,rgba(6,18,30,.72) 48%,rgba(6,18,30,.55) 100%)"></div>
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(40px,7vw,120px)">
+      <div style="max-width:560px">
+        <div style="display:inline-flex;align-items:center;gap:7px;background:rgba(0,212,176,.12);border:1px solid rgba(0,212,176,.35);border-radius:999px;padding:5px 14px;font-size:11.5px;font-weight:600;color:var(--mint);margin-bottom:22px">
+          <span style="width:6px;height:6px;border-radius:50%;background:var(--mint)"></span>FLOW-3D 시뮬레이션 대시보드</div>
+        <div style="font-size:clamp(30px,3.6vw,46px);font-weight:800;color:#fff;line-height:1.14;letter-spacing:-.8px">교량 세굴 디지털트윈</div>
+        <div style="font-size:clamp(13px,1.1vw,15px);color:#9FB6C8;line-height:1.7;margin-top:14px;max-width:440px;font-weight:300">
+          FLOW-3D 결과(CSV)를 불러와 유속 · 세굴심 · 유동장을 3D로 가시화하고, 교각별 잔여 여유율로 위험 등급을 판정합니다.</div>
+        <div style="margin-top:30px;display:flex;flex-direction:column;gap:9px;max-width:400px">
+          ${[['해석 케이스','200 case (1차년도 목표)',100],['최대 세굴심 / 기초 근입','3.42 / 5.2 m',66],['교각 구성','기본 3개 · 최대 5개',60]].map(r=>`
+            <div style="background:rgba(19,41,63,.72);border:1px solid #23415E;border-radius:8px;padding:11px 14px">
+              <div style="font-size:10.5px;color:#7E9BB5;margin-bottom:3px">${r[0]}</div>
+              <div style="font-size:15px;font-weight:700;color:#fff">${r[1]}</div>
+              <div style="height:3px;background:#16304A;border-radius:2px;margin-top:7px"><div style="width:${r[2]}%;height:100%;background:linear-gradient(90deg,var(--teal),var(--mint));border-radius:2px"></div></div>
+            </div>`).join('')}
+        </div>
+      </div>
+      <div style="background:rgba(19,41,63,.92);border:1px solid #2A4B6B;border-radius:14px;padding:32px 30px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.45)">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:20px">
+          <div style="width:30px;height:30px;border-radius:7px;background:linear-gradient(135deg,var(--teal),var(--mint))"></div>
+          <div style="font-size:15px;font-weight:800;color:#fff">AI SCOUR</div></div>
+        <div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:20px">교량 세굴 3D 대시보드</div>
+        <div style="background:#0E2235;border:1px solid var(--line);border-radius:7px;padding:10px 12px;font-size:12.5px;color:#7E9BB5;margin-bottom:10px">아이디</div>
+        <div style="background:#0E2235;border:1px solid var(--line);border-radius:7px;padding:10px 12px;font-size:12.5px;color:#7E9BB5;margin-bottom:18px">비밀번호</div>
+        <div data-act="goto" data-to="1" style="background:linear-gradient(135deg,#4FB3D0,#7FD9C8);color:#06121E;text-align:center;font-size:13.5px;font-weight:800;padding:11px;border-radius:7px">로그인 →</div>
+        <div style="text-align:center;font-size:10.5px;color:#6B8299;margin-top:14px">로그인 후 케이스 관리(메인)로 이동</div>
+      </div>
+    </div>
+    ${badge('DT-000','로그인','impl')}</div>`;
+}
+
+/* 2 · 케이스 관리 (메인) */
+const CASES=[
+  ['A-030','원기둥',0.8,'0.085','0.5',2.10,'done','10-01 17:40',true],
+  ['A-032','원기둥',1.6,'0.085','0.5',3.42,'done','10-02 09:05',true],
+  ['A-041','사각기둥',1.6,'0.095','0.5',4.02,'done','10-02 09:20',false],
+  ['B-012','원기둥+식생',1.6,'0.075','0.8',null,'run','10-02 09:38',false],
+  ['B-015','원기둥',1.6,'0.110','0.8',4.85,'err','10-02 09:42',false],
+  ['C-003','3열 배치',1.6,'0.085','0.5',3.90,'done','10-01 15:12',false],
+  ['C-008','3열 배치',2.0,'0.095','0.5',null,'wait','10-02 10:10',false],
+  ['D-002','원기둥+대책공',1.6,'0.085','0.5',1.62,'done','09-30 11:02',false],
+];
+const CST={done:['검증완료','#5BD6A0','#10402F'],run:['해석중','#6FB6DE','#102C45'],wait:['대기','#9FB6C8','#1B3350'],err:['QA 오류','#E8796B','#3B1512']};
+function S2(){
+  const chips=[['전체',200,'#9FC4DC'],['검증완료',182,'#5BD6A0'],['해석중',9,'#6FB6DE'],['대기',5,'#9FB6C8'],['QA 오류',4,'#E8796B']];
+  const a=CASES[0], b=CASES[1], ra=remainPct(a[5]), rb=remainPct(b[5]);
+  const cmp=[['항목','A-030','A-032','차이'],['교각 직경','0.8 m','1.6 m','2.0 배'],['유량','0.085','0.085','–'],
+    ['최대 세굴심',fmt(a[5])+' m',fmt(b[5])+' m','+'+fmt((b[5]/a[5]-1)*100,1)+' %'],['세굴폭','4.6 m','6.8 m','+47.8 %'],
+    ['세굴공 체적','9.8 m³','18.4 m³','+87.8 %'],['잔여 여유율',fmt(ra,1)+' %',fmt(rb,1)+' %','−'+fmt(ra-rb,1)+' %p'],
+    ['등급',gradeOf(a[5]).name,gradeOf(b[5]).name,'']];
+  return `<div class="app">${gnb(0)}
+    <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <div class="tabs2"><span class="on">케이스 관리</span><span data-act="goto" data-to="2">데이터 연동 현황</span></div>
+      <div style="flex:1;display:flex;gap:14px;padding:0 14px 14px;min-height:0">
+        <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:0 7px 7px 7px;overflow:hidden">
+          <div style="display:flex;gap:8px;padding:12px 14px 0;flex-wrap:wrap">
+            ${chips.map((c,i)=>`<div class="stchip ${i===0?'on':''}">${c[0]} <b style="color:${c[2]}">${c[1]}</b></div>`).join('')}
+            <div style="margin-left:auto;font-size:10.5px;color:#6B8299;align-self:center">1차년도 목표 200 case 이상 (계획서 A-1)</div>
+          </div>
+          <div style="display:flex;gap:9px;padding:10px 14px 12px;border-bottom:1px solid var(--line2);flex-wrap:wrap">
+            ${[['교각 형상','전체'],['직경','전체'],['유량','0.05 ~ 0.12'],['입경 d50','전체'],['등급','전체'],['상태','전체']].map(f=>`
+              <div style="flex:1;min-width:104px"><div style="font-size:10px;color:#6B8299;margin-bottom:3px">${f[0]}</div>
+              <div style="background:var(--well);border:1px solid var(--line);border-radius:4px;padding:5px 8px;font-size:11.5px;color:#CFDCE7">${f[1]} ▾</div></div>`).join('')}
+            <div style="display:flex;align-items:flex-end"><div style="background:var(--teal);color:#06121E;font-size:11.5px;font-weight:700;padding:6px 16px;border-radius:4px">검색</div></div>
+          </div>
+          <div style="padding:10px 14px 0;display:flex;align-items:center;justify-content:space-between">
+            <div class="h2">시뮬레이션 케이스 목록</div>
+            <div class="sub">200건 중 <b style="color:#9FC4DC">8</b>건 표시 · 선택 2 / 3 · ‘뷰어 →’ 클릭 시 해당 케이스 열기</div></div>
+          <div style="flex:1;overflow:auto;padding:8px 14px 14px">
+            <table class="t"><thead><tr>
+              <th style="width:26px"></th><th>케이스 ID</th><th>교각 형상</th><th>직경</th><th>교각 수</th><th>유량</th><th>d50</th>
+              <th style="text-align:right">최대 세굴심</th><th>등급</th><th>상태</th><th>갱신</th><th></th></tr></thead>
+              <tbody>${CASES.map(r=>{ const s=CST[r[6]], g=r[5]!=null?gradeOf(r[5]):null;
+                const act=r[6]==='done'?`<span class="lnk" data-act="goto" data-to="4">뷰어 →</span>`:r[6]==='err'?`<span class="lnk" data-act="goto" data-to="2">오류 확인 →</span>`:r[6]==='run'?'<span class="sub">62 %</span>':'<span class="sub">대기열 2</span>';
+                return `<tr class="${r[8]?'sel':''}">
+                <td class="c" style="color:${r[8]?'#00D4B0':'#4E6F8C'}">${r[8]?'☑':'☐'}</td>
+                <td style="font-weight:700;color:#fff">${r[0]}</td><td>${r[1]}</td><td class="c">${r[2].toFixed(1)} m</td><td class="c">3</td>
+                <td class="num">${r[3]}</td><td class="num">${r[4]}</td>
+                <td class="num" style="font-weight:600">${r[5]!=null?fmt(r[5])+' m':'—'}</td>
+                <td>${g?`<span class="pill ${g.k}">${g.name}</span>`:'<span class="sub">—</span>'}</td>
+                <td><span class="sbadge" style="background:${s[2]};color:${s[1]}">${s[0]}</span></td>
+                <td class="sub">${r[7]}</td><td>${act}</td></tr>`;}).join('')}</tbody></table>
+            <div style="text-align:center;font-size:11px;color:#6B8299;padding:12px">◀ &nbsp;1&nbsp; 2&nbsp; 3&nbsp; … &nbsp;25&nbsp; ▶</div>
+          </div>
+        </div>
+        <div style="flex:0 0 340px;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:14px;display:flex;flex-direction:column">
+          <div class="h2" style="margin-bottom:11px">선택 케이스 비교</div>
+          <table class="t" style="font-size:11px">${cmp.map((r,i)=>`<tr>${r.map((c,j)=>{
+            const tag=i===0?'th':'td'; let st=j?'text-align:center;':'';
+            if(i>=3&&j===3) st+=`color:${GCOL.a3};font-weight:700`;
+            if(i===cmp.length-1&&(j===1||j===2)){ const g=gradeOf(j===1?a[5]:b[5]); return `<td style="text-align:center"><span class="pill ${g.k}">${c}</span></td>`; }
+            return `<${tag} style="${st}">${c}</${tag}>`; }).join('')}</tr>`).join('')}</table>
+          <div class="hint">잔여 여유율·등급은 기초 근입 ${FD} m 기준 <span class="prov">잠정</span></div>
+          <div style="margin-top:auto;padding-top:14px">
+            <button class="btn sm" data-act="goto" data-to="4">선택 케이스 뷰어에서 열기</button>
+            <button class="btn sm ghost" data-act="toast" data-msg="CSV 내보내기 (목업)">CSV 내보내기</button></div>
+        </div>
+      </div>
+    </div>${sbar()}
+    ${badge('DT-300','케이스 관리 (메인)','plan')}</div>`;
+}
+
+/* 3 · 데이터 연동 현황 */
+function S3(){
+  const steps=[['업로드','200 / 200',100,'ok'],['파싱','196 / 200',98,'ok'],['경량화 · 변환','182 / 200',91,'warn'],['QA / QC','175 / 200',87.5,'warn'],['서비스 반영','175 / 200',87.5,'ok']];
+  const col={ok:'#2EA36B',warn:'#E8B21A'};
+  const files=[
+    ['A-032_scour_t1780.csv','A-032','10-02 08:58','482 MB',5,'ok','서비스 반영 완료 · glTF 5.8 MB · 60 프레임'],
+    ['A-041_flow3d_out.csv','A-041','10-02 09:12','455 MB',5,'ok','서비스 반영 완료 · glTF 4.2 MB · 60 프레임'],
+    ['B-012_run02.csv','B-012','10-02 09:30','390 MB',3,'warn','QA 경고 — 교각 주변 셀 수 12 (권장 20 이상)'],
+    ['B-015_run01.csv','B-015','10-02 09:35','512 MB',3,'err','QA 오류 — 상대세굴심 ds/D 3.03 (설정 상한 3.0 초과)'],
+    ['sampledata.csv','미지정','10-02 10:02','12 MB',1,'run','파싱 중 — 콤마 구분자 없음, 자동 변환 규칙 적용'],
+    ['C-008_input.csv','C-008','10-02 10:10','468 MB',0,'wait','대기열 2번째'],
+  ];
+  const RS={ok:['완료','#5BD6A0','#10402F'],warn:['경고','#E8B21A','#3D2A0C'],err:['오류','#E8796B','#3B1512'],run:['처리중','#6FB6DE','#102C45'],wait:['대기','#9FB6C8','#1B3350']};
+  const dotc={warn:'#E8B21A',err:'#E8796B',run:'#6FB6DE'};
+  const dots=(n,r)=>`<div class="dots">${[0,1,2,3,4].map(k=>`<i style="background:${k<n?'#2EA36B':(k===n&&dotc[r])?dotc[r]:'#1E3A57'}"></i>`).join('')}</div>`;
+  const det=[['업로드','09:35','ok','512 MB 수신'],['파싱','09:36','ok','1,284,000 행 · 7 열'],['경량화 · 변환','09:40','ok','60 프레임 · glTF 6.1 MB'],['QA / QC','09:42','err','물리 제약 위반 — ds/D 상한 초과'],['서비스 반영','—','wait','보류']];
+  const kpi=[['자동화율','94 %','목표 > 90 %'],['NRMSE','0.72 %','목표 < 1 %'],['물리 제약 통과율','97.5 %','안식각 · 상대세굴심'],['텐서 품질점수','0.88','목표 ≥ 0.85']];
+  return `<div class="app">${gnb(0)}
+    <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <div class="tabs2"><span data-act="goto" data-to="1">케이스 관리</span><span class="on">데이터 연동 현황</span></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:12px;padding:0 14px 14px;min-height:0">
+        <div style="display:flex;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:0 7px 7px 7px;padding:12px">
+          ${steps.map((s,i)=>`<div style="flex:1;background:#0E2235;border:1px solid ${col[s[3]]}55;border-radius:7px;padding:10px 12px">
+            <div style="font-size:10.5px;color:#7E9BB5;margin-bottom:4px">${i+1}. ${s[0]}</div>
+            <div style="font-size:18px;font-weight:800;color:${col[s[3]]};margin-bottom:7px">${s[1]}</div>
+            <div style="height:5px;background:#15293D;border-radius:3px"><div style="width:${s[2]}%;height:100%;background:${col[s[3]]};border-radius:3px"></div></div>
+          </div>`).join('<div style="align-self:center;color:#2E5273">▶</div>')}
+        </div>
+        <div style="flex:1;display:flex;gap:12px;min-height:0">
+          <div style="flex:1;background:var(--panel);border:1px solid var(--line);border-radius:7px;display:flex;flex-direction:column;min-width:0">
+            <div style="padding:12px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line2)">
+              <div class="h2">CSV 파일별 처리 현황</div>
+              <div class="seg" style="width:240px"><span class="on">전체</span><span>처리중</span><span>경고</span><span>오류</span></div></div>
+            <div style="flex:1;overflow:auto;padding:4px 14px 12px">
+              <table class="t"><thead><tr><th>파일명</th><th>연결 케이스</th><th>업로드</th><th>크기</th><th>처리 단계</th><th>결과</th><th>내용</th></tr></thead>
+              <tbody>${files.map(f=>{ const r=RS[f[5]]; return `<tr class="${f[5]==='err'?'sel':''}">
+                <td style="font-weight:600;color:#fff">${f[0]}</td><td>${f[1]}</td><td class="sub">${f[2]}</td><td class="num">${f[3]}</td>
+                <td>${dots(f[4],f[5])}</td>
+                <td><span class="sbadge" style="background:${r[2]};color:${r[1]}">${r[0]}</span></td>
+                <td style="font-size:11px">${f[6]}</td></tr>`;}).join('')}</tbody></table>
+              <div class="hint" style="margin-top:8px">처리 단계: 업로드 → 파싱 → 경량화·변환 → QA/QC → 서비스 반영 &nbsp;·&nbsp; 서비스 반영이 끝난 파일만 케이스 관리에 '검증완료'로 표시</div>
+            </div>
+          </div>
+          <div style="flex:0 0 340px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:auto">
+            <div style="background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:14px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <div class="h2">선택 파일 · B-015_run01.csv</div><span class="sbadge" style="background:#3B1512;color:#E8796B">오류</span></div>
+              ${det.map(d=>{ const c=d[2]==='ok'?'#2EA36B':d[2]==='err'?'#E8796B':'#4E6F8C';
+                return `<div style="display:flex;gap:9px;align-items:flex-start;padding:5px 0;font-size:11px">
+                  <span style="width:9px;height:9px;border-radius:50%;background:${c};margin-top:3px;flex:0 0 9px"></span>
+                  <span style="color:#fff;font-weight:600;width:84px">${d[0]}</span><span class="sub" style="width:36px">${d[1]}</span>
+                  <span style="color:${d[2]==='err'?'#E8796B':'#9FB6C8'}">${d[3]}</span></div>`;}).join('')}
+              <div style="display:flex;gap:6px"><button class="btn sm" data-act="toast" data-msg="재처리 요청 (목업)">재처리 요청</button>
+                <button class="btn sm ghost" data-act="goto" data-to="1">케이스 보기</button></div>
+            </div>
+            <div style="background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:14px">
+              <div class="h2" style="margin-bottom:11px">품질 지표 (QA / QC)</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+                ${kpi.map(k=>`<div style="background:#0E2235;border:1px solid var(--line2);border-radius:6px;padding:9px 11px">
+                  <div style="font-size:10px;color:#6B8299">${k[0]}</div>
+                  <div style="font-size:17px;font-weight:800;color:#5BD6A0;margin:2px 0">${k[1]}</div>
+                  <div style="font-size:9.5px;color:#5E7F9A">${k[2]}</div></div>`).join('')}
+              </div>
+            </div>
+            <div style="background:#0E2235;border:1px dashed #2E5273;border-radius:7px;padding:11px 14px;font-size:11px;color:#9FB6C8;line-height:1.6">
+              CSV 업로드는 <span class="lnk" data-act="goto" data-to="3">조건 설정 화면 →</span> 에서 합니다. 이 화면은 업로드된 파일의 처리 상태만 관리합니다.</div>
+          </div>
+        </div>
+      </div>
+    </div>${sbar()}
+    ${badge('DT-300','데이터 연동 현황 (탭 2)','plan')}</div>`;
+}
+
+/* 뷰어 공통 셸 */
+function viewer(idx, left, center, right, badgeHtml, sbExtra){
+  return `<div class="app">${gnb(1)}${subnav(idx)}
+    <div class="body3"><div class="lp">${left}</div><div class="center">${center}</div><div class="rp">${right}</div></div>
+    ${sbar(sbExtra)}${badgeHtml}</div>`;
+}
+const FLOW=`<div class="flowmark">유입 (−X) ▶▶▶ 유출 (+X)</div>`;
+
+/* 4 · 조건 설정 */
+function S4(){
+  return viewer(3, lpCase()+lpField(),
+    `<div class="vp"><canvas class="v3d" data-preset="iso" data-opt='{"deck":true,"water":true,"particles":true,"colormap":true}'></canvas>
+      ${vptool(0,false)}${FLOW}<div class="fps">60 FPS</div></div>${timeline()}`,
+    rpCond(), badge('DT-110 · 120 · 140','시뮬레이션 조건 설정','mod'));
+}
+/* 5 · 3D 세굴 가시화 */
+function S5(){
+  return viewer(4, lpField({ro:true}),
+    `<div class="vp"><canvas class="v3d" data-preset="iso" data-opt='{"deck":true,"water":true,"particles":true,"colormap":true}'></canvas>
+      ${vptool(0,false)}${FLOW}<div class="fps">60 FPS${ST.playing?' · 재생 중':''}</div></div>${timeline()}`,
+    rpViz(), badge('DT-150 · 130','3D 세굴 가시화 · 교각 모니터','mod'));
+}
+/* 6 · 평면뷰 · 단면 */
+function S6(){
+  const sec=ST.sec, k=sectionKPI(ST.t,sec), tm=Math.round(ST.t/4);
+  const title=sec==='A'?'단면 A–A′ · 흐름 방향 종단 (P1·P2·P3 관통)':'단면 B–B′ · 횡단 (P2 관통)';
+  return viewer(5, lpField({ro:true,noWater:true,sec:true}),
+    `<div class="vp" style="flex:0 0 44%"><canvas class="v3d" data-preset="top" data-opt='{"deck":false,"water":false,"particles":false,"colormap":true,"pierCut":true,"useSec":true}'></canvas>
+      ${vptool(1,true)}${FLOW}<div class="fps">평면뷰(TOP) · 교량 레이어 자동 숨김</div></div>
+    <div style="flex:1;background:#0C2034;border-top:1px solid var(--line2);display:flex;flex-direction:column;min-height:0">
+      <div style="padding:9px 14px 2px;display:flex;align-items:center;gap:14px">
+        <div class="h2">${title}</div>
+        <div class="seg" style="width:200px"><span class="${sec==='A'?'on':''}" data-act="sec" data-v="A">A–A′ 종단</span><span class="${sec==='B'?'on':''}" data-act="sec" data-v="B">B–B′ 횡단</span></div>
+        <div style="margin-left:auto;display:flex;gap:12px;font-size:10.5px;color:#9FB6C8">
+          <span><b style="color:#7E93A8">┄</b> 초기 하상</span><span><b style="color:${CH.mid}">┄</b> t = ${tm} s</span>
+          <span><b style="color:${CH.cur}">━</b> t = ${Math.round(ST.t)} s (현재)</span><span><b style="color:${CH.foot}">━</b> 기초 저면고</span></div>
+      </div>
+      <div style="flex:1;padding:0 8px 4px;min-height:0" id="prof-host"></div>
+      <div style="display:flex;gap:9px;padding:0 14px 10px">
+        ${[['최대 세굴 깊이 (P2)',fmt(k.depth)+' m',GCOL[gradeOf(k.depth).k]],['세굴폭 (P2 세굴공)',fmt(k.width,1)+' m','#fff'],['세굴공 단면적',fmt(k.area,1)+' m²','#fff'],['기초 저면까지 여유',fmt(k.margin)+' m ('+remainPct(k.depth).toFixed(0)+' %)',GCOL[gradeOf(k.depth).k]]].map(c=>`
+          <div style="flex:1;background:#0E2235;border:1px solid var(--line2);border-radius:5px;padding:7px 11px">
+            <div style="font-size:10px;color:#6B8299">${c[0]}</div><div style="font-size:14px;font-weight:800;color:${c[2]};margin-top:1px">${c[1]}</div></div>`).join('')}
+      </div>
+    </div>${timeline()}`,
+    rpViz(), badge('DT-150 · 120','평면뷰 · 단면 프로파일 (신규)','plan'), `단면 ${sec==='A'?'A–A′':'B–B′'}`);
+}
+/* 7 · 셀 상세 · 교각 등급 색상 */
+function S7(){
+  const c=ST.cell; let pop='';
+  if (c){
+    const v=scrdifAt(c.x,c.z,ST.t), mn=Math.min(...Array.from({length:45},(_,i)=>scrdifAt(c.x,c.z,TMAX*i/44)));
+    const u=cellVel(c.x,c.z), tau=1000*0.0035*u*u;
+    pop=`<div style="position:absolute;right:14px;top:14px;width:300px;background:rgba(14,34,53,.96);border:1.5px solid var(--mint);border-radius:8px;overflow:hidden;z-index:6;box-shadow:0 12px 34px rgba(0,0,0,.45)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:#12354E;border-bottom:1px solid #1E4A66">
+        <div style="font-size:12px;font-weight:700;color:#fff">셀 (${c.i}, ${c.j}) 하상 표고 변화</div>
+        <div style="font-size:13px;color:#7E9BB5;cursor:pointer" data-act="cell-close">✕</div></div>
+      <div style="padding:10px 12px">
+        <div style="background:#0B1C2E;border:1px solid var(--line2);border-radius:5px;padding:4px;height:104px">${cellMini(c,ST.t)}</div>
+        <div class="kv" style="margin-top:9px"><span>좌표 (x, z)</span><b class="mono">${fmt(c.x)}, ${fmt(c.z)} m</b></div>
+        <div class="kv"><span>현재 하상 변화</span><b style="color:${v<0?GCOL.a3:GCOL.a1};font-size:13px">${v<0?'세굴':'퇴적'} ${fmt(v)} m</b></div>
+        <div class="kv"><span>최대 세굴 (전 구간)</span><b>${fmt(mn)} m</b></div>
+        <div class="kv"><span>국부 유속 (davel)</span><b>${fmt(u)} m/s</b></div>
+        <div class="kv"><span>하상 전단응력 (scrp)</span><b>${fmt(tau,1)} N/m²</b></div>
+        <div class="kv" style="margin:0"><span>시각</span><b class="mono">${ST.t.toFixed(0)} s</b></div>
+      </div></div>`;
+  }
+  const right=`<div class="grp"><h3>교각 등급 범례<span class="tag">DT-160</span></h3><div class="in">${gradeLegend()}</div></div>
+    <div class="grp"><h3>교각별 세굴 모니터</h3><div class="in">${pierMonitor(ST.t)}
+      <div class="hint">기준에 도달하면 3D 교각 기둥 색상이 해당 등급 색으로 바뀝니다. ▶ 재생으로 확인</div></div></div>
+    <div class="grp"><h3>범례 — 세굴심</h3><div class="in">${divLegend()}</div></div>`;
+  return viewer(6, lpField({ro:true,grade:true}),
+    `<div class="vp"><canvas class="v3d pick" data-preset="iso" data-pick="1" data-opt='{"deck":false,"water":true,"particles":true,"colormap":true,"pierGrade":true,"useCell":true}'></canvas>
+      ${vptool(0,true)}${pop}${FLOW}<div class="fps">하상 클릭 → 셀 상세</div></div>${timeline()}`,
+    right, badge('DT-160','셀 상세 · 교각 등급 색상','mod'), c?`선택 셀 (${c.i}, ${c.j})`:'');
+}
+/* 8 · 타임라인 · 시계열 */
+function S8(){
+  const tbl=PIERS.map(p=>`<tr><td style="font-weight:700;color:${PC[p.id]}">${p.id}</td>${TH_DEPTH.map(d=>{const r=reachTime(p,d);
+    return `<td class="num">${r==null?'<span class="sub">—</span>':Math.round(r)+' s'}</td>`;}).join('')}
+    <td class="num">${fmt(p.dmax)} m</td></tr>`).join('');
+  return viewer(7, lpField({ro:true}),
+    `<div class="vp"><canvas class="v3d" data-preset="iso" data-opt='{"deck":true,"water":true,"particles":true,"colormap":true}'></canvas>
+      ${vptool(0,false)}${FLOW}<div class="fps">60 FPS${ST.playing?' · 재생 중':''}</div></div>
+    <div style="flex:0 0 268px;background:#0C2034;border-top:1px solid var(--line2);display:flex;min-height:0">
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <div style="padding:9px 14px 0;display:flex;align-items:center;gap:14px">
+          <div class="h2">교각별 세굴심 시계열</div>
+          ${PIERS.map(p=>`<span style="font-size:10.5px;color:#9FB6C8"><b style="color:${PC[p.id]}">━</b> ${p.id}</span>`).join('')}
+          <span style="margin-left:auto;font-size:10px;color:#6B8299">점선 = 등급 경계 (잔여 여유율 70/40/20 %) <span class="prov">잠정</span></span></div>
+        <div style="flex:1;padding:2px 8px 4px;min-height:0" id="ts-host"></div>
+      </div>
+      <div style="flex:0 0 340px;border-left:1px solid var(--line2);padding:10px 12px;overflow:auto;white-space:nowrap">
+        <div class="h2" style="margin-bottom:8px">등급 도달 시각</div>
+        <table class="t" style="font-size:11px"><thead><tr><th>교각</th><th style="color:${GCOL.a2}">주의</th><th style="color:${GCOL.a3}">경계</th><th style="color:${GCOL.a4}">심각</th><th>최종</th></tr></thead><tbody>${tbl}</tbody></table>
+        <div class="hint">해석 결과 곡선에서 각 등급 경계 세굴심(${TH_DEPTH.map(d=>fmt(d)).join(' / ')} m)에 처음 도달한 시각 · — 는 도달 안 함</div>
+      </div>
+    </div>${timeline()}`,
+    rpViz(), badge('DT-150','타임라인 재생 · 시계열 분석','mod'));
+}
+/* 9 · 위험 판정 */
+function rpRisk(){
+  const t=ST.t, w=worstPier(t), wd=pierDepth(w,t), g=gradeOf(wd), c=GCOL[g.k];
+  const cards=PIERS.map(p=>{
+    const d=pierDepth(p,t), gg=gradeOf(d), r=remainPct(d), rate=d-pierDepth(p,Math.max(0,t-300));
+    const nx=TH_DEPTH.find(x=>x>d+1e-9), gi=gradeIdx(gg);
+    let next='최고 등급';
+    if (nx!=null){ const rt=reachTime(p,nx); next = rt==null ? `${GRADES[gi+1].name} 도달 안 함` : `${GRADES[gi+1].name} 약 ${Math.round(rt-t)} s 후`; }
+    return `<div class="card" style="border-color:${GCOL[gg.k]}88;margin:9px 13px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:13px;font-weight:800;color:#fff">${p.id}</span>
+        <span class="pill ${gg.k}">${gg.name}</span><span class="mono" style="margin-left:auto;font-size:15px;font-weight:800;color:${GCOL[gg.k]}">${fmt(d)} m</span></div>
+      <div class="kv"><span>잔여 여유율</span><b>${fmt(r,1)} %</b></div>
+      <div class="kv"><span>진행 속도 (최근 300 s)</span><b>+${fmt(rate)} m</b></div>
+      <div class="kv"><span>다음 등급 (추세)</span><b>${next}</b></div>
+      <div class="kv" style="margin:0"><span>최종(평형) 세굴심</span><b>${fmt(p.dmax)} m</b></div></div>`;
+  }).join('');
+  return `<div class="card" style="border:1.5px solid ${c};background:${c}22">
+      <div style="font-size:10.5px;color:${c};font-weight:600;margin-bottom:3px">종합 위험 등급 (최고 위험 교각 기준)</div>
+      <div style="display:flex;align-items:flex-end;gap:12px">
+        <div><div class="big" style="color:${c}">${g.name}</div><div style="font-size:10px;color:${c};margin-top:2px">Level ${gradeIdx(g)+1} / 4 · ${g.en}</div></div>
+        <div style="margin-left:auto;text-align:right"><div style="font-size:10px;color:#BCD0E0">${w.id} 잔여 여유율</div>
+          <div class="mid" style="color:${c}">${remainPct(wd).toFixed(0)} %</div><div style="font-size:9.5px;color:#8CA6BD">기초 근입 ${FD} m</div></div>
+      </div>
+      <div style="font-size:10.5px;color:#BCD0E0;margin-top:8px">표준 조치: <b style="color:#fff">${g.act}</b> <span class="sub">(계획서 p.43)</span></div>
+      <button class="btn sm" style="background:${c};color:#fff" data-act="goto" data-to="9">대응 절차(SOP) 보기 →</button>
+    </div>
+    <div style="padding:2px 13px 0" class="h2">교각별 위험 정보 <span class="prov">잠정 기준</span></div>
+    ${cards}
+    <div class="grp" style="border-top:1px solid var(--line2)"><h3>신뢰성 지표 (LRFD)<span class="tag">3차년도 연계</span></h3><div class="in">
+      <div class="kv"><span>신뢰성 지수 β</span><b class="sub">—</b></div>
+      <div class="kv"><span>초과확률 Pe</span><b class="sub">—</b></div>
+      <div class="kv"><span>위험 도달 시간 TTC</span><b class="sub">—</b></div>
+      <div class="hint">계획서 p.43·60 표출 항목. 3차년도 LRFD 신뢰성 모듈 연계 후 표시 (현재 자리만 확보)</div></div></div>`;
+}
+function S9(){
+  const t=ST.t, w=worstPier(t), d=pierDepth(w,t), g=gradeOf(d), c=GCOL[g.k], rate=d-pierDepth(w,Math.max(0,t-300));
+  const nOver=PIERS.filter(p=>gradeIdx(gradeOf(pierDepth(p,t)))>=1).length;
+  return viewer(8, lpField({ro:true,grade:true}),
+    `<div class="vp"><canvas class="v3d" data-preset="iso" data-opt='{"deck":true,"water":true,"particles":true,"colormap":true,"pierGrade":true}'></canvas>
+      ${vptool(0,false)}
+      <div style="position:absolute;right:14px;top:58px;z-index:6;display:flex;align-items:center;gap:10px;background:rgba(12,24,38,.94);border:1.5px solid ${c};border-radius:8px;padding:9px 16px">
+        <span style="font-size:15px;color:${c}">⚠</span>
+        <div><div style="font-size:12.5px;font-weight:700;color:${c}">${g.name} (${g.en}) — ${w.id} 교각 잔여 여유율 ${remainPct(d).toFixed(0)} %</div>
+        <div style="font-size:10.5px;color:#BCD0E0;margin-top:1px">최근 300 s 진행 +${fmt(rate)} m · 주의 이상 교각 ${nOver} / ${PIERS.length}</div></div>
+        <div style="margin-left:10px;background:${c};color:#fff;font-size:11px;font-weight:700;padding:5px 12px;border-radius:5px" data-act="goto" data-to="9">대응 절차 →</div>
+      </div>${FLOW}<div class="fps">교각 색상 = 등급</div></div>${timeline()}`,
+    rpRisk(), badge('DT-130','위험 판정 · 교각별 위험 정보','plan'));
+}
+/* 10 · 경보 · SOP */
+function nowStr(){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+function S10(){
+  const p2=PIERS[1], d2=pierDepth(p2,TMAX), g2=gradeOf(d2), c2=GCOL[g2.k];
+  const list=PIERS.map(p=>({p,d:pierDepth(p,TMAX)})).sort((a,b)=>b.d-a.d).map(o=>({...o,g:gradeOf(o.d)}));
+  const appl=ST.sop.filter(s=>!s.na), nDone=appl.filter(s=>s.done).length, allDone=nDone===appl.length;
+  return `<div class="app">${gnb(2)}
+    <div style="flex:1;display:flex;gap:12px;padding:12px 14px;min-height:0">
+      <div style="flex:0 0 280px;background:var(--panel);border:1px solid var(--line);border-radius:7px;display:flex;flex-direction:column">
+        <div style="padding:12px 13px;border-bottom:1px solid var(--line2)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
+            <div class="h2">경보 목록</div><div class="sub">진행중 ${ST.alertClosed?2:3} | 종료 ${ST.alertClosed?13:12}</div></div>
+          <div class="seg"><span>전체</span><span class="on">진행중</span><span>종료</span></div></div>
+        <div style="flex:1;overflow:auto;padding:10px 13px">
+          ${list.map((a,i)=>{ const act=i===0, cc=GCOL[a.g.k];
+            const st=act?(ST.alertClosed?'종료됨':`미조치 ${appl.length-nDone}건`):'조치중';
+            return `<div style="background:${act?cc+'1F':'#0E2235'};border:1px solid ${act?cc:'var(--line2)'};border-radius:6px;padding:10px 11px;margin-bottom:8px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><span class="pill ${a.g.k}">${a.g.name}</span>
+                <span style="font-size:12px;font-weight:700;color:#fff">${a.p.id} 교각</span>
+                <span style="margin-left:auto;font-size:10px;color:#6B8299">${['10-02 09:22','10-02 03:10','10-01 22:40'][i]}</span></div>
+              <div style="font-size:10.5px;color:#8CA6BD">잔여 여유율 ${remainPct(a.d).toFixed(0)} % · <b style="color:${act&&!ST.alertClosed?'#E8796B':'#9FB6C8'}">${st}</b></div></div>`;}).join('')}
+          <div class="hint">교각 3개 기준 · 케이스 A-032 (t = ${TMAX} s)</div>
+        </div>
+      </div>
+      <div style="flex:1;background:var(--panel);border:1px solid var(--line);border-radius:7px;display:flex;flex-direction:column;min-width:0;overflow:auto">
+        <div style="margin:12px 13px;background:${c2}1F;border:1.5px solid ${c2};border-radius:7px;padding:12px 14px;display:flex;align-items:center">
+          <div><div style="font-size:14px;font-weight:800;color:${c2};margin-bottom:3px">⚠ ${g2.name} (${g2.en}) — P2 교각 ${ST.alertClosed?'· 종료됨':''}</div>
+            <div style="font-size:11px;color:#D9C9B6">발령 2026-10-02 09:22 &nbsp;|&nbsp; 잔여 여유율 ${remainPct(d2).toFixed(0)} % &nbsp;|&nbsp; 세굴심 ${fmt(d2)} m &nbsp;|&nbsp; 담당 김○○ (시설관리과) &nbsp;|&nbsp; 케이스 A-032</div></div>
+          <div style="margin-left:auto;font-size:11.5px;font-weight:700;padding:7px 14px;border-radius:5px;${ST.alertClosed?'background:#10402F;color:#5BD6A0':allDone?`background:${c2};color:#fff;cursor:pointer`:'background:#2B3A47;color:#7E8C99;border:1px solid #3A4A58'}" ${allDone&&!ST.alertClosed?'data-act="alert-close"':''}>
+            ${ST.alertClosed?'경보 종료됨':allDone?'경보 종료':'경보 종료 (SOP 완료 후)'}</div>
+        </div>
+        <div style="padding:0 13px;display:flex;align-items:center;justify-content:space-between">
+          <div class="h2">대응 절차 체크리스트 (SOP)</div><div class="sub">완료 ${nDone} / ${appl.length}</div></div>
+        <div style="padding:9px 13px 0">
+          ${ST.sop.map((s,i)=>{ const g=GRADES.find(x=>x.k===s.g);
+            const bg=s.na?'#0E2235':s.done?'#0F2A20':'#2B2411', bd=s.na?'var(--line2)':s.done?'#1F5440':'#4A3C14';
+            return `<div style="display:flex;align-items:center;gap:11px;background:${bg};border:1px solid ${bd};border-radius:6px;padding:9px 12px;margin-bottom:7px;${s.na?'opacity:.55':''}">
+              <div style="width:17px;height:17px;border-radius:4px;border:1.5px solid ${s.done?'#2EA36B':'#6B5A24'};background:${s.done?'#2EA36B':'transparent'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#06121E">${s.done?'✓':''}</div>
+              <span class="pill ${g.k}" style="min-width:38px;justify-content:center">${g.name}</span>
+              <div style="flex:1"><div style="font-size:12px;font-weight:600;color:#fff">${s.t}</div>
+                <div style="font-size:10.5px;color:${s.na?'#6B8299':s.done?'#5BD6A0':'#E8B21A'};margin-top:1px">${s.na?'심각 단계 도달 시 활성':s.done?`완료 · ${s.when} · ${s.who}`:'미조치'}</div></div>
+              ${s.na?'':`<span class="lnk" style="font-size:10.5px;font-weight:500" data-act="toast" data-msg="메모 입력 (목업)">메모</span>
+              <span class="lnk" style="font-size:10.5px;font-weight:500" data-act="toast" data-msg="첨부 (목업)">첨부</span>
+              <span style="font-size:10.5px;font-weight:700;color:${s.done?'#5E7F9A':'#fff'};cursor:pointer" data-act="sop" data-i="${i}">${s.done?'취소':'완료 처리'}</span>`}
+            </div>`;}).join('')}
+        </div>
+        <div style="padding:6px 13px 0"><div class="h2">대응 이력 <span class="sub" style="font-weight:400">(append-only)</span></div></div>
+        <div style="margin:8px 13px 13px;background:#0E2235;border:1px solid var(--line2);border-radius:6px;padding:10px 12px;flex:1;min-height:90px">
+          ${ST.hist.map(h=>`<div style="display:flex;gap:12px;font-size:11px;padding:4px 0">
+            <span style="color:#6B8299;width:84px;flex:0 0 84px">${h[0]}</span><span style="font-weight:700;color:#CFDCE7;width:52px;flex:0 0 52px">${h[1]}</span>
+            <span style="color:#A8C0D4">${h[2]}</span></div>`).join('')}
+        </div>
+      </div>
+      <div style="flex:0 0 270px;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:13px;overflow:auto">
+        <div class="h2" style="margin-bottom:4px">등급별 표준 대응 조치</div>
+        <div class="sub" style="margin-bottom:10px">연구개발계획서 p.43</div>
+        ${GRADES.map((g,i)=>`<div style="border:1px solid ${g.k===g2.k?GCOL[g.k]:'var(--line2)'};background:${g.k===g2.k?GCOL[g.k]+'1F':'#0E2235'};border-radius:6px;padding:9px 10px;margin-bottom:7px">
+          <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><span class="pill ${g.k}">${g.name}</span><span class="sub">${g.en}</span>
+            <span class="mono" style="margin-left:auto;font-size:10px;color:#8CA6BD">${['≥ 70 %','40 – 70 %','20 – 40 %','< 20 %'][i]}</span></div>
+          <div style="font-size:11.5px;color:#fff;font-weight:600">${g.act}</div></div>`).join('')}
+        <div class="hint">경계·심각 판정 시 현장 긴급 점검·통행 제한·임시 보강이 즉시 이루어지도록 경보 체계와 연동 (계획서 p.43). 여유율 구간은 <span class="prov">잠정</span></div>
+      </div>
+    </div>${sbar()}
+    ${badge('DT-200','경보 · SOP 대응','plan')}</div>`;
+}
+
+/* ======================================================================
+   7. 부트스트랩 · 이벤트
+   ====================================================================== */
+const SCREENS=[
+  ['1','로그인',S1],['2','케이스 관리',S2],['3','데이터 연동',S3],['4','조건 설정',S4],
+  ['5','3D 세굴 가시화',S5],['6','평면뷰 · 단면',S6],['7','셀 상세',S7],
+  ['8','타임라인 · 시계열',S8],['9','위험 판정',S9],['10','경보 · SOP',S10],
+];
+const stage=document.getElementById('stage'), tabsEl=document.getElementById('tabs');
+SCREENS.forEach((s,i)=>{
+  const d=document.createElement('div'); d.className='screen'; d.id='sc'+i; stage.appendChild(d);
+  const b=document.createElement('button'); b.className='t'; b.innerHTML=`<span class="n">${s[0]}</span>${s[1]}`;
+  b.onclick=()=>show(i); tabsEl.appendChild(b);
+});
+let cur=-1;
+function show(i){
+  cur=i;
+  document.querySelectorAll('.screen').forEach((e,k)=>{ e.classList.toggle('on',k===i); if(k!==i) e.innerHTML=''; });
+  document.querySelectorAll('#tabs .t').forEach((e,k)=>e.classList.toggle('on',k===i));
+  render(i);
+}
+function render(i){
+  const el=document.getElementById('sc'+i); if(!el) return;
+  el.innerHTML=SCREENS[i][2](); draw(i);
+}
+function rerender(){ if(cur>=0) render(cur); }
+function draw(i){
+  const root=document.getElementById('sc'+i); if(!root) return;
+  root.querySelectorAll('canvas.v3d').forEach(cv=>{
+    let o={}; try{ o=JSON.parse(cv.dataset.opt||'{}'); }catch(e){}
+    o.preset=cv.dataset.preset||'iso'; o.t=ST.t;
+    if (o.useSec) o.sec=ST.sec;
+    if (o.useCell && ST.cell) o.cell=ST.cell;
+    const res=renderScene(cv,o); cv._proj=res&&res.proj;
+    if (cv.dataset.pick) cv.onclick=e=>pickCell(cv,e);
+  });
+  const ph=root.querySelector('#prof-host'); if(ph) ph.innerHTML=profChart(ST.t, ST.sec);
+  const th=root.querySelector('#ts-host'); if(th) th.innerHTML=tsChart(ST.t);
+}
+
+/* 타임라인 재생 */
+let timer=null;
+function setPlaying(on){
+  ST.playing=on; clearInterval(timer);
+  if (on){
+    if (ST.t>=TMAX) ST.t=0;
+    timer=setInterval(()=>{
+      ST.t=Math.min(TMAX, ST.t+30*ST.speed);
+      if (ST.t>=TMAX){ ST.playing=false; clearInterval(timer); }
+      rerender();
+    },120);
+  }
+  rerender();
+}
+function setT(t){ ST.t=Math.max(0,Math.min(TMAX,t)); rerender(); }
+
+let toastTimer=null;
+function toast(msg){ const el=document.getElementById('toast'); el.textContent=msg; el.classList.add('on'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('on'),2200); }
+
+document.addEventListener('click', e=>{
+  const a=e.target.closest('[data-act]'); if(!a) return;
+  const act=a.dataset.act;
+  if (act==='goto') show(+a.dataset.to);
+  else if (act==='toast') toast(a.dataset.msg);
+  else if (act==='tl-play') setPlaying(!ST.playing);
+  else if (act==='tl-start') { setPlaying(false); setT(0); }
+  else if (act==='tl-end') { setPlaying(false); setT(TMAX); }
+  else if (act==='tl-back') setT(ST.t-30);
+  else if (act==='tl-fwd') setT(ST.t+30);
+  else if (act==='tl-seek'){ const r=a.getBoundingClientRect(); setT(Math.round((e.clientX-r.left)/r.width*TMAX/30)*30); }
+  else if (act==='sec') { ST.sec=a.dataset.v; rerender(); }
+  else if (act==='cell-close') { ST.cell=null; rerender(); }
+  else if (act==='sop'){
+    const s=ST.sop[+a.dataset.i]; s.done=!s.done;
+    if (s.done){ s.when=nowStr(); s.who='admin'; }
+    ST.hist.unshift([nowStr(),'admin',`${s.t} — ${s.done?'완료 처리':'완료 취소'}`]);
+    rerender();
+  }
+  else if (act==='alert-close'){ ST.alertClosed=true; ST.hist.unshift([nowStr(),'admin','SOP 전 항목 완료 — 경보 종료']); rerender(); }
+});
+document.addEventListener('change', e=>{ if (e.target.matches('select[data-speed]')) ST.speed=+e.target.value; });
+
+/* 화면 캡처 → PNG 저장 */
+function capName(){
+  const d=new Date(), p=n=>String(n).padStart(2,'0');
+  const nm=SCREENS[cur][1].replace(/[\s·]+/g,'');
+  return `SCDT_${p(+SCREENS[cur][0])}_${nm}_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.png`;
+}
+async function capture(){
+  if (typeof html2canvas==='undefined'){ toast('캡처 라이브러리를 불러오지 못했습니다 (인터넷 연결 확인)'); return; }
+  if (ST.playing) setPlaying(false);
+  document.body.classList.add('capture'); rerender();
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  let name=capName();
+  try{
+    const c=await html2canvas(stage,{backgroundColor:'#0B1C2E',scale:Math.min(2,window.devicePixelRatio||1),logging:false});
+    const a=document.createElement('a'); a.download=name; a.href=c.toDataURL('image/png');
+    document.body.appendChild(a); a.click(); a.remove();
+  }catch(err){ name=null; toast('캡처 실패: '+err.message); }
+  document.body.classList.remove('capture'); rerender();
+  if (name) toast('저장됨 · '+name);
+}
+document.getElementById('capBtn').onclick=capture;
+
+let rz; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(rerender,140); });
+document.addEventListener('keydown',e=>{
+  if (e.target.tagName==='SELECT') return;
+  if (e.key==='ArrowRight') show(Math.min(SCREENS.length-1,cur+1));
+  if (e.key==='ArrowLeft') show(Math.max(0,cur-1));
+  if (e.key===' ') { e.preventDefault(); setPlaying(!ST.playing); }
+});
+show(0);
+</script>
+</body>
+</html>

@@ -34,10 +34,7 @@ export function flowScourIntensity(
   const span = holeRadius - pierRadius;
   const t = (r - pierRadius) / span;
   const peakT = (pierRadius * 0.35) / span;
-  const radial =
-    t <= peakT
-      ? Math.pow(t / peakT, 0.85)
-      : Math.pow((1 - t) / (1 - peakT), 1.3);
+  const radial = t <= peakT ? Math.pow(t / peakT, 0.85) : Math.pow((1 - t) / (1 - peakT), 1.3);
 
   // 하류 중앙 좁은 wake — 상류 세굴을 압도하지 않도록 약하게
   const wake =
@@ -87,19 +84,11 @@ export function flowScourDelta(
   const dAlong = dx * cosH + dz * sinH;
   const dCross = -dx * sinH + dz * cosH;
 
-  const intensity = flowScourIntensity(
-    worldX,
-    worldZ,
-    pierX,
-    pierZ,
-    pierRadius,
-    flowHeading,
-  );
+  const intensity = flowScourIntensity(worldX, worldZ, pierX, pierZ, pierRadius, flowHeading);
   const logNorm = Math.log1p(3);
   const timeFactor = Math.log1p(3 * timeProgress) / logNorm;
 
-  const scour =
-    intensity > 0 ? -equilibriumDepth * intensity * timeFactor : 0;
+  const scour = intensity > 0 ? -equilibriumDepth * intensity * timeFactor : 0;
   const deposition = flowDepositionDelta(
     dAlong,
     dCross,

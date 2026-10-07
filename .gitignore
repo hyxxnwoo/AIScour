@@ -35,6 +35,9 @@ Thumbs.db
 !.vscode/settings.json
 *.swp
 
+# 로컬에서 풀어둔 대용량 결과 CSV (결과데이터.zip 등)
+_tmp_result_csv/
+
 # 캐시
 .cache/
 .parcel-cache/

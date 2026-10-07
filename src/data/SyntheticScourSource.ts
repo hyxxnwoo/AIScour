@@ -56,7 +56,10 @@ export class SyntheticScourSource implements ScourDataSource {
   };
 
   public constructor(options: SyntheticScourOptions = {}) {
-    const merged: Required<Omit<SyntheticScourOptions, 'pier' | 'piers'>> = { ...DEFAULTS, ...options };
+    const merged: Required<Omit<SyntheticScourOptions, 'pier' | 'piers'>> = {
+      ...DEFAULTS,
+      ...options,
+    };
     this.options = {
       ...merged,
       piers: resolvePiers(options),

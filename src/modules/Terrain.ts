@@ -181,7 +181,7 @@ export class Terrain implements Disposable {
       positions.setY(i, z);
       const gx = i % this.grid.width;
       const gy = (i / this.grid.width) | 0;
-      sampleTerrainSandColor(delta[i]!, absMax, gx, gy, this.tmpColor);
+      sampleTerrainSandColor(delta[i], absMax, gx, gy, this.tmpColor);
       const j = i * 3;
       this.colors[j] = this.tmpColor.r;
       this.colors[j + 1] = this.tmpColor.g;

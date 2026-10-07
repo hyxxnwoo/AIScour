@@ -283,7 +283,11 @@ export class PierMarker implements Disposable {
     return mats;
   }
 
-  private addBridgeStructure(piers: PierDefinition[], bridgeType: BridgeType, layout: BridgeLayout): void {
+  private addBridgeStructure(
+    piers: PierDefinition[],
+    bridgeType: BridgeType,
+    layout: BridgeLayout,
+  ): void {
     const mats = this.createBridgeMaterials(bridgeType);
 
     switch (bridgeType) {
@@ -315,7 +319,16 @@ export class PierMarker implements Disposable {
     if (accentMat) {
       const ring = capSize * 0.82;
       const ringThick = capThick * 0.35;
-      this.addBox(ring, ringThick, ring, pier.x, y + capThick * 0.28, pier.z, accentMat, `pier-cap-ring-${pier.id}`);
+      this.addBox(
+        ring,
+        ringThick,
+        ring,
+        pier.x,
+        y + capThick * 0.28,
+        pier.z,
+        accentMat,
+        `pier-cap-ring-${pier.id}`,
+      );
     }
   }
 
@@ -342,7 +355,11 @@ export class PierMarker implements Disposable {
 
   // ── 현수교 ──────────────────────────────────────────────
 
-  private addSuspensionBridge(piers: PierDefinition[], layout: BridgeLayout, mats: BridgeMaterials): void {
+  private addSuspensionBridge(
+    piers: PierDefinition[],
+    layout: BridgeLayout,
+    mats: BridgeMaterials,
+  ): void {
     const sorted = this.sortPiersAlongSpan(piers, layout);
     for (const pier of sorted) {
       this.addHTower(pier, layout, mats.tower, mats.towerAccent, layout.towerH);
@@ -376,21 +393,80 @@ export class PierMarker implements Disposable {
     if (layout.spanAxis === 'z') {
       for (const side of [-1, 1] as const) {
         const x = pier.x + side * spread;
-        this.addBox(legW, legH, legW, x, baseY + legH / 2, pier.z, legMat, `tower-leg-${pier.id}-${side}`);
-        this.addBox(legW * 1.08, bandH, legW * 1.08, x, baseY + bandH / 2, pier.z, accentMat, `tower-band-${pier.id}-${side}`);
+        this.addBox(
+          legW,
+          legH,
+          legW,
+          x,
+          baseY + legH / 2,
+          pier.z,
+          legMat,
+          `tower-leg-${pier.id}-${side}`,
+        );
+        this.addBox(
+          legW * 1.08,
+          bandH,
+          legW * 1.08,
+          x,
+          baseY + bandH / 2,
+          pier.z,
+          accentMat,
+          `tower-band-${pier.id}-${side}`,
+        );
       }
-      this.addBox(spread * 2 + legW, legW * 0.85, legW * 1.4, pier.x, crossY, pier.z, accentMat, `tower-cross-${pier.id}`);
+      this.addBox(
+        spread * 2 + legW,
+        legW * 0.85,
+        legW * 1.4,
+        pier.x,
+        crossY,
+        pier.z,
+        accentMat,
+        `tower-cross-${pier.id}`,
+      );
     } else {
       for (const side of [-1, 1] as const) {
         const z = pier.z + side * spread;
-        this.addBox(legW, legH, legW, pier.x, baseY + legH / 2, z, legMat, `tower-leg-${pier.id}-${side}`);
-        this.addBox(legW * 1.08, bandH, legW * 1.08, pier.x, baseY + bandH / 2, z, accentMat, `tower-band-${pier.id}-${side}`);
+        this.addBox(
+          legW,
+          legH,
+          legW,
+          pier.x,
+          baseY + legH / 2,
+          z,
+          legMat,
+          `tower-leg-${pier.id}-${side}`,
+        );
+        this.addBox(
+          legW * 1.08,
+          bandH,
+          legW * 1.08,
+          pier.x,
+          baseY + bandH / 2,
+          z,
+          accentMat,
+          `tower-band-${pier.id}-${side}`,
+        );
       }
-      this.addBox(legW * 1.4, legW * 0.85, spread * 2 + legW, pier.x, crossY, pier.z, accentMat, `tower-cross-${pier.id}`);
+      this.addBox(
+        legW * 1.4,
+        legW * 0.85,
+        spread * 2 + legW,
+        pier.x,
+        crossY,
+        pier.z,
+        accentMat,
+        `tower-cross-${pier.id}`,
+      );
     }
   }
 
-  private towerTop(pier: PierDefinition, layout: BridgeLayout, legH: number, lateralOffset = 0): Vector3 {
+  private towerTop(
+    pier: PierDefinition,
+    layout: BridgeLayout,
+    legH: number,
+    lateralOffset = 0,
+  ): Vector3 {
     const y = layout.deckSurfaceY + legH - layout.towerLegW * 0.3;
     if (layout.spanAxis === 'z') {
       return new Vector3(pier.x + lateralOffset, y, pier.z);
@@ -427,8 +503,8 @@ export class PierMarker implements Disposable {
     const points: Vector3[] = [];
     const segs = 10;
     for (let i = 0; i < knots.length - 1; i += 1) {
-      const a = knots[i]!;
-      const b = knots[i + 1]!;
+      const a = knots[i];
+      const b = knots[i + 1];
       const span = a.distanceTo(b);
       const sag = span * layout.sagFactor;
       for (let j = 0; j <= segs; j += 1) {
@@ -445,8 +521,8 @@ export class PierMarker implements Disposable {
   private cableHeightAt(path: Vector3[], spanPos: number, layout: BridgeLayout): number {
     const coord = layout.spanAxis === 'z' ? 'z' : 'x';
     for (let i = 0; i < path.length - 1; i += 1) {
-      const a = path[i]!;
-      const b = path[i + 1]!;
+      const a = path[i];
+      const b = path[i + 1];
       const ca = coord === 'z' ? a.z : a.x;
       const cb = coord === 'z' ? b.z : b.x;
       if (spanPos >= ca && spanPos <= cb) {
@@ -468,7 +544,10 @@ export class PierMarker implements Disposable {
 
     for (let i = 0; i <= count; i += 1) {
       const t = i / count;
-      const spanPos = layout.spanAxis === 'z' ? layout.minZ + t * layout.spanLen : layout.minX + t * layout.spanLen;
+      const spanPos =
+        layout.spanAxis === 'z'
+          ? layout.minZ + t * layout.spanLen
+          : layout.minX + t * layout.spanLen;
       const pt = this.deckPoint(layout, spanPos, lateralOffset, deckTop);
       const cableY = this.cableHeightAt(cablePath, spanPos, layout);
       const len = Math.max(0.002, cableY - deckTop);
@@ -485,7 +564,11 @@ export class PierMarker implements Disposable {
 
   // ── 사장교 ──────────────────────────────────────────────
 
-  private addCableStayedBridge(piers: PierDefinition[], layout: BridgeLayout, mats: BridgeMaterials): void {
+  private addCableStayedBridge(
+    piers: PierDefinition[],
+    layout: BridgeLayout,
+    mats: BridgeMaterials,
+  ): void {
     const sorted = this.sortPiersAlongSpan(piers, layout);
     const mastH = layout.towerH * 1.55;
 
@@ -503,7 +586,13 @@ export class PierMarker implements Disposable {
 
         for (const side of [-1, 1] as const) {
           const deckPt = this.deckPoint(layout, spanPos, side * layout.deckWidth * 0.32);
-          this.addCableSegment(top, deckPt, layout.cableR * 0.85, mats.cable, `stay-${pier.id}-${step}-${side}`);
+          this.addCableSegment(
+            top,
+            deckPt,
+            layout.cableR * 0.85,
+            mats.cable,
+            `stay-${pier.id}-${step}-${side}`,
+          );
         }
       }
     }
@@ -523,14 +612,27 @@ export class PierMarker implements Disposable {
     const baseY = layout.deckSurfaceY;
     this.addBox(w, mastH, w, pier.x, baseY + mastH / 2, pier.z, legMat, `mast-${pier.id}`);
     const bandH = mastH * 0.14;
-    this.addBox(w * 1.05, bandH, w * 1.05, pier.x, baseY + mastH * 0.35, pier.z, accentMat, `mast-band-${pier.id}`);
+    this.addBox(
+      w * 1.05,
+      bandH,
+      w * 1.05,
+      pier.x,
+      baseY + mastH * 0.35,
+      pier.z,
+      accentMat,
+      `mast-band-${pier.id}`,
+    );
     const capY = baseY + mastH + w * 0.2;
     this.addBox(w * 2.2, w * 0.5, w * 2.2, pier.x, capY, pier.z, accentMat, `mast-cap-${pier.id}`);
   }
 
   // ── 거더교 ──────────────────────────────────────────────
 
-  private addGirderBridge(piers: PierDefinition[], layout: BridgeLayout, mats: BridgeMaterials): void {
+  private addGirderBridge(
+    piers: PierDefinition[],
+    layout: BridgeLayout,
+    mats: BridgeMaterials,
+  ): void {
     const sorted = this.sortPiersAlongSpan(piers, layout);
     const girderH = Math.max(layout.diameter * 0.11, 0.012);
     const girderW = Math.max(layout.diameter * 0.1, 0.011);
@@ -622,7 +724,11 @@ export class PierMarker implements Disposable {
 
   // ── 아치교 ──────────────────────────────────────────────
 
-  private addArchBridge(piers: PierDefinition[], layout: BridgeLayout, mats: BridgeMaterials): void {
+  private addArchBridge(
+    piers: PierDefinition[],
+    layout: BridgeLayout,
+    mats: BridgeMaterials,
+  ): void {
     const rise = Math.max(layout.diameter * 0.45, layout.spanLen * 0.18);
     const springY = layout.deckY - rise;
     const lateral = layout.deckWidth * 0.34;
@@ -677,8 +783,7 @@ export class PierMarker implements Disposable {
     const count = Math.max(6, Math.round(layout.spanLen / (layout.diameter * 0.38)));
     for (let i = 0; i <= count; i += 1) {
       const t = i / count;
-      const spanPos =
-        (layout.spanAxis === 'z' ? layout.minZ : layout.minX) + t * layout.spanLen;
+      const spanPos = (layout.spanAxis === 'z' ? layout.minZ : layout.minX) + t * layout.spanLen;
       const archY = this.archHeightAt(layout, spanPos, springY, rise);
       const left = this.deckPoint(layout, spanPos, -lateral, archY);
       const right = this.deckPoint(layout, spanPos, lateral, archY);
@@ -703,7 +808,12 @@ export class PierMarker implements Disposable {
     return points;
   }
 
-  private archHeightAt(layout: BridgeLayout, spanPos: number, springY: number, rise: number): number {
+  private archHeightAt(
+    layout: BridgeLayout,
+    spanPos: number,
+    springY: number,
+    rise: number,
+  ): number {
     const start = layout.spanAxis === 'z' ? layout.minZ : layout.minX;
     const t = (spanPos - start) / Math.max(1e-9, layout.spanLen);
     if (t < 0 || t > 1) return springY;
@@ -724,8 +834,7 @@ export class PierMarker implements Disposable {
 
     for (let i = 0; i <= count; i += 1) {
       const t = i / count;
-      const spanPos =
-        (layout.spanAxis === 'z' ? layout.minZ : layout.minX) + t * layout.spanLen;
+      const spanPos = (layout.spanAxis === 'z' ? layout.minZ : layout.minX) + t * layout.spanLen;
       const archY = this.archHeightAt(layout, spanPos, springY, rise);
       const hangLen = deckTop - archY;
       if (hangLen < minLen) continue;
@@ -784,7 +893,16 @@ export class PierMarker implements Disposable {
   private addDeck(layout: BridgeLayout, mats: BridgeMaterials): void {
     const y = layout.deckY;
     if (layout.spanAxis === 'z') {
-      this.addBox(layout.deckWidth, layout.deckThick, layout.spanLen, layout.centerX, y, layout.centerZ, mats.concrete, 'deck-slab');
+      this.addBox(
+        layout.deckWidth,
+        layout.deckThick,
+        layout.spanLen,
+        layout.centerX,
+        y,
+        layout.centerZ,
+        mats.concrete,
+        'deck-slab',
+      );
       this.addBox(
         layout.deckWidth * 0.92,
         layout.deckThick * 0.14,
@@ -796,7 +914,16 @@ export class PierMarker implements Disposable {
         'deck-wear',
       );
     } else {
-      this.addBox(layout.spanLen, layout.deckThick, layout.deckWidth, layout.centerX, y, layout.centerZ, mats.concrete, 'deck-slab');
+      this.addBox(
+        layout.spanLen,
+        layout.deckThick,
+        layout.deckWidth,
+        layout.centerX,
+        y,
+        layout.centerZ,
+        mats.concrete,
+        'deck-slab',
+      );
       this.addBox(
         layout.spanLen * 0.96,
         layout.deckThick * 0.14,
@@ -823,9 +950,27 @@ export class PierMarker implements Disposable {
       const t = (i + 0.5) / dashCount;
       const spanPos = (layout.spanAxis === 'z' ? layout.minZ : layout.minX) + t * layout.spanLen;
       if (layout.spanAxis === 'z') {
-        this.addBox(dashLen, lineH, edgeW * 0.55, layout.centerX, y, spanPos, mats.lane, `lane-dash-${i}`);
+        this.addBox(
+          dashLen,
+          lineH,
+          edgeW * 0.55,
+          layout.centerX,
+          y,
+          spanPos,
+          mats.lane,
+          `lane-dash-${i}`,
+        );
       } else {
-        this.addBox(edgeW * 0.55, lineH, dashLen, spanPos, y, layout.centerZ, mats.lane, `lane-dash-${i}`);
+        this.addBox(
+          edgeW * 0.55,
+          lineH,
+          dashLen,
+          spanPos,
+          y,
+          layout.centerZ,
+          mats.lane,
+          `lane-dash-${i}`,
+        );
       }
     }
 
@@ -892,9 +1037,27 @@ export class PierMarker implements Disposable {
         for (let i = 0; i <= postCount; i += 1) {
           const t = i / postCount;
           const z = layout.minZ + t * layout.spanLen * 0.97 + layout.spanLen * 0.015;
-          this.addBox(postW, postH, postW, x, layout.deckY + layout.deckThick + postH / 2, z, mats.steel, `parapet-post-${side}-${i}`);
+          this.addBox(
+            postW,
+            postH,
+            postW,
+            x,
+            layout.deckY + layout.deckThick + postH / 2,
+            z,
+            mats.steel,
+            `parapet-post-${side}-${i}`,
+          );
           if (i % 3 === 1) {
-            this.addBox(postW * 1.6, postH * 0.22, postW * 1.6, x, topY + layout.parapetH * 0.06, z, mats.lamp, `parapet-lamp-${side}-${i}`);
+            this.addBox(
+              postW * 1.6,
+              postH * 0.22,
+              postW * 1.6,
+              x,
+              topY + layout.parapetH * 0.06,
+              z,
+              mats.lamp,
+              `parapet-lamp-${side}-${i}`,
+            );
           }
         }
       }
@@ -924,9 +1087,27 @@ export class PierMarker implements Disposable {
         for (let i = 0; i <= postCount; i += 1) {
           const t = i / postCount;
           const x = layout.minX + t * layout.spanLen * 0.97 + layout.spanLen * 0.015;
-          this.addBox(postW, postH, postW, x, layout.deckY + layout.deckThick + postH / 2, z, mats.steel, `parapet-post-${side}-${i}`);
+          this.addBox(
+            postW,
+            postH,
+            postW,
+            x,
+            layout.deckY + layout.deckThick + postH / 2,
+            z,
+            mats.steel,
+            `parapet-post-${side}-${i}`,
+          );
           if (i % 3 === 1) {
-            this.addBox(postW * 1.6, postH * 0.22, postW * 1.6, x, topY + layout.parapetH * 0.06, z, mats.lamp, `parapet-lamp-${side}-${i}`);
+            this.addBox(
+              postW * 1.6,
+              postH * 0.22,
+              postW * 1.6,
+              x,
+              topY + layout.parapetH * 0.06,
+              z,
+              mats.lamp,
+              `parapet-lamp-${side}-${i}`,
+            );
           }
         }
       }
@@ -957,10 +1138,28 @@ export class PierMarker implements Disposable {
     for (const [i, end] of ends.entries()) {
       if (layout.spanAxis === 'z') {
         this.addBox(w, h, d, end.x, y, end.z, bodyMat, `anchor-${i}`);
-        this.addBox(w * 0.75, h * 0.35, d * 0.82, end.x, y + h * 0.38, end.z, accentMat, `anchor-cap-${i}`);
+        this.addBox(
+          w * 0.75,
+          h * 0.35,
+          d * 0.82,
+          end.x,
+          y + h * 0.38,
+          end.z,
+          accentMat,
+          `anchor-cap-${i}`,
+        );
       } else {
         this.addBox(d, h, w, end.x, y, end.z, bodyMat, `anchor-${i}`);
-        this.addBox(d * 0.82, h * 0.35, w * 0.75, end.x, y + h * 0.38, end.z, accentMat, `anchor-cap-${i}`);
+        this.addBox(
+          d * 0.82,
+          h * 0.35,
+          w * 0.75,
+          end.x,
+          y + h * 0.38,
+          end.z,
+          accentMat,
+          `anchor-cap-${i}`,
+        );
       }
     }
   }
@@ -985,6 +1184,40 @@ export class PierMarker implements Disposable {
 
   public setVisible(visible: boolean): void {
     this.group.visible = visible;
+  }
+
+  /** 교량·교각 캡 등 데크 구조만 숨김(6번 평면뷰). pier-{id} 샤프트는 유지 */
+  public setBridgeStructureVisible(visible: boolean): void {
+    this.group.traverse((obj) => {
+      if (!(obj instanceof Mesh)) return;
+      const isShaft = /^pier-P\d+$/.test(obj.name);
+      obj.visible = visible ? true : isShaft;
+    });
+  }
+
+  /** 교각 샤프트 색상 (7·8·9 등급 표시) */
+  public setPierShaftColors(colorsById: ReadonlyMap<string, string>): void {
+    this.group.traverse((obj) => {
+      if (!(obj instanceof Mesh)) return;
+      const m = /^pier-(P\d+)$/.exec(obj.name);
+      if (!m) return;
+      const hex = colorsById.get(m[1]);
+      if (!hex) return;
+      if (obj.material instanceof MeshStandardMaterial) {
+        obj.material.color.set(hex);
+      }
+    });
+  }
+
+  public resetPierShaftColors(defaultHex = '#ffffff'): void {
+    const map = new Map<string, string>();
+    this.group.traverse((obj) => {
+      if (obj instanceof Mesh) {
+        const m = /^pier-(P\d+)$/.exec(obj.name);
+        if (m) map.set(m[1], defaultHex);
+      }
+    });
+    this.setPierShaftColors(map);
   }
 
   public dispose(): void {

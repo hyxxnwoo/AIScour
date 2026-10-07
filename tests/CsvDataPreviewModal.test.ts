@@ -39,6 +39,13 @@ function makeLoadResult(columns: SampleProbeColumns): CsvDashboardLoadResult {
     requestedStepMultiple: 1,
     autoAdjusted: false,
     csvScrdifAllZero: false,
+    piers:
+      built.scour.baseTerrain.metadata?.piers?.map((p) => ({
+        id: p.id,
+        x: p.x,
+        z: p.z,
+        diameter: p.diameter,
+      })) ?? [],
   };
 }
 

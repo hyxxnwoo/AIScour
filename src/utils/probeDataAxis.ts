@@ -14,9 +14,7 @@ export interface DataAxis {
 export function medianOfSorted(sorted: number[]): number {
   if (sorted.length === 0) return 0;
   const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1
-    ? sorted[mid]!
-    : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 export function buildDataAxis(source: Float32Array, count: number): DataAxis {
@@ -25,19 +23,19 @@ export function buildDataAxis(source: Float32Array, count: number): DataAxis {
   }
 
   const sorted = Float64Array.from(source.subarray(0, count)).sort();
-  const min = sorted[0]!;
-  const max = sorted[count - 1]!;
+  const min = sorted[0];
+  const max = sorted[count - 1];
   const tolerance = Math.max(1e-9, (max - min) * COORD_MERGE_RATIO);
 
   const unique: number[] = [min];
   for (let i = 1; i < count; i += 1) {
-    const v = sorted[i]!;
-    if (v - unique[unique.length - 1]! > tolerance) unique.push(v);
+    const v = sorted[i];
+    if (v - unique[unique.length - 1] > tolerance) unique.push(v);
   }
 
   const gaps: number[] = [];
   for (let i = 1; i < unique.length; i += 1) {
-    gaps.push(unique[i]! - unique[i - 1]!);
+    gaps.push(unique[i] - unique[i - 1]);
   }
   gaps.sort((a, b) => a - b);
 
@@ -53,12 +51,12 @@ export function buildDataAxis(source: Float32Array, count: number): DataAxis {
 export function nearestIndex(values: Float64Array, v: number): number {
   let lo = 0;
   let hi = values.length - 1;
-  if (hi <= 0 || v <= values[0]!) return 0;
-  if (v >= values[hi]!) return hi;
+  if (hi <= 0 || v <= values[0]) return 0;
+  if (v >= values[hi]) return hi;
   while (hi - lo > 1) {
     const mid = (lo + hi) >> 1;
-    if (values[mid]! <= v) lo = mid;
+    if (values[mid] <= v) lo = mid;
     else hi = mid;
   }
-  return v - values[lo]! <= values[hi]! - v ? lo : hi;
+  return v - values[lo] <= values[hi] - v ? lo : hi;
 }

@@ -38,7 +38,7 @@ export class DashboardCustomizePanel implements Disposable {
     bgInput.className = 'dashboard-customize__color';
     bgInput.value = initialBg;
     const onBg = (): void => this.handlers.onBackgroundHex(bgInput.value);
-    
+
     // 배경색 변경 시 즉시 반영
     bgInput.addEventListener('input', onBg);
     this.cleanups.push(() => bgInput.removeEventListener('input', onBg));
@@ -80,7 +80,7 @@ export class DashboardCustomizePanel implements Disposable {
     val.className = 'dashboard-customize__value';
     const fmt = opts.format ?? ((v: number) => v.toFixed(2));
     val.textContent = fmt(opts.initial);
-    
+
     labWrap.append(lab, val);
 
     const range = document.createElement('input');
@@ -97,7 +97,7 @@ export class DashboardCustomizePanel implements Disposable {
       opts.onInput(v);
     };
     range.addEventListener('input', onIn);
-    this.cleanups.push(() => range.removeEventListener('input', onIn)); 
+    this.cleanups.push(() => range.removeEventListener('input', onIn));
 
     row.append(labWrap, range);
     return row;

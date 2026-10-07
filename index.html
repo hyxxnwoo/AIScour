@@ -9,9 +9,21 @@
   </head>
   <body>
     <div id="app">
-      <canvas id="scene-canvas"></canvas>
-      <aside id="dock-left" class="ui-dock ui-dock--left" aria-label="설정 패널"></aside>
-      <aside id="dock-right" class="ui-dock ui-dock--right" aria-label="분석 패널"></aside>
+      <div id="gnb"></div>
+      <div id="subnav"></div>
+      <main id="screen-root" class="screen-root">
+        <section id="viewer-stage" class="viewer-stage">
+          <aside id="dock-left" class="ui-dock ui-dock--left" aria-label="설정 패널"></aside>
+          <div id="viewer-center" class="viewer-center">
+            <div id="viewer-main" class="viewer-main">
+              <canvas id="scene-canvas"></canvas>
+            </div>
+          </div>
+          <aside id="dock-right" class="ui-dock ui-dock--right" aria-label="분석 패널"></aside>
+        </section>
+        <div id="screen-placeholder-host" class="screen-placeholder-host"></div>
+      </main>
+      <div id="sbar"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
