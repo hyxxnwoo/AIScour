@@ -15,6 +15,29 @@ const BRIDGE_OPTIONS: Array<{ value: BridgeType; label: string }> = [
   { value: 'girder', label: '거더교' },
 ];
 
+type SetupStep = 'pier' | 'bridge' | 'type' | 'files';
+
+const STEP_ORDER: SetupStep[] = ['pier', 'bridge', 'type', 'files'];
+
+const STEP_META: Record<SetupStep, { label: string; prompt: string }> = {
+  pier: {
+    label: '기둥 개수',
+    prompt: '교각이 몇 개인지 고릅니다. 고른 개수만큼 CSV가 필요합니다.',
+  },
+  bridge: {
+    label: '교량 설치',
+    prompt: '교량을 둘지 정합니다. 설치하지 않으면 형식은 묻지 않고 파일 선택으로 갑니다.',
+  },
+  type: {
+    label: '교량 형식',
+    prompt: '설치할 교량의 형식을 고릅니다.',
+  },
+  files: {
+    label: '파일 선택',
+    prompt: '교각마다 CSV 파일을 하나씩 올립니다.',
+  },
+};
+
 export function bridgeTypeLabel(type: BridgeType): string {
   return BRIDGE_OPTIONS.find((opt) => opt.value === type)?.label ?? type;
 }
@@ -25,22 +48,31 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** CSV 선택 팝업 — 기둥 수, 교량, 교각별 파일을 한 번에 정한다. */
+/** CSV 선택 팝업 — 기둥 개수, 교량 설치, 교량 형식, 파일 선택을 한 단계씩 진행한다. */
 export class CsvSetupModal implements Disposable {
   public readonly element: HTMLElement;
   private readonly dialog: HTMLElement;
+  private readonly promptEl: HTMLElement;
+  private readonly recapEl: HTMLElement;
   private readonly fileRows: HTMLElement;
-  private bridgeTypeRow!: HTMLElement;
+  private readonly pierPanel: HTMLElement;
+  private readonly bridgePanel: HTMLElement;
+  private readonly typePanel: HTMLElement;
+  private readonly filesPanel: HTMLElement;
+  private readonly backBtn: HTMLButtonElement;
+  private readonly nextBtn: HTMLButtonElement;
   private readonly confirmBtn: HTMLButtonElement;
   private readonly noteEl: HTMLElement;
+  private readonly stepButtons: HTMLButtonElement[] = [];
   private readonly cleanups: Array<() => void> = [];
+  private step: SetupStep = 'pier';
   private pierCount: 1 | 2 | 3 = 3;
   private bridgeEnabled = true;
   private bridgeType: BridgeType = 'girder';
   private readonly files: Array<File | null> = [null, null, null];
   private pierButtons: HTMLButtonElement[] = [];
   private bridgeButtons: HTMLButtonElement[] = [];
-  private bridgeCheck!: HTMLInputElement;
+  private bridgeChoiceButtons: HTMLButtonElement[] = [];
   private onConfirm: ((selection: CsvSetupSelection) => void) | null = null;
 
   public constructor() {
@@ -65,25 +97,24 @@ export class CsvSetupModal implements Disposable {
     title.id = 'csv-setup-modal-title';
     title.textContent = 'CSV 선택';
 
-    const hint = document.createElement('p');
-    hint.className = 'csv-setup-modal__hint';
-    hint.textContent = '기둥 수와 교량을 정한 뒤, 교각마다 CSV를 올립니다.';
+    this.promptEl = document.createElement('p');
+    this.promptEl.className = 'csv-setup-modal__prompt';
+    this.promptEl.setAttribute('aria-live', 'polite');
 
-    this.dialog.append(
-      title,
-      hint,
-      this.buildPierCountRow(),
-      this.buildBridgeToggle(),
-      this.buildBridgeTypeRow(),
-    );
+    this.pierPanel = this.buildPierCountPanel();
+    this.bridgePanel = this.buildBridgePanel();
+    this.typePanel = this.buildBridgeTypePanel();
 
+    this.filesPanel = document.createElement('div');
+    this.filesPanel.className = 'csv-setup-modal__panel csv-setup-modal__panel--files';
+    this.recapEl = document.createElement('p');
+    this.recapEl.className = 'csv-setup-modal__recap';
     this.fileRows = document.createElement('div');
     this.fileRows.className = 'csv-setup-modal__files';
-    this.dialog.appendChild(this.fileRows);
+    this.filesPanel.append(this.recapEl, this.fileRows);
 
     this.noteEl = document.createElement('p');
     this.noteEl.className = 'csv-setup-modal__note';
-    this.dialog.appendChild(this.noteEl);
 
     const actions = document.createElement('div');
     actions.className = 'csv-setup-modal__actions';
@@ -96,6 +127,22 @@ export class CsvSetupModal implements Disposable {
     cancelBtn.addEventListener('click', onCancel);
     this.cleanups.push(() => cancelBtn.removeEventListener('click', onCancel));
 
+    this.backBtn = document.createElement('button');
+    this.backBtn.type = 'button';
+    this.backBtn.className = 'csv-setup-modal__back';
+    this.backBtn.textContent = '이전';
+    const onBack = (): void => this.go(-1);
+    this.backBtn.addEventListener('click', onBack);
+    this.cleanups.push(() => this.backBtn.removeEventListener('click', onBack));
+
+    this.nextBtn = document.createElement('button');
+    this.nextBtn.type = 'button';
+    this.nextBtn.className = 'csv-setup-modal__next';
+    this.nextBtn.textContent = '다음';
+    const onNext = (): void => this.go(1);
+    this.nextBtn.addEventListener('click', onNext);
+    this.cleanups.push(() => this.nextBtn.removeEventListener('click', onNext));
+
     this.confirmBtn = document.createElement('button');
     this.confirmBtn.type = 'button';
     this.confirmBtn.className = 'csv-setup-modal__confirm';
@@ -104,8 +151,19 @@ export class CsvSetupModal implements Disposable {
     this.confirmBtn.addEventListener('click', onOk);
     this.cleanups.push(() => this.confirmBtn.removeEventListener('click', onOk));
 
-    actions.append(cancelBtn, this.confirmBtn);
-    this.dialog.appendChild(actions);
+    actions.append(cancelBtn, this.backBtn, this.nextBtn, this.confirmBtn);
+
+    this.dialog.append(
+      title,
+      this.buildStepper(),
+      this.promptEl,
+      this.pierPanel,
+      this.bridgePanel,
+      this.typePanel,
+      this.filesPanel,
+      this.noteEl,
+      actions,
+    );
 
     this.element.append(backdrop, this.dialog);
 
@@ -119,6 +177,7 @@ export class CsvSetupModal implements Disposable {
 
   public open(initial: CsvSetupSelection, onConfirm: (selection: CsvSetupSelection) => void): void {
     this.onConfirm = onConfirm;
+    this.step = 'pier';
     this.pierCount = initial.pierCount;
     this.bridgeEnabled = initial.bridgeEnabled;
     this.bridgeType = initial.bridgeType;
@@ -127,10 +186,11 @@ export class CsvSetupModal implements Disposable {
     this.files[2] = initial.files[2] ?? null;
     this.noteEl.textContent = '';
     this.syncPierButtons();
+    this.syncBridgeChoices();
     this.syncBridgeButtons();
-    this.syncBridgeTypeVisibility();
     this.renderFileRows();
     this.element.hidden = false;
+    this.renderStep(true);
   }
 
   public close(): void {
@@ -144,7 +204,7 @@ export class CsvSetupModal implements Disposable {
   }
 
   private confirm(): void {
-    if (!this.filesReady()) return;
+    if (this.step !== 'files' || !this.filesReady()) return;
     const selection: CsvSetupSelection = {
       pierCount: this.pierCount,
       bridgeEnabled: this.bridgeEnabled,
@@ -169,12 +229,114 @@ export class CsvSetupModal implements Disposable {
     this.noteEl.textContent = ready ? '' : `교각 ${this.pierCount}개의 CSV를 모두 선택해 주세요.`;
   }
 
-  private buildPierCountRow(): HTMLElement {
-    const row = document.createElement('div');
-    row.className = 'csv-setup-modal__row';
-    const label = document.createElement('span');
-    label.className = 'csv-setup-modal__label';
-    label.textContent = '기둥 개수';
+  private orderedSteps(): SetupStep[] {
+    return this.bridgeEnabled ? ['pier', 'bridge', 'type', 'files'] : ['pier', 'bridge', 'files'];
+  }
+
+  private go(delta: 1 | -1): void {
+    const steps = this.orderedSteps();
+    const index = steps.indexOf(this.step);
+    const next = steps[index + delta];
+    if (!next) return;
+    this.step = next;
+    this.renderStep(true);
+  }
+
+  private canJumpTo(id: SetupStep): boolean {
+    const steps = this.orderedSteps();
+    const target = steps.indexOf(id);
+    const current = steps.indexOf(this.step);
+    return target >= 0 && current >= 0 && target < current;
+  }
+
+  private renderStep(focus = false): void {
+    if (!this.orderedSteps().includes(this.step)) this.step = 'bridge';
+    const steps = this.orderedSteps();
+    const index = steps.indexOf(this.step);
+
+    for (const btn of this.stepButtons) {
+      const id = btn.dataset.step as SetupStep;
+      const current = id === this.step;
+      const skipped = id === 'type' && !this.bridgeEnabled;
+      const done = this.canJumpTo(id);
+      btn.classList.toggle('is-current', current);
+      btn.classList.toggle('is-done', done);
+      btn.classList.toggle('is-skipped', skipped);
+      btn.disabled = !done && !current;
+      if (current) btn.setAttribute('aria-current', 'step');
+      else btn.removeAttribute('aria-current');
+      const state = btn.querySelector('.csv-setup-modal__step-state');
+      if (state) state.textContent = skipped ? '건너뜀' : '';
+    }
+
+    this.promptEl.textContent = STEP_META[this.step].prompt;
+    this.pierPanel.hidden = this.step !== 'pier';
+    this.bridgePanel.hidden = this.step !== 'bridge';
+    this.typePanel.hidden = this.step !== 'type';
+    this.filesPanel.hidden = this.step !== 'files';
+    this.recapEl.textContent = this.bridgeEnabled
+      ? `기둥 ${this.pierCount}개 · 교량 ${bridgeTypeLabel(this.bridgeType)}`
+      : `기둥 ${this.pierCount}개 · 교량 없음`;
+
+    this.backBtn.hidden = index <= 0;
+    const last = this.step === 'files';
+    this.nextBtn.hidden = last;
+    this.confirmBtn.hidden = !last;
+    if (last) this.syncConfirm();
+    else this.noteEl.textContent = '';
+
+    if (focus) this.focusStep();
+  }
+
+  private focusStep(): void {
+    const panel =
+      this.step === 'pier'
+        ? this.pierPanel
+        : this.step === 'bridge'
+          ? this.bridgePanel
+          : this.step === 'type'
+            ? this.typePanel
+            : this.filesPanel;
+    const active = panel.querySelector<HTMLButtonElement>('.is-active');
+    const fallback = panel.querySelector<HTMLButtonElement>('button');
+    (active ?? fallback)?.focus();
+  }
+
+  private buildStepper(): HTMLElement {
+    const list = document.createElement('ol');
+    list.className = 'csv-setup-modal__steps';
+    STEP_ORDER.forEach((id, index) => {
+      const item = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'csv-setup-modal__step';
+      btn.dataset.step = id;
+      const n = document.createElement('span');
+      n.className = 'csv-setup-modal__step-n';
+      n.textContent = String(index + 1);
+      const label = document.createElement('span');
+      label.className = 'csv-setup-modal__step-label';
+      label.textContent = STEP_META[id].label;
+      const state = document.createElement('span');
+      state.className = 'csv-setup-modal__step-state';
+      btn.append(n, label, state);
+      const onClick = (): void => {
+        if (!this.canJumpTo(id)) return;
+        this.step = id;
+        this.renderStep(true);
+      };
+      btn.addEventListener('click', onClick);
+      this.cleanups.push(() => btn.removeEventListener('click', onClick));
+      this.stepButtons.push(btn);
+      item.appendChild(btn);
+      list.appendChild(item);
+    });
+    return list;
+  }
+
+  private buildPierCountPanel(): HTMLElement {
+    const panel = document.createElement('div');
+    panel.className = 'csv-setup-modal__panel csv-setup-modal__panel--pier';
     const segments = document.createElement('div');
     segments.className = 'csv-setup-modal__segments';
     segments.setAttribute('role', 'group');
@@ -184,7 +346,8 @@ export class CsvSetupModal implements Disposable {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'csv-setup-modal__segment';
-      btn.textContent = String(count);
+      btn.dataset.count = String(count);
+      btn.textContent = `${count}개`;
       const onClick = (): void => {
         this.pierCount = count;
         this.syncPierButtons();
@@ -195,42 +358,54 @@ export class CsvSetupModal implements Disposable {
       this.pierButtons.push(btn);
       segments.appendChild(btn);
     }
-    row.append(label, segments);
-    return row;
+    panel.appendChild(segments);
+    return panel;
   }
 
-  private buildBridgeToggle(): HTMLElement {
-    const row = document.createElement('label');
-    row.className = 'csv-setup-modal__row csv-setup-modal__row--toggle';
-    const label = document.createElement('span');
-    label.className = 'csv-setup-modal__label';
-    label.textContent = '교량 설치';
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.className = 'csv-setup-modal__check';
-    input.checked = this.bridgeEnabled;
-    const text = document.createElement('span');
-    text.textContent = '설치';
-    const onChange = (): void => {
-      this.bridgeEnabled = input.checked;
-      this.syncBridgeTypeVisibility();
-    };
-    input.addEventListener('change', onChange);
-    this.cleanups.push(() => input.removeEventListener('change', onChange));
-    this.bridgeCheck = input;
-    row.append(label, input, text);
-    return row;
+  private buildBridgePanel(): HTMLElement {
+    const panel = document.createElement('div');
+    panel.className = 'csv-setup-modal__panel csv-setup-modal__panel--bridge';
+    const choices = document.createElement('div');
+    choices.className = 'csv-setup-modal__choices';
+    choices.setAttribute('role', 'group');
+    choices.setAttribute('aria-label', '교량 설치');
+
+    const options: Array<{ enabled: boolean; title: string; desc: string }> = [
+      { enabled: true, title: '설치', desc: '형식을 이어서 고릅니다' },
+      { enabled: false, title: '설치 안 함', desc: '형식 단계는 건너뜁니다' },
+    ];
+    this.bridgeChoiceButtons = [];
+    for (const opt of options) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'csv-setup-modal__choice';
+      btn.dataset.bridge = opt.enabled ? 'on' : 'off';
+      const title = document.createElement('span');
+      title.className = 'csv-setup-modal__choice-title';
+      title.textContent = opt.title;
+      const desc = document.createElement('span');
+      desc.className = 'csv-setup-modal__choice-desc';
+      desc.textContent = opt.desc;
+      btn.append(title, desc);
+      const onClick = (): void => {
+        this.bridgeEnabled = opt.enabled;
+        this.syncBridgeChoices();
+        this.renderStep();
+      };
+      btn.addEventListener('click', onClick);
+      this.cleanups.push(() => btn.removeEventListener('click', onClick));
+      this.bridgeChoiceButtons.push(btn);
+      choices.appendChild(btn);
+    }
+    panel.appendChild(choices);
+    return panel;
   }
 
-  private buildBridgeTypeRow(): HTMLElement {
-    const row = document.createElement('div');
-    row.className = 'csv-setup-modal__row';
-    this.bridgeTypeRow = row;
-    const label = document.createElement('span');
-    label.className = 'csv-setup-modal__label';
-    label.textContent = '교량 형식';
+  private buildBridgeTypePanel(): HTMLElement {
+    const panel = document.createElement('div');
+    panel.className = 'csv-setup-modal__panel csv-setup-modal__panel--type';
     const segments = document.createElement('div');
-    segments.className = 'csv-setup-modal__segments csv-setup-modal__segments--wrap';
+    segments.className = 'csv-setup-modal__segments csv-setup-modal__segments--types';
     segments.setAttribute('role', 'group');
     segments.setAttribute('aria-label', '교량 형식');
     this.bridgeButtons = [];
@@ -242,23 +417,28 @@ export class CsvSetupModal implements Disposable {
       btn.dataset.value = opt.value;
       const onClick = (): void => {
         this.bridgeType = opt.value;
-        this.bridgeEnabled = true;
-        this.bridgeCheck.checked = true;
         this.syncBridgeButtons();
-        this.syncBridgeTypeVisibility();
       };
       btn.addEventListener('click', onClick);
       this.cleanups.push(() => btn.removeEventListener('click', onClick));
       this.bridgeButtons.push(btn);
       segments.appendChild(btn);
     }
-    row.append(label, segments);
-    return row;
+    panel.appendChild(segments);
+    return panel;
   }
 
   private syncPierButtons(): void {
     for (const btn of this.pierButtons) {
-      const active = Number(btn.textContent) === this.pierCount;
+      const active = Number(btn.dataset.count) === this.pierCount;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    }
+  }
+
+  private syncBridgeChoices(): void {
+    for (const btn of this.bridgeChoiceButtons) {
+      const active = (btn.dataset.bridge === 'on') === this.bridgeEnabled;
       btn.classList.toggle('is-active', active);
       btn.setAttribute('aria-pressed', String(active));
     }
@@ -272,16 +452,12 @@ export class CsvSetupModal implements Disposable {
     }
   }
 
-  private syncBridgeTypeVisibility(): void {
-    this.bridgeTypeRow.hidden = !this.bridgeEnabled;
-  }
-
   private renderFileRows(): void {
     this.fileRows.replaceChildren();
     for (let i = 0; i < this.pierCount; i += 1) {
       this.fileRows.appendChild(this.buildFileRow(i));
     }
-    this.syncConfirm();
+    if (this.step === 'files') this.syncConfirm();
   }
 
   private buildFileRow(index: number): HTMLElement {
@@ -321,7 +497,6 @@ export class CsvSetupModal implements Disposable {
       }
       this.files[index] = next;
       status.textContent = `${next.name} · ${formatBytes(next.size)}`;
-      this.noteEl.textContent = '';
       this.syncConfirm();
     };
     input.addEventListener('change', onChange);

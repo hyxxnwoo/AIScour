@@ -11,7 +11,6 @@ import {
   type FluidRangeEntry,
 } from '@/components/FluidControls';
 import { FluidFieldLegend } from '@/components/FluidFieldLegend';
-import { FluidTimeSeriesChart } from '@/components/FluidTimeSeriesChart';
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts';
 import { LoginScreen } from '@/components/LoginScreen';
 import { LogoutButton } from '@/components/LogoutButton';
@@ -178,22 +177,6 @@ function probeKeyForQuantity(q: FluidQuantity): 'u' | 'v' | 'w' | 'scrdif' | nul
   }
 }
 
-/** 시계열 차트·수면 색이 항목별로 구분되도록 고정 팔레트를 쓴다. */
-function chartColorForQuantity(q: FluidQuantity): string {
-  switch (q) {
-    case 'velocityX':
-      return '#7ec8e3';
-    case 'velocityY':
-      return '#c9a4e0';
-    case 'velocityZ':
-      return '#f4a261';
-    case 'scrdif':
-      return '#e07a5f';
-    default:
-      return '#7ec8e3';
-  }
-}
-
 /** 프로브 시계열 전체(재생 구간 전체) 기준 안정적 색 범위. u/v/w 는 0 대칭. */
 function probeQuantityRange(
   probeSeries: SampleProbeSeries,
@@ -203,15 +186,6 @@ function probeQuantityRange(
   if (!key) return null;
   const raw = probeSeriesValueRange(probeSeries, key);
   return normalizeFluidQuantityRange(q, raw.min, raw.max);
-}
-
-function probeSeriesTimesValues(
-  probeSeries: SampleProbeSeries,
-  key: 'u' | 'v' | 'w' | 'scrdif',
-): { times: number[]; values: number[] } {
-  const times = probeSeries.samples.map((s) => s.t);
-  const values = probeSeries.samples.map((s) => s[key]);
-  return { times, values };
 }
 
 /**
@@ -659,38 +633,10 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   const viewerToast = new ViewerToast();
   viewerCenter.appendChild(viewerToast.element);
 
-  const simStopBtn = document.createElement('button');
-  simStopBtn.type = 'button';
-  simStopBtn.className = 'viewer-sim-stop is-hidden';
-  simStopBtn.textContent = '시뮬레이션 정지';
-  viewerMain.appendChild(simStopBtn);
-
-  const syncSimStopButton = (): void => {
-    const show = router.screen === 5 && timeControls.isTimelineEnabled && timeControls.isPlaying;
-    simStopBtn.classList.toggle('is-hidden', !show);
-  };
-
   navigateToScreen = (screen: ScreenId): void => {
-    if (
-      screen === 4 &&
-      router.screen === 5 &&
-      timeControls.isTimelineEnabled &&
-      timeControls.isPlaying
-    ) {
-      viewerToast.show('조건 설정으로 이동하려면 「시뮬레이션 정지」를 눌러 주세요.');
-      return;
-    }
+    if (screen === 4 && timeControls.isPlaying) timeControls.setPlaying(false);
     router.goto(screen);
   };
-
-  simStopBtn.addEventListener('click', () => {
-    if (!timeControls.isPlaying) return;
-    timeControls.setPlaying(false);
-    viewerToast.show('시뮬레이션을 정지했습니다. 조건 설정(4번)으로 이동할 수 있습니다.');
-    syncSimStopButton();
-  });
-
-  timeControls.onChange(() => syncSimStopButton());
 
   /** 5~9번 진입 시 재생 불가 안내 토스트 — 세션당 1회(적용 성공 후 리셋) */
   let pendingViewerPlaybackHint = true;
@@ -711,11 +657,9 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     initialAbsMax: sim.terrain.absMax,
   });
 
-  // 유체 필드(u/v/w/scrdif) 실측 시계열 오버레이 — 씬 위 플로팅 범례 + 하단 라인 차트.
+  // 유체 필드(u/v/w/scrdif) 실측 오버레이 — 씬 위 플로팅 범례.
   const fluidFieldLegend = new FluidFieldLegend();
   viewerCenter.appendChild(fluidFieldLegend.element);
-  const fluidTimeSeriesChart = new FluidTimeSeriesChart();
-  viewerCenter.appendChild(fluidTimeSeriesChart.element);
   /** 매 프레임 setProbeQuantity 에 쓰는 현재 항목의 고정 색 범위(재생 중 흔들리지 않도록). */
   let currentProbeRange: { min: number; max: number } | null = null;
 
@@ -728,11 +672,9 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       currentProbeRange = null;
       sim.terrainWater.setColorRange(null);
       fluidFieldLegend.setVisible(false);
-      fluidTimeSeriesChart.setVisible(false);
       return;
     }
     fluidFieldLegend.setVisible(true);
-    fluidTimeSeriesChart.setVisible(true);
     // 공간 필드가 있으면 수면 색과 범례가 같은 눈금을 쓰도록 필드 전체 범위로 고정한다.
     const range = sim.probeFluidField
       ? probeFluidQuantityRange(sim.fluidSeries, primary)
@@ -752,14 +694,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       fluidFieldLegend.setNoteTooltip('');
     }
     fluidFieldLegend.setQuantity(primary, label, range, unit, note);
-    const { times, values } = probeSeriesTimesValues(probeSeries, key);
-    fluidTimeSeriesChart.setSeries({
-      times,
-      values,
-      label,
-      unit,
-      colorHex: chartColorForQuantity(primary),
-    });
   };
 
   const applyFluidPrimaryQuantity = (primary: FluidQuantity): void => {
@@ -1185,7 +1119,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     fluidControls.setSetupMode(setupView);
     syncViewerChrome(screen);
     gradeLegendPanel.setFoundationDepthM(params.foundationDepth);
-    syncSimStopButton();
     if (showViewer) {
       const size = rendererManager.applyCanvasSize();
       cameraManager.updateAspect(size.width / Math.max(1, size.height));
@@ -1284,12 +1217,15 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       syncTracersWithTimeline(timeControls.duration);
     }
     const t = timeControls.time;
-    const simDelta =
-      timeControls.isTimelineEnabled && timeControls.isPlaying && timeControls.duration > 0
-        ? simDt
-        : delta;
-    /** 재생 중이 아니어도 추적 입자는 실시간 Δt 로 움직여야 선분이 그려진다(Δt=0 이면 길이 0). */
-    const tracerAdvectDelta = simDelta > 0 ? simDelta : delta;
+    const timelineLive = timeControls.isTimelineEnabled && timeControls.duration > 0;
+    /**
+     * 적용 전(타임라인 없음)에는 실시간으로 흐름을 보여 준다.
+     * 재생·정지가 있는 뒤에는 재생 중에만 입자를 옮긴다.
+     * 정지 중 Δt=0 으로 tick 하면 선분 길이가 0이 되어 입자가 사라지므로, tick 자체를 건너뛴다.
+     */
+    let tracerAdvectDelta = 0;
+    if (!timelineLive) tracerAdvectDelta = delta;
+    else if (timeControls.isPlaying && simDt > 0) tracerAdvectDelta = simDt;
 
     sim.terrain.updateAtTime(t);
     sim.sedimentLayer.updateAtTime(t);
@@ -1371,7 +1307,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     sim.terrainWater.setCameraPosition(cameraManager.camera.position);
     sim.tracers.updateAtTime(t);
     applyTracerVelocity(sim, params, t);
-    sim.tracers.tick(tracerAdvectDelta);
+    if (tracerAdvectDelta > 0) sim.tracers.tick(tracerAdvectDelta);
     sim.slicePlane.updateAtTime(t);
     sim.arrows.updateAtTime(t);
     sim.fluidPoints.updateAtTime(t);
@@ -1391,13 +1327,12 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
         if (key && currentProbeRange) {
           const value = sample[key];
           // 공간 필드가 있으면 수면은 셀별 실측값으로 칠한다. 단일 대표값으로 균일하게
-          // 덮으면 행마다 다른 데이터가 사라지므로, 프로브 값은 범례 현재값·차트에만 쓴다.
+          // 덮으면 행마다 다른 데이터가 사라지므로, 프로브 값은 범례 현재값에만 쓴다.
           if (sim.probeFluidField) {
             sim.terrainWater.clearProbeQuantity();
           } else {
             sim.terrainWater.setProbeQuantity(primary, value, currentProbeRange);
           }
-          fluidTimeSeriesChart.setTime(sample.t);
           fluidFieldLegend.setCurrentValue(value);
         }
       }
@@ -1429,7 +1364,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     fluidControls.dispose();
     legend.dispose();
     fluidFieldLegend.dispose();
-    fluidTimeSeriesChart.dispose();
     timeControls.dispose();
     viewerToast.dispose();
     activePierMonitor.dispose();

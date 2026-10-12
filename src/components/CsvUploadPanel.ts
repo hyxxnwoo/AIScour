@@ -98,7 +98,7 @@ export class CsvUploadPanel implements Disposable {
     const hint = document.createElement('p');
     hint.className = 'csv-upload-panel__hint';
     hint.textContent =
-      'CSV 선택에서 기둥·교량과 파일을 정합니다. 아래 「적용하고 결과 보기」로 3D 장면을 만듭니다.';
+      '기둥 개수 → 교량 설치 → 교량 형식 → 파일 선택 순서로 정합니다. 파싱 후 「적용하고 결과 보기」로 3D 장면을 만듭니다.';
     this.element.appendChild(hint);
 
     this.openBtn = document.createElement('button');
