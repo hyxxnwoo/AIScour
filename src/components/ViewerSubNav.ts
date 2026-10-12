@@ -24,6 +24,7 @@ export class ViewerSubNav implements Disposable {
     this.element = document.createElement('nav');
     this.element.className = 'viewer-subnav';
     this.element.id = 'subnav-root';
+    this.element.setAttribute('aria-label', '뷰어 화면');
 
     const lbl = document.createElement('span');
     lbl.className = 'viewer-subnav__lbl';
@@ -35,10 +36,7 @@ export class ViewerSubNav implements Disposable {
       a.type = 'button';
       a.className = 'viewer-subnav__tab';
       a.dataset.screen = String(tab.id);
-      const k = document.createElement('span');
-      k.className = 'viewer-subnav__key';
-      k.textContent = String(tab.id);
-      a.append(k, document.createTextNode(tab.label));
+      a.textContent = tab.label;
       a.addEventListener('click', () => this.handlers.onNavigate(tab.id));
       this.element.appendChild(a);
     }
@@ -46,7 +44,13 @@ export class ViewerSubNav implements Disposable {
 
   public setActive(screen: ScreenId): void {
     for (const btn of this.element.querySelectorAll<HTMLButtonElement>('.viewer-subnav__tab')) {
-      btn.classList.toggle('is-on', Number(btn.dataset.screen) === screen);
+      const on = Number(btn.dataset.screen) === screen;
+      btn.classList.toggle('is-on', on);
+      if (on) {
+        btn.setAttribute('aria-current', 'page');
+      } else {
+        btn.removeAttribute('aria-current');
+      }
     }
   }
 

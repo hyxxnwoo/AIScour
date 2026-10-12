@@ -27,13 +27,12 @@ import { GradeLegendPanel } from '@/components/GradeLegendPanel';
 import { PierLabelOverlay } from '@/components/PierLabelOverlay';
 import { PierScourTimelinePanel } from '@/components/PierScourTimelinePanel';
 import { RiskJudgmentPanel } from '@/components/RiskJudgmentPanel';
-import { RiskAlertBanner } from '@/components/RiskAlertBanner';
 import { AlertSopPage } from '@/components/AlertSopPage';
 import { MockAlertSopStore } from '@/state/mockAlertSop';
 import { CaseManagementPage } from '@/components/CaseManagementPage';
 import { DataPipelinePage } from '@/components/DataPipelinePage';
 import { ConditionSetupCaseBar } from '@/components/ConditionSetupCaseBar';
-import { stageCsvForConditionSetup, takePendingCsvUpload } from '@/state/pendingCaseUpload';
+import { takePendingCsvUpload } from '@/state/pendingCaseUpload';
 import {
   buildPierDepthSeries,
   computePierReachTimes,
@@ -82,7 +81,6 @@ import {
   mergePanelParams,
   type SimParams,
 } from '@/types/simParams';
-import { createFpsMeter } from '@/utils/fpsMeter';
 import { normalizeFluidQuantityRange } from '@/utils/fluidQuantityColor';
 import { scalePierScourReadings } from '@/utils/pierScourDisplayScale';
 import { pierScourDepths } from '@/utils/pierScourSample';
@@ -476,8 +474,12 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     );
   }
 
+  let navigateToScreen: (screen: ScreenId) => void = (screen) => {
+    router.goto(screen);
+  };
+
   const globalNav = new GlobalNav({
-    onNavigate: (screen) => router.goto(screen),
+    onNavigate: (screen) => navigateToScreen(screen),
     onReportUnavailable: () => {
       console.info('[SCDT] 리포트는 1차년도 범위 밖입니다 (2차년도 예정)');
     },
@@ -493,7 +495,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   globalNav.element.querySelector('.global-nav__right')?.appendChild(logoutButton.element);
 
   const viewerSubNav = new ViewerSubNav({
-    onNavigate: (screen) => router.goto(screen),
+    onNavigate: (screen) => navigateToScreen(screen),
   });
   subnavMount.appendChild(viewerSubNav.element);
 
@@ -540,14 +542,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       dataPipelinePage.focusFile(caseId === 'B-015' ? 'B-015_run01.csv' : caseId);
       router.goto(3);
     },
-    onStartNewSimulation: (files) => {
-      if (files && files.length > 0) {
-        stageCsvForConditionSetup(files);
-        const stem = files[0].name.replace(/\.csv$/i, '');
-        const caseGuess =
-          stem.match(/^[A-Z]-\d+/i)?.[0]?.toUpperCase() ?? `NEW · ${stem.slice(0, 20)}`;
-        statusBar.update({ caseId: caseGuess });
-      }
+    onStartNewSimulation: () => {
       router.goto(4);
     },
   });
@@ -577,6 +572,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     if (!showViewer && !showCasePage && !showDataPage && !showAlertPage) {
       screenPlaceholder.setScreen(screen);
     }
+    statusBar.setKeyboardHintsVisible(showViewer);
   };
 
   syncShellLayout(router.screen);
@@ -589,8 +585,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   });
 
   const riskJudgmentPanel = new RiskJudgmentPanel({ onOpenSop: openSopScreen });
-  const riskAlertBanner = new RiskAlertBanner({ onOpenSop: openSopScreen });
-  viewerMain.appendChild(riskAlertBanner.element);
 
   const planViewOverlay = new PlanViewOverlay();
   viewerMain.appendChild(planViewOverlay.element);
@@ -630,7 +624,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     aspect: canvas.clientWidth / canvas.clientHeight,
   });
   const lightManager = new LightManager(sceneManager.scene);
-  const fpsMeter = createFpsMeter(viewerMain, { rightInsetPx: 12 });
   const loop = new AnimationLoop();
 
   // ── 최초 베이스 데이터 (manifest 있으면 사용, 없으면 null → buildSimState 내부에서 합성)
@@ -665,6 +658,52 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
 
   const viewerToast = new ViewerToast();
   viewerCenter.appendChild(viewerToast.element);
+
+  const simStopBtn = document.createElement('button');
+  simStopBtn.type = 'button';
+  simStopBtn.className = 'viewer-sim-stop is-hidden';
+  simStopBtn.textContent = '시뮬레이션 정지';
+  viewerMain.appendChild(simStopBtn);
+
+  const syncSimStopButton = (): void => {
+    const show = router.screen === 5 && timeControls.isTimelineEnabled && timeControls.isPlaying;
+    simStopBtn.classList.toggle('is-hidden', !show);
+  };
+
+  navigateToScreen = (screen: ScreenId): void => {
+    if (
+      screen === 4 &&
+      router.screen === 5 &&
+      timeControls.isTimelineEnabled &&
+      timeControls.isPlaying
+    ) {
+      viewerToast.show('조건 설정으로 이동하려면 「시뮬레이션 정지」를 눌러 주세요.');
+      return;
+    }
+    router.goto(screen);
+  };
+
+  simStopBtn.addEventListener('click', () => {
+    if (!timeControls.isPlaying) return;
+    timeControls.setPlaying(false);
+    viewerToast.show('시뮬레이션을 정지했습니다. 조건 설정(4번)으로 이동할 수 있습니다.');
+    syncSimStopButton();
+  });
+
+  timeControls.onChange(() => syncSimStopButton());
+
+  /** 5~9번 진입 시 재생 불가 안내 토스트 — 세션당 1회(적용 성공 후 리셋) */
+  let pendingViewerPlaybackHint = true;
+  const maybeShowViewerPlaybackHint = (screen: ScreenId, prev: ScreenId): void => {
+    if (screen === prev) return;
+    if (screen < 5 || screen > 9) return;
+    if (timeControls.isTimelineEnabled) return;
+    if (!pendingViewerPlaybackHint) return;
+    pendingViewerPlaybackHint = false;
+    viewerToast.show(
+      '4번 조건 설정에서 CSV 파싱 후 「적용하고 결과 보기」를 누르면 재생·분석을 사용할 수 있습니다.',
+    );
+  };
 
   const legend = new ColorLegend({
     title: '범례 — 세굴심 (scrdif)',
@@ -889,7 +928,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     const gradeLabels = screen === 7 || screen === 8 || screen === 9;
     const riskMode = screen === 9;
     const setupView = screen === 4;
-    riskAlertBanner.setVisible(riskMode);
     riskJudgmentPanel.setVisible(riskMode);
     activePierMonitor.element.classList.toggle('is-hidden', riskMode || setupView);
     gradeLegendPanel.element.classList.toggle('is-hidden', !cellMode);
@@ -963,6 +1001,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     timeControls.setDuration(canPlayback ? next.durationSeconds : 0);
     timeControls.setTime(0, { force: true, silent: !canPlayback });
     timeControls.setTimelineEnabled(canPlayback, '「적용하고 결과 보기」 후 재생');
+    pendingViewerPlaybackHint = !canPlayback;
     if (!canPlayback) {
       timeControls.setPlaying(false);
     } else if (autoPlayAfterApply) {
@@ -976,6 +1015,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     next.slicePlane.setVisible(false);
     next.terrainWater.setVisible(true);
     next.arrows.setVisible(false);
+    fluidControls.setTracersAvailable(true, true);
     next.tracers.setVisible(fluidControls.isTracersVisible());
     next.tracers.setWaterLevel(next.waterLevelY);
     applyTracerVelocity(next, nextParams, 0);
@@ -1078,6 +1118,10 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   });
   dockLeft.append(conditionSetupCaseBar.element, csvUploadPanel.element, fluidControls.element);
 
+  caseManagementPage.bindStartNewSimulation(() => {
+    router.goto(4);
+  });
+
   const customizePanel = new DashboardCustomizePanel({
     onBackgroundHex: (hex) => {
       sceneManager.setBackground(hex);
@@ -1100,7 +1144,14 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   banner.textContent = 'WebGL 컨텍스트가 손실되었습니다. 복원을 시도하는 중...';
   viewerCenter.appendChild(banner);
 
-  const applyScreenLayout = (screen: ScreenId): void => {
+  const restoreDefaultViewerCamera = (): void => {
+    cameraManager.focusOnDomain(
+      new Vector3(0, sim.waterLevelY * 0.5, 0),
+      sceneViewRadius(sim.series.baseTerrain, sim.fluidSeries),
+    );
+  };
+
+  const applyScreenLayout = (screen: ScreenId, prevScreen?: ScreenId): void => {
     syncShellLayout(screen);
     const showViewer =
       screen === 4 || screen === 5 || screen === 6 || screen === 7 || screen === 8 || screen === 9;
@@ -1123,7 +1174,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     if (setupView) {
       const pendingCsv = takePendingCsvUpload();
       if (pendingCsv && pendingCsv.length > 0) {
-        void csvUploadPanel.ingestExternalFiles(pendingCsv, true);
+        csvUploadPanel.openSetupWithPrefilledFiles(pendingCsv);
         csvUploadPanel.pulseAttention();
       }
     }
@@ -1134,26 +1185,38 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     fluidControls.setSetupMode(setupView);
     syncViewerChrome(screen);
     gradeLegendPanel.setFoundationDepthM(params.foundationDepth);
+    syncSimStopButton();
     if (showViewer) {
       const size = rendererManager.applyCanvasSize();
       cameraManager.updateAspect(size.width / Math.max(1, size.height));
       syncPlanViewOverlaySize();
       pierLabelOverlay.setCamera(cameraManager.camera);
       if (planView) {
-        cameraManager.applyPreset('top', sceneViewRadius(sim.series.baseTerrain, sim.fluidSeries));
+        const planCenter = new Vector3(0, sim.waterLevelY * 0.5, 0);
+        cameraManager.setPlanViewOrbitLock(true);
+        cameraManager.applyPlanView(
+          sceneViewRadius(sim.series.baseTerrain, sim.fluidSeries),
+          planCenter,
+        );
         sim.pierMarker.setBridgeStructureVisible(false);
         sim.terrainWater.setVisible(false);
         sim.tracers.setVisible(false);
         sim.pierMarker.resetPierShaftColors();
         statusBar.update({ extra: buildViewerStatusExtra(screen) });
         requestAnimationFrame(() => sectionProfilePanel.notifyLayout());
-      } else if (screen === 7) {
+      } else {
+        cameraManager.setPlanViewOrbitLock(false);
+        if ((screen === 4 || screen === 5) && prevScreen === 6) {
+          restoreDefaultViewerCamera();
+        }
+      }
+      if (!planView && screen === 7) {
         cameraManager.applyPreset('reset', sceneRadius);
         sim.pierMarker.setBridgeStructureVisible(false);
         sim.terrainWater.setVisible(fluidControls.isSliceVisible());
         sim.tracers.setVisible(fluidControls.isTracersVisible());
         statusBar.update({ extra: buildViewerStatusExtra(screen) });
-      } else {
+      } else if (!planView) {
         sim.pierMarker.setBridgeStructureVisible(true);
         sim.terrainWater.setVisible(fluidControls.isSliceVisible());
         sim.tracers.setVisible(fluidControls.isTracersVisible());
@@ -1162,6 +1225,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       }
       loop.start();
     } else {
+      cameraManager.setPlanViewOrbitLock(false);
       loop.stop();
       sim.pierMarker.resetPierShaftColors();
       pierLabelOverlay.setEnabled(false);
@@ -1212,7 +1276,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   let ambientRippleTime = 0;
 
   loop.add((delta) => {
-    fpsMeter.begin();
     const simDt = timeControls.simulationDelta(delta);
     const dur = timeControls.duration;
     const crossedPlaybackEnd = simDt > 0 && dur > 0 && timeControls.time + simDt >= dur - 1e-6;
@@ -1273,7 +1336,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
         params.foundationDepth,
         sim.pierDefs,
       );
-      riskAlertBanner.update(pierDepths, pierDepthSeriesCache, t, params.foundationDepth, worst);
     }
     if (router.screen === 8) {
       const reach = pierDepthSeriesCache.map((ps) =>
@@ -1348,10 +1410,12 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
 
     cameraManager.update();
     rendererManager.renderer.render(sceneManager.scene, cameraManager.camera);
-    fpsMeter.end();
   });
 
-  router.subscribe((screen) => applyScreenLayout(screen));
+  router.subscribe((screen, prev) => {
+    applyScreenLayout(screen, prev);
+    maybeShowViewerPlaybackHint(screen, prev);
+  });
   applyScreenLayout(router.screen);
 
   const dispose = (): void => {
@@ -1378,7 +1442,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     pierLabelOverlay.dispose();
     gradeLegendPanel.dispose();
     riskJudgmentPanel.dispose();
-    riskAlertBanner.dispose();
     alertSopPage.dispose();
     caseManagementPage.dispose();
     dataPipelinePage.dispose();
@@ -1390,7 +1453,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     cameraManager.dispose();
     rendererManager.dispose();
     sceneManager.dispose();
-    fpsMeter.dispose();
     banner.remove();
   };
   window.addEventListener('beforeunload', dispose);

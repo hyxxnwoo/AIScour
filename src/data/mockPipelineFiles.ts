@@ -21,7 +21,41 @@ export interface MockPipelineFile {
   logs: PipelineStageLog[];
 }
 
-export const MOCK_PIPELINE_FILES: MockPipelineFile[] = [
+const STAGE_NAMES = ['업로드', '파싱', '경량화 · 변환', 'QA / QC', '서비스 반영'] as const;
+
+function logsForFile(
+  result: PipelineResultKey,
+  stageProgress: number,
+  detailSeed: string,
+): PipelineStageLog[] {
+  return STAGE_NAMES.map((stage, i) => {
+    const idx = i + 1;
+    if (idx < stageProgress) {
+      return { stage, time: '09:0' + (i % 5), state: 'ok', detail: `${stage} 완료` };
+    }
+    if (idx === stageProgress) {
+      if (result === 'run') {
+        return { stage, time: '—', state: 'run', detail: detailSeed };
+      }
+      if (result === 'err' && stage === 'QA / QC') {
+        return { stage, time: '09:42', state: 'err', detail: detailSeed };
+      }
+      if (result === 'warn' && stage === 'QA / QC') {
+        return { stage, time: '09:37', state: 'err', detail: detailSeed };
+      }
+      if (result === 'wait' && stage === '업로드') {
+        return { stage, time: '—', state: 'wait', detail: detailSeed };
+      }
+      return { stage, time: '—', state: 'wait', detail: '대기' };
+    }
+    return { stage, time: '—', state: 'wait', detail: '대기' };
+  });
+}
+
+/** 목록·퍼널 KPI용 총 파일 수 (목업 DB) */
+export const MOCK_PIPELINE_FILE_COUNT = 32;
+
+const SEED_PIPELINE_FILES: MockPipelineFile[] = [
   {
     id: 'f-a032',
     fileName: 'A-032_scour_t1780.csv',
@@ -125,3 +159,114 @@ export const MOCK_PIPELINE_FILES: MockPipelineFile[] = [
     ],
   },
 ];
+
+const SERIES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const;
+const SUFFIX = ['scour_out', 'flow3d', 'run01', 'run02', 'probe'] as const;
+
+function resultForSlot(slot: number): PipelineResultKey {
+  const r = slot % 17;
+  if (r === 0 || r === 8) return 'err';
+  if (r === 3 || r === 11) return 'warn';
+  if (r === 5 || r === 13) return 'run';
+  if (r === 7 || r === 14) return 'wait';
+  return 'ok';
+}
+
+function stageProgressFor(result: PipelineResultKey, slot: number): number {
+  switch (result) {
+    case 'ok':
+      return 5;
+    case 'warn':
+      return 4;
+    case 'err':
+      return slot % 2 === 0 ? 2 : 4;
+    case 'run':
+      return 1 + (slot % 3);
+    case 'wait':
+      return 0;
+    default:
+      return 0;
+  }
+}
+
+function summaryFor(result: PipelineResultKey, caseId: string, progress: number): string {
+  switch (result) {
+    case 'ok':
+      return `서비스 반영 완료 · ${caseId} · 60 프레임`;
+    case 'warn':
+      return 'QA 경고 — 메시 해상도 또는 교각 주변 셀 수 검토';
+    case 'err':
+      return progress <= 2
+        ? '파싱 오류 — 열 이름 불일치 (x,y,z,t)'
+        : 'QA 오류 — 물리 제약 또는 NRMSE 기준 미달';
+    case 'run':
+      return progress <= 1 ? '업로드 완료 · 파싱 큐 처리 중' : '경량화 · glTF 변환 중';
+    case 'wait':
+      return `대기열 ${(slotHash(caseId) % 4) + 1}번째`;
+    default:
+      return '—';
+  }
+}
+
+function slotHash(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function sizeLabelFor(slot: number): string {
+  const mb = 280 + (slot % 19) * 14;
+  return `${mb} MB`;
+}
+
+function uploadedAtFor(slot: number): string {
+  const day = 25 + (slot % 8);
+  const hour = 7 + (slot % 12);
+  const min = (slot * 11) % 60;
+  return `10-${String(day).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+function buildGeneratedPipelineFile(slot: number): MockPipelineFile {
+  const series = SERIES[slot % SERIES.length];
+  const num = String(10 + (slot % 90)).padStart(3, '0');
+  const caseId = `${series}-${num}`;
+  const suffix = SUFFIX[slot % SUFFIX.length];
+  const fileName = `${caseId}_${suffix}.csv`;
+  const result = resultForSlot(slot);
+  const stageProgress = stageProgressFor(result, slot);
+  const summary = summaryFor(result, caseId, stageProgress);
+  const detailSeed =
+    result === 'run'
+      ? '워커 #2에서 처리 중…'
+      : result === 'wait'
+        ? `대기열 ${(slot % 4) + 1}번째`
+        : summary.slice(0, 48);
+  return {
+    id: `f-gen-${slot}`,
+    fileName,
+    caseId,
+    uploadedAt: uploadedAtFor(slot),
+    sizeLabel: sizeLabelFor(slot),
+    stageProgress,
+    result,
+    summary,
+    logs: logsForFile(result, stageProgress, detailSeed),
+  };
+}
+
+function buildMockPipelineFiles(total: number): MockPipelineFile[] {
+  const rows = SEED_PIPELINE_FILES.map((f) => ({ ...f, logs: f.logs.map((l) => ({ ...l })) }));
+  const usedNames = new Set(rows.map((f) => f.fileName));
+  let slot = 0;
+  while (rows.length < total) {
+    const row = buildGeneratedPipelineFile(slot);
+    slot += 1;
+    if (usedNames.has(row.fileName)) continue;
+    usedNames.add(row.fileName);
+    rows.push(row);
+  }
+  return rows;
+}
+
+export const MOCK_PIPELINE_FILES: MockPipelineFile[] =
+  buildMockPipelineFiles(MOCK_PIPELINE_FILE_COUNT);

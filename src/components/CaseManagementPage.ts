@@ -18,7 +18,7 @@ import {
 } from '@/utils/caseListFilter';
 import type { Disposable } from '@/types/disposable';
 
-/** 목록 1페이지에 표시할 목업 케이스 수 (최대 20) */
+/** 목록 1페이지에 표시할 목업 케이스 수 */
 const PAGE_SIZE = MOCK_CASE_LIST_LIMIT;
 const MOCK_TOTAL = MOCK_CASE_COUNT;
 
@@ -26,8 +26,8 @@ export interface CaseManagementPageHandlers {
   onOpenViewer: (caseId: string) => void;
   onOpenDataPipeline: () => void;
   onOpenDataPipelineError: (caseId: string) => void;
-  /** files null → 4번만 열기, files 있음 → 4번에서 자동 파싱 */
-  onStartNewSimulation: (files: File[] | null) => void;
+  /** 조건 설정(4번)으로 이동 — CSV는 뷰어와 동일 플로우로 4번에서 선택 */
+  onStartNewSimulation: () => void;
 }
 
 /** 2번 케이스 관리 (메인) — 목업 필터·칩·페이지 동작 */
@@ -40,8 +40,6 @@ export class CaseManagementPage implements Disposable {
   private filters: CaseListFilters = { ...DEFAULT_CASE_FILTERS };
   private page = 1;
   private toast = '';
-  private dropActive = false;
-  private readonly fileInput: HTMLInputElement;
 
   public constructor(handlers: CaseManagementPageHandlers) {
     this.handlers = handlers;
@@ -52,61 +50,9 @@ export class CaseManagementPage implements Disposable {
     this.host.className = 'mgmt-page__body';
     this.element.appendChild(this.host);
 
-    this.fileInput = document.createElement('input');
-    this.fileInput.type = 'file';
-    this.fileInput.multiple = true;
-    this.fileInput.accept = '.csv,text/csv';
-    this.fileInput.hidden = true;
-    this.element.appendChild(this.fileInput);
-    this.fileInput.addEventListener('change', () => {
-      const files = Array.from(this.fileInput.files ?? []);
-      this.fileInput.value = '';
-      if (files.length > 0) this.handlers.onStartNewSimulation(files);
-    });
-
-    this.element.addEventListener('dragover', (e) => this.onDragOver(e));
-    this.element.addEventListener('dragleave', (e) => this.onDragLeave(e));
-    this.element.addEventListener('drop', (e) => this.onDrop(e));
-
     this.element.addEventListener('click', (e) => this.onClick(e));
     this.element.addEventListener('change', (e) => this.onChange(e));
     this.render();
-  }
-
-  private csvFilesFromDataTransfer(dt: DataTransfer | null): File[] {
-    return Array.from(dt?.files ?? []).filter(
-      (f) => f.name.toLowerCase().endsWith('.csv') || f.type.includes('csv'),
-    );
-  }
-
-  private onDragOver(e: DragEvent): void {
-    if (!(e.target as HTMLElement).closest('[data-drop-zone]')) return;
-    e.preventDefault();
-    if (!this.dropActive) {
-      this.dropActive = true;
-      this.render();
-    }
-  }
-
-  private onDragLeave(e: DragEvent): void {
-    const zone = (e.target as HTMLElement).closest('[data-drop-zone]');
-    if (!zone) return;
-    this.dropActive = false;
-    this.render();
-  }
-
-  private onDrop(e: DragEvent): void {
-    const zone = (e.target as HTMLElement).closest('[data-drop-zone]');
-    if (!zone) return;
-    e.preventDefault();
-    this.dropActive = false;
-    const files = this.csvFilesFromDataTransfer(e.dataTransfer);
-    if (files.length === 0) {
-      this.toast = 'CSV 파일(.csv)만 업로드할 수 있습니다.';
-      this.render();
-      return;
-    }
-    this.handlers.onStartNewSimulation(files);
   }
 
   public setVisible(visible: boolean): void {
@@ -114,8 +60,13 @@ export class CaseManagementPage implements Disposable {
     if (visible) this.render();
   }
 
-  private selectedCases(): MockCaseRow[] {
-    return this.cases.filter((c) => c.selected);
+  /** bootstrap 후 조건 설정(4번) 이동 핸들러 연결 */
+  public bindStartNewSimulation(handler: CaseManagementPageHandlers['onStartNewSimulation']): void {
+    this.handlers.onStartNewSimulation = handler;
+  }
+
+  private selectedCase(): MockCaseRow | null {
+    return this.cases.find((c) => c.selected) ?? null;
   }
 
   private filteredCases(): MockCaseRow[] {
@@ -160,9 +111,12 @@ export class CaseManagementPage implements Disposable {
     if (t.closest('[data-act="toggle-row"]') && rowId) {
       const row = this.cases.find((c) => c.id === rowId);
       if (!row) return;
-      if (row.selected) row.selected = false;
-      else if (this.selectedCases().length < 3) row.selected = true;
-      else this.toast = '비교는 최대 3개까지 선택할 수 있습니다 (목업)';
+      if (row.selected) {
+        row.selected = false;
+      } else {
+        for (const c of this.cases) c.selected = false;
+        row.selected = true;
+      }
       this.render();
       return;
     }
@@ -177,20 +131,21 @@ export class CaseManagementPage implements Disposable {
       return;
     }
     if (t.closest('[data-act="open-viewer-selected"]')) {
-      const sel = this.selectedCases()[0]?.id ?? 'A-032';
-      this.handlers.onOpenViewer(sel);
+      const sel = this.selectedCase();
+      if (!sel) {
+        this.toast = '목록에서 케이스를 하나 선택해 주세요.';
+        this.render();
+        return;
+      }
+      this.handlers.onOpenViewer(sel.id);
       return;
     }
     if (t.closest('[data-act="export-csv"]')) {
       this.exportCsv();
       return;
     }
-    if (t.closest('[data-act="new-sim-pick"]')) {
-      this.fileInput.click();
-      return;
-    }
-    if (t.closest('[data-act="new-sim-goto"]')) {
-      this.handlers.onStartNewSimulation(null);
+    if (t.closest('[data-act="new-sim-start"]')) {
+      this.handlers.onStartNewSimulation();
     }
   }
 
@@ -212,52 +167,54 @@ export class CaseManagementPage implements Disposable {
     this.render();
   }
 
-  private renderCompare(fd: number): string {
-    const sel = this.selectedCases();
-    const a = sel[0] ?? this.cases[0];
-    const b = sel[1] ?? this.cases[1];
-    const da = a.maxScourM ?? 0;
-    const db = b.maxScourM ?? 0;
-    const ra = remainPct(da, fd);
-    const rb = remainPct(db, fd);
-    const pctDiff = da > 1e-9 ? ((db / da - 1) * 100).toFixed(1) : '—';
-    const rows: Array<[string, string, string, string]> = [
-      ['항목', a.id, b.id, '차이'],
+  private renderSelectedSummary(fd: number): string {
+    const row = this.selectedCase();
+    if (!row) {
+      return `<tr><td colspan="2" class="mgmt-table__cell mgmt-muted case-mgmt-empty">목록에서 케이스를 <b>하나</b> 선택하면 요약이 표시됩니다.</td></tr>`;
+    }
+    const st = MOCK_CASE_STATUS[row.status];
+    const scour = row.maxScourM;
+    const g = scour != null ? gradeOf(scour, fd) : null;
+    const remain = scour != null ? remainPct(scour, fd) : null;
+    const pairs: Array<[string, string]> = [
+      ['케이스 ID', `<b>${row.id}</b>`],
       [
-        '교각 직경',
-        `${a.diameterM.toFixed(1)} m`,
-        `${b.diameterM.toFixed(1)} m`,
-        `${(b.diameterM / a.diameterM).toFixed(1)} 배`,
+        '상태',
+        `<span class="mgmt-sbadge" style="background:${st.bg};color:${st.color}">${st.label}</span>`,
       ],
-      ['유량', a.flow, b.flow, '–'],
-      ['최대 세굴심', `${da.toFixed(2)} m`, `${db.toFixed(2)} m`, `+${pctDiff} %`],
-      ['세굴폭', '4.6 m', '6.8 m', '+47.8 %'],
-      ['세굴공 체적', '9.8 m³', '18.4 m³', '+87.8 %'],
-      ['잔여 여유율', `${ra.toFixed(1)} %`, `${rb.toFixed(1)} %`, `−${(ra - rb).toFixed(1)} %p`],
-      ['등급', gradeOf(da, fd).name, gradeOf(db, fd).name, ''],
+      ['교각 형상', row.shape],
+      ['직경', `${row.diameterM.toFixed(1)} m`],
+      ['교각 수', String(row.pierCount)],
+      ['유량', row.flow],
+      ['입경 d50', row.d50],
+      [
+        '최대 세굴심',
+        scour != null ? `<b>${scour.toFixed(2)} m</b>` : '<span class="mgmt-muted">—</span>',
+      ],
+      [
+        '등급',
+        g
+          ? `<span class="grade-pill grade-pill--${g.key}">${g.name}</span>`
+          : '<span class="mgmt-muted">—</span>',
+      ],
+      [
+        '잔여 여유율',
+        remain != null ? `${remain.toFixed(1)} %` : '<span class="mgmt-muted">—</span>',
+      ],
+      ['갱신', row.updatedAt],
     ];
-    return rows
-      .map((r, i) => {
-        const cells = r
-          .map((c, j) => {
-            if (i === rows.length - 1 && (j === 1 || j === 2)) {
-              const g = gradeOf(j === 1 ? da : db, fd);
-              return `<td class="mgmt-table__cell mgmt-table__cell--c"><span class="grade-pill grade-pill--${g.key}">${c}</span></td>`;
-            }
-            const tag = i === 0 ? 'th' : 'td';
-            const cls = j === 0 ? '' : ' mgmt-table__cell--c';
-            const diff = i >= 3 && j === 3 ? ' mgmt-table__cell--warn' : '';
-            return `<${tag} class="mgmt-table__cell${cls}${diff}">${c}</${tag}>`;
-          })
-          .join('');
-        return `<tr>${cells}</tr>`;
-      })
+    return pairs
+      .map(
+        ([label, value]) =>
+          `<tr><th class="mgmt-table__cell">${label}</th><td class="mgmt-table__cell mgmt-table__cell--c">${value}</td></tr>`,
+      )
       .join('');
   }
 
   private render(): void {
     const fd = DEFAULT_FOUNDATION_DEPTH_M;
-    const selCount = this.selectedCases().length;
+    const selected = this.selectedCase();
+    const selLabel = selected ? selected.id : '없음';
     const filtered = this.filteredCases();
     const pages = totalPages(filtered.length, PAGE_SIZE);
     const safePage = Math.min(this.page, pages);
@@ -333,7 +290,7 @@ export class CaseManagementPage implements Disposable {
         }
         return `<tr class="${r.selected ? 'is-selected' : ''}">
           <td class="mgmt-table__cell mgmt-table__cell--c">
-            <button type="button" class="mgmt-check" data-act="toggle-row" data-case-id="${r.id}">${r.selected ? '☑' : '☐'}</button>
+            <button type="button" class="mgmt-check mgmt-check--single" data-act="toggle-row" data-case-id="${r.id}" aria-pressed="${r.selected ? 'true' : 'false'}" title="케이스 하나만 선택">${r.selected ? '◉' : '○'}</button>
           </td>
           <td class="mgmt-table__cell"><b>${r.id}</b></td>
           <td class="mgmt-table__cell">${r.shape}</td>
@@ -368,15 +325,9 @@ export class CaseManagementPage implements Disposable {
           <div class="case-new-sim">
             <div class="case-new-sim__copy">
               <h3 class="case-new-sim__title">새 시뮬레이션</h3>
-              <p class="case-new-sim__desc">FLOW-3D CSV를 올리면 <b>조건 설정(4번)</b>으로 이동해 파싱·조건 확인 후 3D 뷰어(5번)까지 이어집니다.</p>
+              <p class="case-new-sim__desc">FLOW-3D 결과 CSV는 <b>조건 설정</b> 화면에서 업로드합니다. 뷰어와 동일하게 <b>CSV 선택</b> → <b>파싱</b> → <b>적용하고 결과 보기</b> 순서입니다.</p>
             </div>
-            <div class="case-new-sim__drop ${this.dropActive ? 'is-dragover' : ''}" data-drop-zone role="button" tabindex="0">
-              <span class="case-new-sim__drop-icon">CSV</span>
-              <span class="case-new-sim__drop-main">파일을 여기에 놓거나</span>
-              <button type="button" class="mgmt-link case-new-sim__pick" data-act="new-sim-pick">파일 선택</button>
-              <span class="case-new-sim__drop-sub">sampledata.csv · 교각별 다중 CSV(P1,P2,…) 지원</span>
-            </div>
-            <button type="button" class="mgmt-btn case-new-sim__goto" data-act="new-sim-goto">조건 설정 화면에서 업로드 →</button>
+            <button type="button" class="case-new-sim__cta" data-act="new-sim-start">새 해석 시작</button>
           </div>
           <div class="mgmt-chip-row">${chips}
             <span class="mgmt-chip-row__note">1차년도 목표 ${MOCK_TOTAL} case 이상 (계획서 A-1)</span>
@@ -386,7 +337,7 @@ export class CaseManagementPage implements Disposable {
           </div>
           <div class="mgmt-list-head">
             <h2 class="mgmt-h2">시뮬레이션 케이스 목록</h2>
-            <span class="mgmt-sub">${MOCK_TOTAL}건 중 <b>${filtered.length}</b>건 표시 · 선택 ${selCount} / 3 · 페이지 ${this.page}/${pages}</span>
+            <span class="mgmt-sub">${MOCK_TOTAL}건 중 <b>${filtered.length}</b>건 표시 · 선택 <b>${selLabel}</b> · 페이지 ${this.page}/${pages}</span>
           </div>
           <div class="mgmt-table-wrap">
             <table class="mgmt-table">
@@ -404,11 +355,11 @@ export class CaseManagementPage implements Disposable {
           </div>
         </section>
         <aside class="mgmt-panel mgmt-panel--side">
-          <h2 class="mgmt-h2">선택 케이스 비교</h2>
-          <table class="mgmt-table mgmt-table--compact">${this.renderCompare(fd)}</table>
+          <h2 class="mgmt-h2">선택 케이스 요약</h2>
+          <table class="mgmt-table mgmt-table--compact">${this.renderSelectedSummary(fd)}</table>
           <p class="mgmt-hint">잔여 여유율·등급은 기초 근입 ${fd} m 기준 <span class="mgmt-prov">잠정</span></p>
           <div class="mgmt-side-actions">
-            <button type="button" class="mgmt-btn" data-act="open-viewer-selected">선택 케이스 뷰어에서 열기</button>
+            <button type="button" class="mgmt-btn" data-act="open-viewer-selected" ${selected ? '' : 'disabled'}>선택 케이스 뷰어에서 열기</button>
             <button type="button" class="mgmt-btn mgmt-btn--ghost" data-act="export-csv">CSV 내보내기</button>
           </div>
           <span class="mgmt-badge">DT-300 · 케이스 관리 (메인)</span>

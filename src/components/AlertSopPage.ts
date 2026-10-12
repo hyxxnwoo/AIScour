@@ -1,7 +1,16 @@
 import { GRADES, IS_THRESHOLD_PROVISIONAL, gradeOf, remainPct } from '@/constants/grade';
+import {
+  MOCK_ALERT_RECORDS,
+  MOCK_ALERT_RECORD_COUNT,
+  countAlertsByStatus,
+  type MockAlertRecord,
+} from '@/data/mockAlertRecords';
 import type { MockAlertSopStore } from '@/state/mockAlertSop';
+import { paginateRows, totalPages } from '@/utils/caseListFilter';
 import type { PierScourDepth } from '@/utils/pierScourSample';
 import type { Disposable } from '@/types/disposable';
+
+const ALERT_PAGE_SIZE = 8;
 
 export interface AlertSopPageOptions {
   store: MockAlertSopStore;
@@ -21,7 +30,9 @@ export class AlertSopPage implements Disposable {
   private snapshotDepths: PierScourDepth[] = [];
   private foundationDepthM = 5.2;
   private focusPierId = 'P2';
+  private selectedAlertId = 'alert-seed-1';
   private alertSeg: 'all' | 'active' | 'closed' = 'active';
+  private alertPage = 1;
 
   public constructor(options: AlertSopPageOptions) {
     this.store = options.store;
@@ -43,7 +54,23 @@ export class AlertSopPage implements Disposable {
     this.durationSeconds = durationSeconds;
     const sorted = [...depthsAtEnd].sort((a, b) => b.scourDepthM - a.scourDepthM);
     this.focusPierId = sorted[0]?.pierId ?? 'P2';
+    const linked = MOCK_ALERT_RECORDS.find(
+      (r) => r.status === 'active' && r.caseId === this.caseId && r.pier === this.focusPierId,
+    );
+    if (linked) this.selectedAlertId = linked.id;
     this.render();
+  }
+
+  private selectedRecord(): MockAlertRecord {
+    return MOCK_ALERT_RECORDS.find((r) => r.id === this.selectedAlertId) ?? MOCK_ALERT_RECORDS[0];
+  }
+
+  private depthForRecord(rec: MockAlertRecord): number {
+    if (rec.caseId === this.caseId) {
+      const live = this.snapshotDepths.find((d) => d.pierId === rec.pier);
+      if (live) return live.scourDepthM;
+    }
+    return rec.scourDepthM;
   }
 
   public setVisible(visible: boolean): void {
@@ -85,89 +112,77 @@ export class AlertSopPage implements Disposable {
       | null;
     if (seg) {
       this.alertSeg = seg;
+      this.alertPage = 1;
       this.render();
       return;
     }
-    const pier = t.closest('[data-act="alert-pick"]')?.getAttribute('data-pier');
-    if (pier) {
-      this.focusPierId = pier;
+    const pageAttr = t.closest('[data-act="alert-page"]')?.getAttribute('data-page');
+    if (pageAttr) {
+      this.alertPage = Number.parseInt(pageAttr, 10);
+      this.render();
+      return;
+    }
+    const alertId = t.closest('[data-act="alert-pick"]')?.getAttribute('data-alert-id');
+    if (alertId) {
+      const rec = MOCK_ALERT_RECORDS.find((r) => r.id === alertId);
+      if (rec) {
+        this.selectedAlertId = rec.id;
+        this.focusPierId = rec.pier;
+      }
       this.render();
     }
   }
 
   private render(): void {
-    const depths =
-      this.snapshotDepths.length > 0 ? this.snapshotDepths : [{ pierId: 'P2', scourDepthM: 0 }];
-    const list = [...depths]
-      .map((d) => ({
-        pier: d.pierId,
-        depth: d.scourDepthM,
-        grade: gradeOf(d.scourDepthM, this.foundationDepthM),
-      }))
-      .sort((a, b) => b.depth - a.depth);
-    const focusDepth =
-      depths.find((d) => d.pierId === this.focusPierId)?.scourDepthM ?? list[0]?.depth ?? 0;
+    const focusRec = this.selectedRecord();
+    const focusDepth = this.depthForRecord(focusRec);
     const focusGrade = gradeOf(focusDepth, this.foundationDepthM);
     const appl = this.store.applicableItems();
     const nDone = appl.filter((s) => s.done).length;
     const allDone = this.store.allApplicableDone();
-    const closed = this.store.alertClosed;
-    const issuedAt = '2026-10-02 09:22';
-    const mockTimes = ['10-02 09:22', '10-02 03:10', '10-01 22:40'];
-    const mockClosedHistory = [
-      { pier: 'P1', time: '09-28 14:10', depth: 1.2 },
-      { pier: 'P3', time: '09-25 08:40', depth: 0.95 },
-    ];
+    const sessionClosed = this.store.alertClosed;
+    const recordClosed = focusRec.status === 'closed';
+    const closed = recordClosed || (sessionClosed && focusRec.id === 'alert-seed-1');
 
-    const liveAlerts = list.map((a, i) => ({
-      ...a,
-      time: mockTimes[i] ?? '—',
-      isPrimary: a.pier === this.focusPierId || (this.focusPierId === 'P2' && i === 0),
-      isClosed: closed && i === 0,
-    }));
+    const filtered =
+      this.alertSeg === 'all'
+        ? MOCK_ALERT_RECORDS
+        : MOCK_ALERT_RECORDS.filter((r) => r.status === this.alertSeg);
+    const pages = totalPages(filtered.length, ALERT_PAGE_SIZE);
+    const safePage = Math.min(this.alertPage, Math.max(1, pages));
+    if (safePage !== this.alertPage) this.alertPage = safePage;
+    const pageRows = paginateRows(filtered, this.alertPage, ALERT_PAGE_SIZE);
 
-    const closedAlerts = mockClosedHistory.map((h) => ({
-      pier: h.pier,
-      depth: h.depth,
-      grade: gradeOf(h.depth, this.foundationDepthM),
-      time: h.time,
-      isPrimary: h.pier === this.focusPierId,
-      isClosed: true,
-    }));
+    const activeCount = countAlertsByStatus('active');
+    const closedCount = countAlertsByStatus('closed');
 
-    let alertsForList =
-      this.alertSeg === 'closed'
-        ? closedAlerts
-        : this.alertSeg === 'active'
-          ? liveAlerts.filter((a) => !a.isClosed)
-          : [...liveAlerts, ...closedAlerts];
-
-    if (alertsForList.length === 0) {
-      alertsForList = liveAlerts;
-    }
-
-    const activeCount = closed ? 2 : liveAlerts.filter((a) => !a.isClosed).length;
-    const closedCount = closed ? 13 : 12;
-
-    const alertList = alertsForList
-      .map((a) => {
-        const cc = a.grade.color;
+    const alertList = pageRows
+      .map((rec) => {
+        const depth = this.depthForRecord(rec);
+        const grade = gradeOf(depth, this.foundationDepthM);
+        const cc = grade.color;
         const pending = appl.length - nDone;
-        const isFocus = a.pier === this.focusPierId;
-        const st = a.isClosed ? '종료됨' : isFocus ? `미조치 ${pending}건` : '조치중';
-        return `<button type="button" class="alert-sop-page__alert-item" data-act="alert-pick" data-pier="${a.pier}" style="background:${isFocus ? `${cc}1F` : '#0E2235'};border-color:${isFocus ? cc : 'var(--line2)'}">
+        const isFocus = rec.id === this.selectedAlertId;
+        const isClosedRow = rec.status === 'closed';
+        const st = isClosedRow ? '종료됨' : isFocus ? `미조치 ${pending}건` : '조치중';
+        return `<button type="button" class="alert-sop-page__alert-item ${isFocus ? 'is-focus' : ''}" data-act="alert-pick" data-alert-id="${rec.id}" style="background:${isFocus ? `${cc}1F` : '#0E2235'};border-color:${isFocus ? cc : 'var(--line2)'}">
           <div class="alert-sop-page__alert-head">
-            <span class="grade-pill grade-pill--${a.grade.key}">${a.grade.name}</span>
-            <span class="alert-sop-page__alert-pier">${a.pier} 교각</span>
-            <span class="alert-sop-page__alert-time">${a.time}</span>
+            <span class="grade-pill grade-pill--${grade.key}">${grade.name}</span>
+            <span class="alert-sop-page__alert-pier">${rec.pier} · ${rec.caseId}</span>
+            <span class="alert-sop-page__alert-time">${rec.issuedAt}</span>
           </div>
-          <div class="alert-sop-page__alert-sub">잔여 여유율 ${remainPct(a.depth, this.foundationDepthM).toFixed(0)} % · <b>${st}</b></div>
+          <div class="alert-sop-page__alert-sub">잔여 여유율 ${remainPct(depth, this.foundationDepthM).toFixed(0)} % · ${rec.assignee} · <b>${st}</b></div>
         </button>`;
       })
       .join('');
 
-    const segBtn = (key: 'all' | 'active' | 'closed', label: string) =>
-      `<button type="button" class="alert-sop-page__seg-btn ${this.alertSeg === key ? 'is-on' : ''}" data-act="alert-seg" data-seg="${key}">${label}</button>`;
+    const pagerBtns = Array.from({ length: pages }, (_, i) => {
+      const p = i + 1;
+      return `<button type="button" class="alert-sop-page__pager-btn ${p === this.alertPage ? 'is-on' : ''}" data-act="alert-page" data-page="${p}">${p}</button>`;
+    }).join('');
+
+    const segBtn = (key: 'all' | 'active' | 'closed', label: string, count: number) =>
+      `<button type="button" class="alert-sop-page__seg-btn ${this.alertSeg === key ? 'is-on' : ''}" data-act="alert-seg" data-seg="${key}">${label} <b>${count}</b></button>`;
 
     const sopRows = this.store.sop
       .map((s, i) => {
@@ -235,19 +250,24 @@ export class AlertSopPage implements Disposable {
           <div class="alert-sop-page__col-head">
             <div class="alert-sop-page__col-title-row">
               <h2 class="alert-sop-page__h2">경보 목록</h2>
-              <span class="alert-sop-page__sub">진행중 ${activeCount} | 종료 ${closedCount}</span>
+              <span class="alert-sop-page__sub">DB ${MOCK_ALERT_RECORD_COUNT}건 · 진행 ${activeCount} · 종료 ${closedCount}</span>
             </div>
-            <div class="alert-sop-page__seg">${segBtn('all', '전체')}${segBtn('active', '진행중')}${segBtn('closed', '종료')}</div>
+            <div class="alert-sop-page__seg">${segBtn('all', '전체', MOCK_ALERT_RECORD_COUNT)}${segBtn('active', '진행중', activeCount)}${segBtn('closed', '종료', closedCount)}</div>
           </div>
-          <div class="alert-sop-page__list-scroll">${alertList}
-            <div class="alert-sop-page__hint">교각 ${depths.length}개 기준 · 케이스 ${this.caseId} (t = ${Math.round(this.durationSeconds)} s)</div>
+          <div class="alert-sop-page__list-scroll">${alertList || '<p class="alert-sop-page__hint">해당 상태의 경보가 없습니다.</p>'}
+            <div class="alert-sop-page__list-pager">
+              <button type="button" class="alert-sop-page__pager-btn" data-act="alert-page" data-page="${Math.max(1, this.alertPage - 1)}" ${this.alertPage <= 1 ? 'disabled' : ''}>◀</button>
+              ${pagerBtns}
+              <button type="button" class="alert-sop-page__pager-btn" data-act="alert-page" data-page="${Math.min(pages, this.alertPage + 1)}" ${this.alertPage >= pages ? 'disabled' : ''}>▶</button>
+            </div>
+            <div class="alert-sop-page__hint">선택 경보 기준 SOP · 현재 해석 ${this.caseId} (t = ${Math.round(this.durationSeconds)} s)</div>
           </div>
         </aside>
         <section class="alert-sop-page__col alert-sop-page__col--main">
           <div class="alert-sop-page__focus" style="border-color:${focusGrade.color};background:${focusGrade.color}1F">
             <div>
-              <div class="alert-sop-page__focus-title" style="color:${focusGrade.color}">⚠ ${focusGrade.name} (${focusGrade.en}) — ${this.focusPierId} 교각${closed ? ' · 종료됨' : ''}</div>
-              <div class="alert-sop-page__focus-meta">발령 ${issuedAt} &nbsp;|&nbsp; 잔여 여유율 ${remainPct(focusDepth, this.foundationDepthM).toFixed(0)} % &nbsp;|&nbsp; 세굴심 ${focusDepth.toFixed(2)} m &nbsp;|&nbsp; 담당 김○○ (시설관리과) &nbsp;|&nbsp; 케이스 ${this.caseId}</div>
+              <div class="alert-sop-page__focus-title" style="color:${focusGrade.color}">⚠ ${focusGrade.name} (${focusGrade.en}) — ${focusRec.pier} 교각${closed ? ' · 종료됨' : ''}</div>
+              <div class="alert-sop-page__focus-meta">발령 ${focusRec.issuedAt}${focusRec.closedAt ? ` · 종료 ${focusRec.closedAt}` : ''} &nbsp;|&nbsp; 잔여 여유율 ${remainPct(focusDepth, this.foundationDepthM).toFixed(0)} % &nbsp;|&nbsp; 세굴심 ${focusDepth.toFixed(2)} m &nbsp;|&nbsp; 담당 ${focusRec.assignee} &nbsp;|&nbsp; 케이스 ${focusRec.caseId}</div>
             </div>
             <div class="${closeClass}" style="${allDone && !closed ? `background:${focusGrade.color}` : ''}" ${closeAttrs}>${closeLabel}</div>
           </div>

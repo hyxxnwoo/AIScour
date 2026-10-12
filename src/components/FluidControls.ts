@@ -102,6 +102,7 @@ export class FluidControls implements Disposable {
   private primaryQuantity!: FluidQuantity;
   private readonly sliceToggle: HTMLInputElement;
   private readonly tracersToggle: HTMLInputElement;
+  private readonly tracersRow: HTMLElement;
   private readonly tracersNoticeEl: HTMLDivElement;
   private readonly applyBtn: HTMLButtonElement;
   private readonly liveCheckbox: HTMLInputElement;
@@ -320,10 +321,12 @@ export class FluidControls implements Disposable {
     this.tracersToggle = document.createElement('input');
     this.tracersToggle.type = 'checkbox';
     this.tracersToggle.checked = options.initialTracersVisible ?? false;
+    this.tracersToggle.disabled = true;
     const tracersText = document.createElement('span');
     tracersText.textContent = '유체 추적 입자 (흐름)';
     tracersLabel.append(this.tracersToggle, tracersText);
     tracersRow.appendChild(tracersLabel);
+    this.tracersRow = tracersRow;
     {
       const onChange = (): void => handlers.onTracersVisibilityChange(this.tracersToggle.checked);
       this.tracersToggle.addEventListener('change', onChange);
@@ -561,7 +564,17 @@ export class FluidControls implements Disposable {
     return this._probeMode;
   }
 
+  /** 「적용하고 결과 보기」 후 추적 입자 토글 사용 가능 */
+  public setTracersAvailable(available: boolean, turnOn = false): void {
+    this.tracersToggle.disabled = !available;
+    this.tracersRow.classList.toggle('fluid-controls__row--muted', !available);
+    if (turnOn && available) {
+      this.setTracersVisible(true);
+    }
+  }
+
   public setTracersVisible(visible: boolean): void {
+    if (this.tracersToggle.disabled) return;
     if (this.tracersToggle.checked === visible) return;
     this.tracersToggle.checked = visible;
     this.tracersToggle.dispatchEvent(new Event('change', { bubbles: true }));

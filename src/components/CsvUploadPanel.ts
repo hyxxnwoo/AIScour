@@ -11,6 +11,7 @@ import { snapshotUploadFiles, UPLOAD_SNAPSHOT_MAX_BYTES } from '@/utils/readUplo
 import { CsvDataPreviewModal } from '@/components/CsvDataPreviewModal';
 import { bridgeTypeLabel, CsvSetupModal, type CsvSetupSelection } from '@/components/CsvSetupModal';
 import type { BridgeType } from '@/types/simParams';
+import { buildCsvSetupPrefill, filterCsvUploadFiles } from '@/utils/csvSetupPrefill';
 export interface CsvUploadPanelHandlers {
   onLoaded: (result: CsvDashboardLoadResult) => void | Promise<void>;
   /** 「적용하고 결과 보기」 — 3D 장면 생성·뷰어 이동 */
@@ -218,21 +219,42 @@ export class CsvUploadPanel implements Disposable {
     this.applySceneBtn.title = ready ? '' : 'CSV 파싱을 먼저 완료해 주세요.';
   }
 
+  private structureDefaults(): CsvSetupSelection {
+    const structure = this.handlers.getStructure?.();
+    return {
+      pierCount: (structure?.pierCount ?? this.analysisPierCount) as 1 | 2 | 3,
+      bridgeEnabled: structure?.bridgeEnabled ?? this.bridgeEnabled,
+      bridgeType: structure?.bridgeType ?? this.bridgeType,
+      files: [...this.pierSlotFiles],
+    };
+  }
+
   private openSetup(): void {
     if (this.isLoading) return;
-    const structure = this.handlers.getStructure?.();
-    const pierCount = (structure?.pierCount ?? this.analysisPierCount) as 1 | 2 | 3;
-    this.setupModal.open(
-      {
-        pierCount,
-        bridgeEnabled: structure?.bridgeEnabled ?? this.bridgeEnabled,
-        bridgeType: structure?.bridgeType ?? this.bridgeType,
-        files: [...this.pierSlotFiles],
-      },
-      (selection) => {
-        void this.commitSetup(selection);
-      },
-    );
+    const initial = this.structureDefaults();
+    this.setupModal.open(initial, (selection) => {
+      void this.commitSetup(selection);
+    });
+  }
+
+  /**
+   * 2번 케이스 허브 등 — 4번과 동일하게 「CSV 선택」 모달부터 시작 (자동 파싱 없음).
+   */
+  public openSetupWithPrefilledFiles(rawFiles: File[]): void {
+    if (this.isLoading) return;
+    const csv = filterCsvUploadFiles(rawFiles);
+    const base = this.structureDefaults();
+    const initial =
+      csv.length > 0
+        ? buildCsvSetupPrefill(csv, {
+            pierCount: base.pierCount,
+            bridgeEnabled: base.bridgeEnabled,
+            bridgeType: base.bridgeType,
+          })
+        : base;
+    this.setupModal.open(initial, (selection) => {
+      void this.commitSetup(selection);
+    });
   }
 
   private async commitSetup(selection: CsvSetupSelection): Promise<void> {
@@ -342,13 +364,10 @@ export class CsvUploadPanel implements Disposable {
   }
 
   /**
-   * 2번 케이스 허브 등 외부에서 파일을 넘길 때 사용.
-   * autoLoad true면 스테이징 직후 파싱(startLoad)까지 실행한다. 장면은 만들지 않는다.
+   * @deprecated 2번 → 4번은 openSetupWithPrefilledFiles 사용. 슬롯만 채울 때만 유지.
    */
   public async ingestExternalFiles(files: File[], autoLoad = false): Promise<void> {
-    const raw = files.filter(
-      (f) => f.name.toLowerCase().endsWith('.csv') || f.type.includes('csv'),
-    );
+    const raw = filterCsvUploadFiles(files);
     if (raw.length === 0) {
       this.parseReadyFiles = [];
       this.syncParseReadyFromSlots();

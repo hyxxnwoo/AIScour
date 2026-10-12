@@ -1,8 +1,10 @@
 import {
+  MOCK_PIPELINE_FILE_COUNT,
   MOCK_PIPELINE_FILES,
   type MockPipelineFile,
   type PipelineResultKey,
 } from '@/data/mockPipelineFiles';
+import { paginateRows, totalPages } from '@/utils/caseListFilter';
 import type { Disposable } from '@/types/disposable';
 
 export interface DataPipelinePageHandlers {
@@ -11,6 +13,8 @@ export interface DataPipelinePageHandlers {
 }
 
 type ListSeg = 'all' | PipelineResultKey;
+
+const PAGE_SIZE = 12;
 
 const RESULT_BADGE: Record<PipelineResultKey, readonly [string, string, string]> = {
   ok: ['완료', '#5BD6A0', '#10402F'],
@@ -27,6 +31,7 @@ export class DataPipelinePage implements Disposable {
   private readonly host: HTMLElement;
   private files: MockPipelineFile[];
   private listSeg: ListSeg = 'all';
+  private page = 1;
   private selectedId: string;
   private toast = '';
 
@@ -79,6 +84,13 @@ export class DataPipelinePage implements Disposable {
     const seg = t.closest('[data-act="seg"]')?.getAttribute('data-seg') as ListSeg | null;
     if (seg) {
       this.listSeg = seg;
+      this.page = 1;
+      this.render();
+      return;
+    }
+    const pageAttr = t.closest('[data-act="page"]')?.getAttribute('data-page');
+    if (pageAttr) {
+      this.page = Number.parseInt(pageAttr, 10);
       this.render();
       return;
     }
@@ -118,23 +130,31 @@ export class DataPipelinePage implements Disposable {
     this.render();
   }
 
+  private countAtStage(minProgress: number): number {
+    return this.files.filter((f) => f.stageProgress >= minProgress).length;
+  }
+
   private render(): void {
-    const steps = [
-      ['업로드', '200 / 200', 100, 'ok'],
-      ['파싱', '196 / 200', 98, 'ok'],
-      ['경량화 · 변환', '182 / 200', 91, 'warn'],
-      ['QA / QC', '175 / 200', 87.5, 'warn'],
-      ['서비스 반영', '175 / 200', 87.5, 'ok'],
+    const total = this.files.length;
+    const funnel = [
+      ['업로드', 1],
+      ['파싱', 2],
+      ['경량화 · 변환', 3],
+      ['QA / QC', 4],
+      ['서비스 반영', 5],
     ] as const;
     const col = { ok: '#2EA36B', warn: '#E8B21A' };
-    const stepHtml = steps
+    const stepHtml = funnel
       .map((s, i) => {
-        const c = col[s[3]];
-        const arrow = i < steps.length - 1 ? '<span class="data-pipeline__arrow">▶</span>' : '';
+        const done = this.countAtStage(s[1]);
+        const pct = total > 0 ? (done / total) * 100 : 0;
+        const tone: 'ok' | 'warn' = pct >= 85 ? 'ok' : 'warn';
+        const c = col[tone];
+        const arrow = i < funnel.length - 1 ? '<span class="data-pipeline__arrow">▶</span>' : '';
         return `${arrow}<div class="data-pipeline__step" style="border-color:${c}55">
           <div class="data-pipeline__step-label">${i + 1}. ${s[0]}</div>
-          <div class="data-pipeline__step-val" style="color:${c}">${s[1]}</div>
-          <div class="data-pipeline__step-bar"><span style="width:${s[2]}%;background:${c}"></span></div>
+          <div class="data-pipeline__step-val" style="color:${c}">${done} / ${total}</div>
+          <div class="data-pipeline__step-bar"><span style="width:${pct.toFixed(1)}%;background:${c}"></span></div>
         </div>`;
       })
       .join('');
@@ -149,10 +169,18 @@ export class DataPipelinePage implements Disposable {
         .join('')}</span>`;
 
     const visible = this.visibleFiles();
+    const pages = totalPages(visible.length, PAGE_SIZE);
+    const safePage = Math.min(this.page, Math.max(1, pages));
+    if (safePage !== this.page) this.page = safePage;
+    const pageRows = paginateRows(visible, this.page, PAGE_SIZE);
+
     const sel = this.selectedFile();
     const selBadge = RESULT_BADGE[sel.result];
 
-    const fileRows = visible
+    const countBy = (key: PipelineResultKey): number =>
+      this.files.filter((f) => f.result === key).length;
+
+    const fileRows = pageRows
       .map((f) => {
         const r = RESULT_BADGE[f.result];
         const isSel = f.id === this.selectedId;
@@ -183,18 +211,25 @@ export class DataPipelinePage implements Disposable {
       })
       .join('');
 
-    const segs: Array<{ key: ListSeg; label: string }> = [
-      { key: 'all', label: '전체' },
-      { key: 'run', label: '처리중' },
-      { key: 'warn', label: '경고' },
-      { key: 'err', label: '오류' },
+    const segs: Array<{ key: ListSeg; label: string; count: number }> = [
+      { key: 'all', label: '전체', count: this.files.length },
+      { key: 'ok', label: '완료', count: countBy('ok') },
+      { key: 'run', label: '처리중', count: countBy('run') },
+      { key: 'warn', label: '경고', count: countBy('warn') },
+      { key: 'err', label: '오류', count: countBy('err') },
+      { key: 'wait', label: '대기', count: countBy('wait') },
     ];
     const segHtml = segs
       .map(
         (s) =>
-          `<button type="button" class="data-pipeline__seg-btn ${this.listSeg === s.key ? 'is-on' : ''}" data-act="seg" data-seg="${s.key}">${s.label}</button>`,
+          `<button type="button" class="data-pipeline__seg-btn ${this.listSeg === s.key ? 'is-on' : ''}" data-act="seg" data-seg="${s.key}">${s.label} <b>${s.count}</b></button>`,
       )
       .join('');
+
+    const pagerBtns = Array.from({ length: pages }, (_, i) => {
+      const p = i + 1;
+      return `<button type="button" class="mgmt-pager__btn ${p === this.page ? 'is-on' : ''}" data-act="page" data-page="${p}">${p}</button>`;
+    }).join('');
 
     const kpi = [
       ['자동화율', '94 %', '목표 > 90 %'],
@@ -215,14 +250,22 @@ export class DataPipelinePage implements Disposable {
       <div class="mgmt-split data-pipeline__split">
         <section class="mgmt-panel mgmt-panel--main">
           <div class="data-pipeline__list-head">
-            <h2 class="mgmt-h2">CSV 파일별 처리 현황</h2>
+            <div>
+              <h2 class="mgmt-h2">CSV 파일별 처리 현황</h2>
+              <span class="mgmt-sub">연동 DB <b>${MOCK_PIPELINE_FILE_COUNT}</b>건 · 필터 <b>${visible.length}</b>건 · 페이지 ${this.page}/${pages}</span>
+            </div>
             <div class="data-pipeline__seg">${segHtml}</div>
           </div>
-          <div class="mgmt-table-wrap">
+          <div class="mgmt-table-wrap data-pipeline__table-wrap">
             <table class="mgmt-table mgmt-table--pick">
               <thead><tr><th>파일명</th><th>연결 케이스</th><th>업로드</th><th>크기</th><th>처리 단계</th><th>결과</th><th>내용</th></tr></thead>
-              <tbody>${fileRows || '<tr><td colspan="7" class="mgmt-muted">해당 결과 없음</td></tr>'}</tbody>
+              <tbody>${fileRows || '<tr><td colspan="7" class="mgmt-muted mgmt-table__cell--c">해당 결과 없음</td></tr>'}</tbody>
             </table>
+            <div class="mgmt-pager">
+              <button type="button" class="mgmt-pager__btn" data-act="page" data-page="${Math.max(1, this.page - 1)}" ${this.page <= 1 ? 'disabled' : ''}>◀</button>
+              ${pagerBtns}
+              <button type="button" class="mgmt-pager__btn" data-act="page" data-page="${Math.min(pages, this.page + 1)}" ${this.page >= pages ? 'disabled' : ''}>▶</button>
+            </div>
             <p class="mgmt-hint">행 클릭 → 우측 단계 로그 · 처리 단계: 업로드 → 파싱 → 경량화·변환 → QA/QC → 서비스 반영</p>
           </div>
         </section>

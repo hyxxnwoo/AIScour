@@ -28,6 +28,16 @@ export class CameraPresets implements Disposable {
     this.element = document.createElement('div');
     this.element.className = 'camera-presets';
 
+    const details = document.createElement('details');
+    details.className = 'camera-presets__details';
+
+    const summary = document.createElement('summary');
+    summary.className = 'camera-presets__summary';
+    summary.textContent = '카메라 뷰';
+
+    const body = document.createElement('div');
+    body.className = 'camera-presets__buttons';
+
     for (const { preset, label, ariaLabel } of BUTTONS) {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -35,9 +45,12 @@ export class CameraPresets implements Disposable {
       btn.setAttribute('aria-label', ariaLabel);
       const handler = (): void => options.onSelect(preset);
       btn.addEventListener('click', handler);
-      this.element.appendChild(btn);
+      body.appendChild(btn);
       this.listeners.push({ btn, handler });
     }
+
+    details.append(summary, body);
+    this.element.appendChild(details);
   }
 
   public dispose(): void {

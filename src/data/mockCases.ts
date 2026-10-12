@@ -28,7 +28,7 @@ export const MOCK_CASE_STATUS: Record<
 export const MOCK_CASE_COUNT = 100;
 
 /** 2번 목록 1페이지에 표시할 최대 행 수 */
-export const MOCK_CASE_LIST_LIMIT = 20;
+export const MOCK_CASE_LIST_LIMIT = 15;
 
 const SHAPES = ['원기둥', '사각기둥', '원기둥+식생', '3열 배치', '원기둥+대책공'] as const;
 const DIAMETERS = [0.8, 1.2, 1.4, 1.6, 1.8, 2.0] as const;
@@ -60,7 +60,7 @@ const SEED_CASES: MockCaseRow[] = [
     maxScourM: 2.1,
     status: 'done',
     updatedAt: '10-01 17:40',
-    selected: true,
+    selected: false,
   },
   {
     id: 'A-032',
@@ -72,7 +72,7 @@ const SEED_CASES: MockCaseRow[] = [
     maxScourM: 3.42,
     status: 'done',
     updatedAt: '10-02 09:05',
-    selected: true,
+    selected: false,
   },
   {
     id: 'A-041',

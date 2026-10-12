@@ -22,6 +22,7 @@ export class StatusBar implements Disposable {
     converted: HTMLElement;
     frame: HTMLElement;
     extra: HTMLElement;
+    shortcuts: HTMLElement;
   };
 
   public constructor(initial: StatusBarState) {
@@ -49,7 +50,12 @@ export class StatusBar implements Disposable {
       converted: mk(''),
       frame: mk(''),
       extra: mk(''),
+      shortcuts: mk(''),
     };
+    this.parts.shortcuts.className = 'status-bar__shortcuts';
+    this.parts.shortcuts.textContent =
+      'Space 재생 · ←→ ±1s · Shift ±5s · Home/End · R/T/F/X 뷰 · P 캡처';
+    this.parts.shortcuts.hidden = true;
 
     this.element.append(
       document.createTextNode('Case '),
@@ -70,6 +76,7 @@ export class StatusBar implements Disposable {
       document.createTextNode('프레임 '),
       this.parts.frame,
       this.parts.extra,
+      this.parts.shortcuts,
     );
 
     this.update(initial);
@@ -101,6 +108,11 @@ export class StatusBar implements Disposable {
         this.parts.extra.textContent = '';
       }
     }
+  }
+
+  /** 뷰어(4~9)에서만 단축키 안내 표시 */
+  public setKeyboardHintsVisible(visible: boolean): void {
+    this.parts.shortcuts.hidden = !visible;
   }
 
   public dispose(): void {

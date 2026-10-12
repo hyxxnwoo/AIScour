@@ -88,6 +88,31 @@ export class CameraManager implements Disposable {
     this.controls.update();
   }
 
+  /**
+   * 6번 평면·단면 — 도메인 중심 위(Y+)에서 수직 내려다봄. Orbit 틸트는 잠근다.
+   */
+  public applyPlanView(radius: number, target: Vector3): void {
+    const r = Math.max(1, radius);
+    this.controls.target.copy(target);
+    this.camera.up.set(0, 1, 0);
+    this.camera.position.set(target.x, target.y + r * 1.55, target.z);
+    this.controls.update();
+  }
+
+  /** true: 극각 고정(탑뷰 유지), false: 일반 Orbit */
+  public setPlanViewOrbitLock(locked: boolean): void {
+    if (locked) {
+      // OrbitControls: phi=0 → +Y 축(위)에서 target 을 내려다봄
+      const polar = 0.001;
+      this.controls.minPolarAngle = polar;
+      this.controls.maxPolarAngle = polar;
+    } else {
+      this.controls.minPolarAngle = 0;
+      this.controls.maxPolarAngle = Math.PI;
+    }
+    this.controls.update();
+  }
+
   public dispose(): void {
     this.controls.dispose();
   }
