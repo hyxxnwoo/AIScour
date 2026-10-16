@@ -11,7 +11,8 @@ export class ConditionSetupCaseBar implements Disposable {
   public readonly element: HTMLElement;
   private readonly handlers: ConditionSetupCaseBarHandlers;
   private select!: HTMLSelectElement;
-  private activeCaseId = 'A-032';
+  private activeCaseId = '';
+  private pinned: { id: string; label: string } | null = null;
 
   public constructor(handlers: ConditionSetupCaseBarHandlers) {
     this.handlers = handlers;
@@ -40,8 +41,25 @@ export class ConditionSetupCaseBar implements Disposable {
     this.element.appendChild(upload);
   }
 
+  /** CSV 적용으로 방금 생긴 케이스. 목록 필터(검증완료·오류)와 별도로 고른 값으로 둔다. */
+  public pinIssuedCase(id: string, label: string): void {
+    this.pinned = { id, label };
+    this.activeCaseId = id;
+    this.rebuildOptions();
+  }
+
   private rebuildOptions(): void {
     this.select.replaceChildren();
+    const pending = document.createElement('option');
+    pending.value = '';
+    pending.textContent = '시뮬레이션 적용 전';
+    this.select.appendChild(pending);
+    if (this.pinned) {
+      const issued = document.createElement('option');
+      issued.value = this.pinned.id;
+      issued.textContent = this.pinned.label;
+      this.select.appendChild(issued);
+    }
     for (const c of MOCK_CASES) {
       if (c.status !== 'done' && c.status !== 'err') continue;
       const st = MOCK_CASE_STATUS[c.status].label;

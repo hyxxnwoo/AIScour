@@ -5,16 +5,42 @@ import {
   computeSectionKpi,
   sampleSectionProfile,
   sectionLengthM,
+  sectionPointAtDistance,
   sectionProfileChartYDomain,
+  terrainWorldBounds,
 } from '@/utils/sectionProfile';
 
 describe('sectionProfile', () => {
+  it('단면 거리는 평면의 종단·횡단 좌표로 대응한다', async () => {
+    const series = await new SyntheticScourSource({
+      frameCount: 3,
+      frameIntervalSeconds: 30,
+    }).load();
+    const bounds = terrainWorldBounds(series);
+    const piers = [
+      { id: 'P2', x: 0.4, z: -0.2, diameter: 0.1, height: 0.5, shape: 'circle' as const },
+    ];
+    const alongS = (bounds.xMax - bounds.xMin) * 0.35;
+    const along = sectionPointAtDistance(series, 'A', alongS, piers);
+    expect(along.worldX).toBeCloseTo(bounds.xMin + alongS);
+    expect(along.worldZ).toBeCloseTo(-0.2);
+    const pastEnd = sectionPointAtDistance(series, 'A', 100, piers);
+    expect(pastEnd.worldX).toBeCloseTo(bounds.xMax);
+    const acrossS = (bounds.zMax - bounds.zMin) * 0.4;
+    const across = sectionPointAtDistance(series, 'B', acrossS, piers);
+    expect(across.worldX).toBeCloseTo(0.4);
+    expect(across.worldZ).toBeCloseTo(bounds.zMin + acrossS);
+  });
+
   it('종단 단면 길이는 지형 X 범위와 같다', async () => {
-    const series = await new SyntheticScourSource({ frameCount: 5, frameIntervalSeconds: 30 }).load();
+    const series = await new SyntheticScourSource({
+      frameCount: 5,
+      frameIntervalSeconds: 30,
+    }).load();
     expect(sectionLengthM(series, 'A')).toBeGreaterThan(0);
     const samples = sampleSectionProfile(series, 'A', 0, 20);
     expect(samples.length).toBe(21);
-    expect(samples[0]!.s).toBe(0);
+    expect(samples[0].s).toBe(0);
   });
 
   it('Y축 도메인은 퇴적(+) 샘플을 포함한다', () => {
@@ -36,7 +62,9 @@ describe('sectionProfile', () => {
       frameIntervalSeconds: 30,
       pier: { x: pierX, z: 0 },
     }).load();
-    const piers = [{ id: 'P1', x: pierX, z: 0, diameter: 0.1, height: 0.5, shape: 'circle' as const }];
+    const piers = [
+      { id: 'P1', x: pierX, z: 0, diameter: 0.1, height: 0.5, shape: 'circle' as const },
+    ];
     const kpi = computeSectionKpi(series, 'A', 120, 0.127, 0.05, piers);
     expect(kpi.maxScourDepthM).toBe(0.05);
     expect(kpi.marginToFootingM).toBeCloseTo(0.077, 2);

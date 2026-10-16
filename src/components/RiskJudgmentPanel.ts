@@ -31,8 +31,17 @@ export class RiskJudgmentPanel implements Disposable {
     this.element.className = 'risk-judgment-panel is-hidden';
     this.host = document.createElement('div');
     this.host.className = 'risk-judgment-panel__scroll';
+    this.host.addEventListener('pointerdown', this.onHostPointerDown);
     this.element.appendChild(this.host);
   }
+
+  /** 패널 DOM은 매 프레임 교체되므로, 버튼 노드가 아니라 고정 컨테이너에서 받는다. */
+  private onHostPointerDown = (event: PointerEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (!target.closest('.risk-judgment-panel__sop-btn')) return;
+    this.handlers.onOpenSop();
+  };
 
   public update(
     pierDepths: PierScourDepth[],
@@ -76,7 +85,6 @@ export class RiskJudgmentPanel implements Disposable {
     sopBtn.className = 'risk-judgment-panel__sop-btn';
     sopBtn.style.background = wg.color;
     sopBtn.textContent = '대응 절차(SOP) 보기 →';
-    sopBtn.addEventListener('click', () => this.handlers.onOpenSop());
     summary.appendChild(sopBtn);
 
     const head = document.createElement('div');
@@ -126,6 +134,7 @@ export class RiskJudgmentPanel implements Disposable {
   }
 
   public dispose(): void {
+    this.host.removeEventListener('pointerdown', this.onHostPointerDown);
     this.element.remove();
   }
 }

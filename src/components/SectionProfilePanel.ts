@@ -6,10 +6,12 @@ import {
   piersOnSection,
   sampleSectionProfile,
   sectionLengthM,
+  sectionPointAtDistance,
   sectionProfileChartYDomain,
   type SectionId,
   type SectionKpi,
   type SectionSample,
+  type SectionWorldPoint,
 } from '@/utils/sectionProfile';
 
 const CH = {
@@ -57,6 +59,7 @@ function buildProfSvg(
   foundationDepthM: number,
   piers: PierDefinition[],
   viewAspect?: number,
+  hoverS: number | null = null,
 ): string {
   const H = 280;
   const baseAspect = 960 / H;
@@ -123,8 +126,19 @@ function buildProfSvg(
 
   const y0 = Y(0);
   const yFoot = Y(-foundationDepthM);
+  let hoverSvg = '';
+  if (hoverS !== null && cur.length > 0) {
+    const clamped = Math.max(0, Math.min(hoverS, len));
+    const nearest = cur.reduce((best, p) =>
+      Math.abs(p.s - clamped) < Math.abs(best.s - clamped) ? p : best,
+    );
+    const hx = X(clamped);
+    const hy = Y(nearest.deltaM);
+    hoverSvg = `<line x1="${hx}" y1="${T}" x2="${hx}" y2="${T + plotH}" stroke="${CH.cur}" stroke-width="1.25" stroke-dasharray="3 3"/>
+    <circle cx="${hx}" cy="${hy}" r="4.5" fill="${CH.cur}" stroke="#fff" stroke-width="1.5"/>`;
+  }
 
-  return `<svg class="section-profile-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="단면 하상 변화">
+  return `<svg class="section-profile-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="단면 하상 변화" data-plot-l="${L}" data-plot-t="${T}" data-plot-w="${plotW}" data-plot-h="${plotH}" data-len="${len}">
     <defs>
       <linearGradient id="sec-scour-fill" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="rgba(91,155,213,0.08)"/>
@@ -144,6 +158,7 @@ function buildProfSvg(
     <line x1="${L}" y1="${yFoot}" x2="${W - R}" y2="${yFoot}" stroke="${CH.foot}" stroke-width="2" stroke-linecap="round"/>
     <path d="${P(mid)}" fill="none" stroke="${CH.mid}" stroke-width="2" stroke-dasharray="6 5" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>
     <path d="${P(cur)}" fill="none" stroke="${CH.cur}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    ${hoverSvg}
     </g>
     ${yLabels}${xLabels}
     <text x="${L - 10}" y="${T - 10}" fill="${CH.inkDim}" font-size="10" font-family="system-ui,sans-serif" text-anchor="end">Δz (m)</text>
@@ -155,6 +170,8 @@ function buildProfSvg(
 
 export interface SectionProfilePanelHandlers {
   onSectionChange: (section: SectionId) => void;
+  /** 그래프 가로 위치 → 단면선 위의 월드 좌표. 벗어나면 null */
+  onHover?: (point: SectionWorldPoint | null) => void;
 }
 
 /** 6번 화면 하단 — 단면 그래프 + KPI 카드 */
@@ -173,6 +190,7 @@ export class SectionProfilePanel implements Disposable {
   private lastFoundation = 0;
   private lastPiers: PierDefinition[] = [];
   private lastKpi: SectionKpi | null = null;
+  private hoverS: number | null = null;
 
   public constructor(handlers: SectionProfilePanelHandlers) {
     this.handlers = handlers;
@@ -199,6 +217,7 @@ export class SectionProfilePanel implements Disposable {
       btn.addEventListener('click', () => {
         this.section = id;
         this.syncSeg();
+        this.clearHover();
         this.handlers.onSectionChange(id);
       });
       seg.appendChild(btn);
@@ -228,6 +247,8 @@ export class SectionProfilePanel implements Disposable {
     this.kpiHost = document.createElement('div');
     this.kpiHost.className = 'section-profile-panel__kpis';
 
+    this.chartHost.addEventListener('pointermove', this.onChartPointer);
+    this.chartHost.addEventListener('pointerleave', this.onChartLeave);
     this.element.append(head, this.chartHost, this.kpiHost);
     this.syncSeg();
     this.setTitle();
@@ -265,7 +286,48 @@ export class SectionProfilePanel implements Disposable {
       foundationDepthM,
       piers,
       viewAspect,
+      this.hoverS,
     );
+  }
+
+  private onChartPointer = (event: PointerEvent): void => {
+    if (!this.lastSeries) return;
+    const svg = this.chartHost.querySelector('svg');
+    if (!svg) return;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return;
+    const plotL = Number(svg.dataset.plotL);
+    const plotT = Number(svg.dataset.plotT);
+    const plotW = Number(svg.dataset.plotW);
+    const plotH = Number(svg.dataset.plotH);
+    const len = Number(svg.dataset.len);
+    if (![plotL, plotT, plotW, plotH, len].every((n) => Number.isFinite(n)) || plotW <= 0) return;
+
+    const pt = svg.createSVGPoint();
+    pt.x = event.clientX;
+    pt.y = event.clientY;
+    const local = pt.matrixTransform(ctm.inverse());
+    const inside =
+      local.x >= plotL && local.x <= plotL + plotW && local.y >= plotT && local.y <= plotT + plotH;
+    if (!inside) {
+      this.clearHover();
+      return;
+    }
+    const s = ((local.x - plotL) / plotW) * len;
+    this.hoverS = s;
+    this.handlers.onHover?.(
+      sectionPointAtDistance(this.lastSeries, this.section, s, this.lastPiers),
+    );
+  };
+
+  private onChartLeave = (): void => {
+    this.clearHover();
+  };
+
+  private clearHover(): void {
+    if (this.hoverS === null) return;
+    this.hoverS = null;
+    this.handlers.onHover?.(null);
   }
 
   public getSection(): SectionId {
@@ -334,6 +396,8 @@ export class SectionProfilePanel implements Disposable {
   }
 
   public dispose(): void {
+    this.chartHost.removeEventListener('pointermove', this.onChartPointer);
+    this.chartHost.removeEventListener('pointerleave', this.onChartLeave);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.element.remove();

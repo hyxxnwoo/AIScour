@@ -114,6 +114,30 @@ export function sectionLengthM(series: ScourSeries, section: SectionId): number 
   return section === 'A' ? b.xMax - b.xMin : b.zMax - b.zMin;
 }
 
+export interface SectionWorldPoint {
+  /** 단면 시작점으로부터 거리(m) */
+  s: number;
+  worldX: number;
+  worldZ: number;
+}
+
+/** 단면 거리 s → 평면 좌표. A는 종단(X), B는 횡단(Z). */
+export function sectionPointAtDistance(
+  series: ScourSeries,
+  section: SectionId,
+  distanceM: number,
+  piers: PierDefinition[] = [],
+): SectionWorldPoint {
+  const b = terrainWorldBounds(series);
+  const len = sectionLengthM(series, section);
+  const s = Math.max(0, Math.min(distanceM, len));
+  const zLine = piers.length > 0 ? piers.reduce((sum, p) => sum + p.z, 0) / piers.length : 0;
+  const p2 = piers.find((p) => p.id === 'P2') ?? piers[Math.floor(piers.length / 2)];
+  const xLine = p2?.x ?? 0;
+  if (section === 'A') return { s, worldX: b.xMin + s, worldZ: zLine };
+  return { s, worldX: xLine, worldZ: b.zMin + s };
+}
+
 /** 단면 A: z≈교각 중심 종단(X). B: x≈P2(또는 도메인 중심) 횡단(Z) */
 export function sampleSectionProfile(
   series: ScourSeries,

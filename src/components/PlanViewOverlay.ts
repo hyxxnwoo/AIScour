@@ -3,7 +3,7 @@ import { Vector3 } from 'three';
 import type { PierDefinition } from '@/modules/PierMarker';
 import type { ScourSeries } from '@/types/terrain';
 import type { Disposable } from '@/types/disposable';
-import { terrainWorldBounds, type SectionId } from '@/utils/sectionProfile';
+import { terrainWorldBounds, type SectionId, type SectionWorldPoint } from '@/utils/sectionProfile';
 
 /** Top 뷰 위 단면선 A–A′ / B–B′ 오버레이 */
 export class PlanViewOverlay implements Disposable {
@@ -13,6 +13,7 @@ export class PlanViewOverlay implements Disposable {
   private series: ScourSeries | null = null;
   private piers: PierDefinition[] = [];
   private camera: Camera | null = null;
+  private hover: SectionWorldPoint | null = null;
   private readonly tmp = new Vector3();
 
   public constructor() {
@@ -25,6 +26,10 @@ export class PlanViewOverlay implements Disposable {
 
   public setSection(section: SectionId): void {
     this.section = section;
+  }
+
+  public setHover(point: SectionWorldPoint | null): void {
+    this.hover = point;
   }
 
   public setContext(series: ScourSeries, piers: PierDefinition[], camera: Camera): void {
@@ -121,6 +126,41 @@ export class PlanViewOverlay implements Disposable {
     drawLabel(lb, bpt[0] + ux * labelPad + nx * 10, bpt[1] + uy * labelPad + ny * 10);
 
     this.drawPierMarkers(w, h);
+    this.drawHover(w, h);
+  }
+
+  private drawHover(w: number, h: number): void {
+    if (!this.hover) return;
+    const p = this.project(this.hover.worldX, this.hover.worldZ, w, h);
+    if (!p) return;
+    const g = this.ctx;
+    const [x, y] = p;
+    g.save();
+    g.shadowColor = 'rgba(240, 113, 103, 0.65)';
+    g.shadowBlur = 12;
+    g.beginPath();
+    g.arc(x, y, 9, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(240, 113, 103, 0.28)';
+    g.fill();
+    g.lineWidth = 2.5;
+    g.strokeStyle = '#f07167';
+    g.stroke();
+    g.beginPath();
+    g.arc(x, y, 3, 0, Math.PI * 2);
+    g.fillStyle = '#fff';
+    g.fill();
+    g.restore();
+
+    const label = `${this.hover.s.toFixed(2)} m`;
+    const labelY = y - 16 < 16 ? y + 18 : y - 16;
+    g.font = '600 11px system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.lineWidth = 3;
+    g.strokeStyle = 'rgba(12, 32, 52, 0.9)';
+    g.fillStyle = '#ffe8e4';
+    g.strokeText(label, x, labelY);
+    g.fillText(label, x, labelY);
   }
 
   private drawPierMarkers(w: number, h: number): void {

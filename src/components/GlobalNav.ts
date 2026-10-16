@@ -20,6 +20,7 @@ export class GlobalNav implements Disposable {
   private readonly badgeDot: HTMLElement;
   private readonly badgeText: HTMLElement;
   private activeMenu: 'case' | 'viewer' | 'alert' | null = 'viewer';
+  private caseLabelEl!: HTMLElement;
 
   public constructor(handlers: GlobalNavHandlers) {
     this.handlers = handlers;
@@ -64,7 +65,8 @@ export class GlobalNav implements Disposable {
 
     const caseSel = document.createElement('div');
     caseSel.className = 'global-nav__case';
-    caseSel.textContent = 'Case A-032 · 원기둥 D=1.6 m · 교각 3 ▾';
+    caseSel.textContent = '케이스 미생성';
+    this.caseLabelEl = caseSel;
 
     this.badgeEl = document.createElement('div');
     this.badgeEl.className = 'global-nav__alertdot';
@@ -107,6 +109,10 @@ export class GlobalNav implements Disposable {
           (key === 'alert' && this.activeMenu === 'alert'),
       );
     }
+  }
+
+  public setCaseLabel(label: string): void {
+    this.caseLabelEl.textContent = label;
   }
 
   public setBadge(badge: GlobalNavBadge): void {

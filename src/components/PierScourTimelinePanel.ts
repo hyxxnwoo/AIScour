@@ -24,7 +24,8 @@ function buildTsSvg(
   const iw = W - L - R;
   const ih = H - T - B;
   const fd = foundationDepthM;
-  const Y = (d: number): number => T + ih * (1 - d / Math.max(fd * 1.05, 1e-9));
+  // 세굴은 하상 아래로 깊어지므로 0 m를 위, 기초 저면을 아래에 둔다.
+  const Y = (d: number): number => T + ih * (d / Math.max(fd, 1e-9));
   const X = (tt: number): number => L + (iw * tt) / Math.max(durationSeconds, 1);
 
   const [th1, th2, th3] = gradeDepthThresholds(fd);
@@ -39,6 +40,8 @@ function buildTsSvg(
   for (let tt = 0; tt <= durationSeconds + 0.01; tt += tickStep) {
     s += `<text x="${X(tt)}" y="${H - 7}" fill="${CH.ink2}" font-size="10.5" text-anchor="middle">${Math.round(tt)}s</text>`;
   }
+  s += `<text x="${L + 6}" y="${T + 13}" fill="${CH.ink2}" font-size="10.5">초기 하상 0 m</text>`;
+  s += `<text x="${L - 35}" y="${T + ih / 2}" fill="${CH.ink2}" font-size="10.5" text-anchor="middle" transform="rotate(-90 ${L - 35} ${T + ih / 2})">표시 세굴심 (m) · 아래로 깊어짐 ↓</text>`;
   thresholds.forEach((d, i) => {
     const g = GRADES[i + 1];
     if (!g) return;
@@ -98,8 +101,8 @@ export class PierScourTimelinePanel implements Disposable {
     left.className = 'pier-timeline-panel__chart-wrap';
     const head = document.createElement('div');
     head.className = 'pier-timeline-panel__head';
-    head.innerHTML = `<div class="pier-timeline-panel__title">교각별 세굴심 시계열</div>
-      <span class="pier-timeline-panel__note">점선 = 등급 경계 (잔여 여유율 70/40/20 %)
+    head.innerHTML = `<div class="pier-timeline-panel__title">교각별 표시 세굴심 시계열</div>
+      <span class="pier-timeline-panel__note">초기 하상에서 아래로 깊어지는 방향 · 점선 = 등급 경계 (잔여 여유율 70/40/20 %)
       ${IS_THRESHOLD_PROVISIONAL ? '<span class="grade-legend-panel__prov">잠정</span>' : ''}</span>`;
     this.chartHost = document.createElement('div');
     this.chartHost.className = 'pier-timeline-panel__chart';
@@ -131,7 +134,7 @@ export class PierScourTimelinePanel implements Disposable {
     const hint = document.createElement('div');
     hint.className = 'pier-timeline-panel__hint';
     const [a, b, c] = gradeDepthThresholds(foundationDepthM);
-    hint.textContent = `경계 세굴심 ${a.toFixed(2)} / ${b.toFixed(2)} / ${c.toFixed(2)} m — 처음 도달 시각`;
+    hint.textContent = `표시용 보정값 기준 · 경계 세굴심 ${a.toFixed(2)} / ${b.toFixed(2)} / ${c.toFixed(2)} m — 처음 도달 시각 (CSV 원 세굴량은 3D 지형에서 확인)`;
     this.tableHost.appendChild(hint);
   }
 

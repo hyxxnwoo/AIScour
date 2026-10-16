@@ -24,7 +24,7 @@ export interface AlertSopPageOptions {
 export class AlertSopPage implements Disposable {
   public readonly element: HTMLElement;
   private readonly store: MockAlertSopStore;
-  private readonly caseId: string;
+  private caseId: string;
   private durationSeconds: number;
   private readonly onChanged: () => void;
   private snapshotDepths: PierScourDepth[] = [];
@@ -42,6 +42,11 @@ export class AlertSopPage implements Disposable {
     this.element = document.createElement('div');
     this.element.className = 'alert-sop-page screen-stack-page is-hidden';
     this.element.addEventListener('click', (e) => this.onClick(e));
+  }
+
+  public setCaseId(caseId: string): void {
+    this.caseId = caseId;
+    if (!this.element.classList.contains('is-hidden')) this.render();
   }
 
   public setContext(

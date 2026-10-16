@@ -60,6 +60,24 @@ export class CaseManagementPage implements Disposable {
     if (visible) this.render();
   }
 
+  public knownCaseIds(): string[] {
+    return this.cases.map((row) => row.id);
+  }
+
+  public findCase(caseId: string): MockCaseRow | null {
+    return this.cases.find((row) => row.id === caseId) ?? null;
+  }
+
+  /** CSV 적용으로 발급된 케이스를 이번 세션 목록 맨 앞에 둔다. */
+  public registerIssuedCase(row: MockCaseRow): void {
+    this.cases = this.cases
+      .filter((item) => item.id !== row.id)
+      .map((item) => ({ ...item, selected: false }));
+    this.cases.unshift({ ...row, selected: true });
+    this.page = 1;
+    this.render();
+  }
+
   /** bootstrap 후 조건 설정(4번) 이동 핸들러 연결 */
   public bindStartNewSimulation(handler: CaseManagementPageHandlers['onStartNewSimulation']): void {
     this.handlers.onStartNewSimulation = handler;
@@ -325,7 +343,7 @@ export class CaseManagementPage implements Disposable {
           <div class="case-new-sim">
             <div class="case-new-sim__copy">
               <h3 class="case-new-sim__title">새 시뮬레이션</h3>
-              <p class="case-new-sim__desc">FLOW-3D 결과 CSV는 <b>조건 설정</b> 화면에서 업로드합니다. 뷰어와 동일하게 <b>CSV 선택</b> → <b>파싱</b> → <b>적용하고 결과 보기</b> 순서입니다.</p>
+              <p class="case-new-sim__desc">FLOW-3D 결과 CSV는 <b>조건 설정</b> 화면에서 업로드합니다. <b>적용하고 결과 보기</b>를 누르면 그 시뮬레이션의 케이스 ID가 발급됩니다.</p>
             </div>
             <button type="button" class="case-new-sim__cta" data-act="new-sim-start">새 해석 시작</button>
           </div>

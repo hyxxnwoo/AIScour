@@ -22,6 +22,7 @@ import { ScreenPlaceholder } from '@/components/ScreenPlaceholder';
 import { SectionProfilePanel } from '@/components/SectionProfilePanel';
 import { PlanViewOverlay } from '@/components/PlanViewOverlay';
 import { computeSectionKpi } from '@/utils/sectionProfile';
+import { formatCaseHeadline, nextCaseId } from '@/utils/issueCaseId';
 import { GradeLegendPanel } from '@/components/GradeLegendPanel';
 import { PierLabelOverlay } from '@/components/PierLabelOverlay';
 import { PierScourTimelinePanel } from '@/components/PierScourTimelinePanel';
@@ -474,7 +475,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   subnavMount.appendChild(viewerSubNav.element);
 
   const statusBar = new StatusBar({
-    caseId: 'A-032',
+    caseId: '미생성',
     coordinateSystem: 'Local (model)',
     units: 'm, m/s',
     foundationDepthM: DEFAULT_SIM_PARAMS.foundationDepth,
@@ -491,7 +492,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   const openSopScreen = (): void => router.goto(10);
   const alertSopPage = new AlertSopPage({
     store: mockAlertSopStore,
-    caseId: 'A-032',
+    caseId: '미생성',
     durationSeconds: 0,
     onChanged: () => {
       /* 목업 SOP 상태만 갱신 */
@@ -507,8 +508,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
 
   const caseManagementPage = new CaseManagementPage({
     onOpenViewer: (caseId) => {
-      statusBar.update({ caseId });
-      conditionSetupCaseBar.setCaseId(caseId);
+      showCase(caseId);
       router.goto(4);
     },
     onOpenDataPipeline: () => router.goto(3),
@@ -554,9 +554,29 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   const conditionSetupCaseBar = new ConditionSetupCaseBar({
     onOpenPipeline: () => router.goto(3),
     onCaseChange: (caseId) => {
-      statusBar.update({ caseId });
+      showCase(caseId);
     },
   });
+
+  const showCase = (caseId: string): void => {
+    if (!caseId) {
+      statusBar.update({ caseId: '미생성' });
+      globalNav.setCaseLabel('케이스 미생성');
+      alertSopPage.setCaseId('미생성');
+      conditionSetupCaseBar.setCaseId('');
+      return;
+    }
+    statusBar.update({ caseId });
+    globalNav.setCaseLabel(headlineForCase(caseId));
+    alertSopPage.setCaseId(caseId);
+    conditionSetupCaseBar.setCaseId(caseId);
+  };
+
+  const headlineForCase = (caseId: string): string => {
+    const row = caseManagementPage.findCase(caseId);
+    if (!row) return `Case ${caseId}`;
+    return formatCaseHeadline(row.id, row.shape, row.diameterM, row.pierCount);
+  };
 
   const riskJudgmentPanel = new RiskJudgmentPanel({ onOpenSop: openSopScreen });
 
@@ -570,9 +590,14 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   const sectionProfilePanel = new SectionProfilePanel({
     onSectionChange: (sec) => {
       planViewOverlay.setSection(sec);
+      planViewOverlay.setHover(null);
       if (router.screen === 6) {
         statusBar.update({ extra: sec === 'A' ? '단면 A–A′' : '단면 B–B′' });
       }
+    },
+    onHover: (point) => {
+      planViewOverlay.setHover(point);
+      if (router.screen === 6) planViewOverlay.draw();
     },
   });
   viewerCenter.appendChild(sectionProfilePanel.element);
@@ -870,6 +895,8 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
 
   /** 4번에서 적용 완료 후 이동할 화면 */
   let navigateAfterApply: ScreenId | null = null;
+  /** 이번 CSV 적용에서 발급된 ID. 이동 토스트에 한 번 적는다. */
+  let issuedCaseId = '';
   /** 4번에서 파싱만 끝난 CSV. 적용 버튼을 누를 때 장면에 넣는다. */
   let stagedCsv: CsvDashboardLoadResult | null = null;
   // eslint-disable-next-line prefer-const -- applyParams 가 선언보다 앞에서 csvUploadPanel 참조
@@ -886,6 +913,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     baseFluid: FluidSeries | null = null,
     coordinateFluid = false,
     probeSeries: SampleProbeSeries | null = null,
+    issueCase = false,
   ): void => {
     csvUploadPanel.setApplyLoading(true);
     fluidControls.setLoading(true);
@@ -898,7 +926,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       probeSeries,
     ).then(
       (next) => {
-        swapSim(next, newParams);
+        swapSim(next, newParams, issueCase);
         csvUploadPanel.setApplyLoading(false);
         fluidControls.setLoading(false);
       },
@@ -910,7 +938,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     );
   };
 
-  const swapSim = (next: SimState, nextParams: SimParams = params): void => {
+  const swapSim = (next: SimState, nextParams: SimParams = params, issueCase = false): void => {
     loop.stop();
     const old = sim;
     old.dispose();
@@ -925,6 +953,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       next.pierDefs,
       nextParams.foundationDepth,
     );
+    if (issueCase) adoptIssuedCase(nextParams);
     syncAlertSopSnapshot();
     pierLabelOverlay.setPiers(next.pierDefs);
 
@@ -984,10 +1013,43 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       const target = navigateAfterApply;
       navigateAfterApply = null;
       router.goto(target);
-      if (canPlayback && target === 5) {
+      if (issuedCaseId && canPlayback && target === 5) {
+        viewerToast.show(
+          `케이스 ${issuedCaseId} 생성 · 시뮬레이션 재생 중 — 타임라인에서 일시정지·구간 이동 가능`,
+        );
+      } else if (issuedCaseId) {
+        viewerToast.show(`케이스 ${issuedCaseId}가 생성되었습니다.`);
+      } else if (canPlayback && target === 5) {
         viewerToast.show('시뮬레이션 재생 중 — 타임라인에서 일시정지·구간 이동 가능');
       }
+      issuedCaseId = '';
     }
+  };
+
+  const adoptIssuedCase = (nextParams: SimParams): void => {
+    const id = nextCaseId(caseManagementPage.knownCaseIds());
+    const shape = nextParams.structureShape === 'square' ? '사각기둥' : '원기둥';
+    issuedCaseId = id;
+    caseManagementPage.registerIssuedCase({
+      id,
+      shape,
+      diameterM: nextParams.pierDiameter,
+      pierCount: nextParams.pierCount,
+      flow: nextParams.fluidU.toFixed(3),
+      d50: String(nextParams.sandGrainSizeMm),
+      maxScourM: null,
+      status: 'run',
+      updatedAt: stampCaseNow(),
+      selected: true,
+    });
+    conditionSetupCaseBar.pinIssuedCase(id, `${id} · 해석중 · ${shape}`);
+    showCase(id);
+  };
+
+  const stampCaseNow = (): string => {
+    const now = new Date();
+    const pad = (value: number): string => String(value).padStart(2, '0');
+    return `${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
   };
 
   experimentInfoPanel = new ExperimentInfoPanel(params);
@@ -1001,7 +1063,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       }
       if (router.screen === 4) navigateAfterApply = 5;
       const next = collectParams();
-      applyParams(next, staged.scour, staged.fluid, false, staged.probeSeries);
+      applyParams(next, staged.scour, staged.fluid, false, staged.probeSeries, true);
     },
     onLoaded: (result) => {
       stagedCsv = result;
