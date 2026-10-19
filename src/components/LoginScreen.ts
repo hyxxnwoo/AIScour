@@ -1,6 +1,5 @@
 import type { Disposable } from '@/types/disposable';
 import { countUpText, tweenNumber } from '@/viz/tween';
-import { observeWidgetTier } from '@/viz/widget';
 
 export interface LoginScreenOptions {
   onSuccess: () => void;
@@ -183,12 +182,11 @@ export class LoginScreen implements Disposable {
     this.element.appendChild(backdrop);
 
     const stage = document.createElement('div');
-    stage.className = 'login-screen__stage viz-widget';
-    stage.dataset.widgetId = 'login-stage';
+    stage.className = 'login-screen__stage';
 
     // ── 좌측 브랜드/실황 패널 (넓은 화면에서만 노출)
     const intro = document.createElement('div');
-    intro.className = 'login-screen__intro viz-tier viz-tier--detail';
+    intro.className = 'login-screen__intro';
 
     const introBadge = document.createElement('div');
     introBadge.className = 'login-screen__intro-badge';
@@ -198,7 +196,7 @@ export class LoginScreen implements Disposable {
 
     const introTitle = document.createElement('h1');
     introTitle.className = 'login-screen__intro-title';
-    introTitle.innerHTML = 'FLOW-3D 시뮬레이션';
+    introTitle.textContent = '교량 세굴 3D 시각화';
     intro.appendChild(introTitle);
 
     const introDesc = document.createElement('p');
@@ -240,7 +238,7 @@ export class LoginScreen implements Disposable {
 
     // ── 우측 로그인 카드
     const card = document.createElement('div');
-    card.className = 'login-screen__card viz-tier viz-tier--core';
+    card.className = 'login-screen__card';
 
     const brand = document.createElement('div');
     brand.className = 'login-screen__brand';
@@ -315,11 +313,15 @@ export class LoginScreen implements Disposable {
     submit.appendChild(submitIcon);
     this.form.appendChild(submit);
 
+    const hint = document.createElement('p');
+    hint.className = 'login-screen__hint';
+    hint.textContent = '데모: admin / scour2026';
     card.appendChild(this.form);
+    card.appendChild(hint);
     stage.appendChild(card);
 
     this.element.appendChild(stage);
-    observeWidgetTier(stage);
+    document.body.classList.add('is-login-screen');
 
     this.onToggle = () => {
       const show = this.pwInput.type === 'password';
@@ -356,6 +358,7 @@ export class LoginScreen implements Disposable {
   public dispose(): void {
     this.form.removeEventListener('submit', this.onSubmit);
     this.pwToggle.removeEventListener('click', this.onToggle);
+    document.body.classList.remove('is-login-screen');
     this.element.remove();
   }
 }

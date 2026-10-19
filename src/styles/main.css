@@ -30,11 +30,10 @@ html {
 
 #app {
   position: relative;
-  display: grid;
+  display: none;
   grid-template-rows: var(--gnb-h) var(--subnav-h) 1fr;
   width: 100vw;
   height: 100vh;
-  visibility: hidden;
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 1rem;
@@ -79,7 +78,11 @@ html {
 }
 
 #app.is-authenticated {
-  visibility: visible;
+  display: grid;
+}
+
+body.is-login-screen {
+  overflow: hidden;
 }
 
 #app:has(.viewer-subnav.is-hidden) {
@@ -3516,6 +3519,10 @@ html {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 24px 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   font-variant-numeric: tabular-nums;
 }
 
@@ -3524,8 +3531,12 @@ html {
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 72px;
-  padding: 32px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: clamp(24px, 5vw, 72px);
+  width: min(960px, 100%);
+  margin: auto;
+  padding: clamp(16px, 3vh, 32px);
 }
 
 .login-screen__backdrop {
@@ -3713,8 +3724,24 @@ html {
 }
 
 @media (max-width: 860px) {
+  .login-screen__stage {
+    flex-direction: column;
+    gap: 20px;
+  }
+
   .login-screen__intro {
-    display: none;
+    width: min(380px, 100%);
+    text-align: center;
+  }
+
+  .login-screen__intro-badge {
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .login-screen__intro-desc {
+    margin-left: auto;
+    margin-right: auto;
   }
 }
 
@@ -3819,7 +3846,17 @@ html {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0 30px 30px;
+  padding: 0 30px 16px;
+}
+
+.login-screen__hint {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: 0 30px 26px;
+  font-size: 11.5px;
+  color: #6f89a0;
+  text-align: center;
 }
 
 .login-screen__field {
