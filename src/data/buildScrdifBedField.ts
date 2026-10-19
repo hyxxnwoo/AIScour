@@ -289,10 +289,10 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 export function featherDeltaAtPierFootprint(
   delta: Float32Array,
   terrain: TerrainGrid,
-  pier: { x: number; z: number; diameter: number },
+  pier: { x: number; z: number; diameter?: number },
   flowHeadingRad = 0,
 ): void {
-  const d = Math.max(pier.diameter, 0.05);
+  const d = Math.max(pier.diameter ?? 1.6, 0.05);
   const cos = Math.cos(flowHeadingRad);
   const sin = Math.sin(flowHeadingRad);
   const upstream = 1.55 * d;

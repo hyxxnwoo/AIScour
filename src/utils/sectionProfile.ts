@@ -5,6 +5,20 @@ import { remainPct } from '@/constants/grade';
 
 export type SectionId = 'A' | 'B';
 
+/** 횡단 B–B′ 기본 교각 (없으면 중앙) */
+export function defaultTransversePierId(piers: PierDefinition[]): string {
+  return (
+    piers.find((p) => p.id === 'P2')?.id ??
+    piers[Math.floor(piers.length / 2)]?.id ??
+    piers[0]?.id ??
+    'P1'
+  );
+}
+
+export function transverseLineWorldX(piers: PierDefinition[], pierId: string): number {
+  return piers.find((p) => p.id === pierId)?.x ?? piers[0]?.x ?? 0;
+}
+
 export interface SectionSample {
   /** 단면 시작점으로부터 거리(m) */
   s: number;
@@ -127,13 +141,13 @@ export function sectionPointAtDistance(
   section: SectionId,
   distanceM: number,
   piers: PierDefinition[] = [],
+  transversePierId?: string,
 ): SectionWorldPoint {
   const b = terrainWorldBounds(series);
   const len = sectionLengthM(series, section);
   const s = Math.max(0, Math.min(distanceM, len));
   const zLine = piers.length > 0 ? piers.reduce((sum, p) => sum + p.z, 0) / piers.length : 0;
-  const p2 = piers.find((p) => p.id === 'P2') ?? piers[Math.floor(piers.length / 2)];
-  const xLine = p2?.x ?? 0;
+  const xLine = transverseLineWorldX(piers, transversePierId ?? defaultTransversePierId(piers));
   if (section === 'A') return { s, worldX: b.xMin + s, worldZ: zLine };
   return { s, worldX: xLine, worldZ: b.zMin + s };
 }
@@ -145,13 +159,13 @@ export function sampleSectionProfile(
   timeSeconds: number,
   sampleCount = 160,
   piers: PierDefinition[] = [],
+  transversePierId?: string,
 ): SectionSample[] {
   const b = terrainWorldBounds(series);
   const frameIdx = frameIndexAtTime(series, timeSeconds);
   const len = sectionLengthM(series, section);
   const zLine = piers.length > 0 ? piers.reduce((a, p) => a + p.z, 0) / piers.length : 0;
-  const p2 = piers.find((p) => p.id === 'P2') ?? piers[Math.floor(piers.length / 2)];
-  const xLine = p2?.x ?? 0;
+  const xLine = transverseLineWorldX(piers, transversePierId ?? defaultTransversePierId(piers));
 
   const out: SectionSample[] = [];
   for (let i = 0; i <= sampleCount; i++) {
@@ -174,10 +188,12 @@ export function piersOnSection(
   series: ScourSeries,
   section: SectionId,
   piers: PierDefinition[],
+  transversePierId?: string,
 ): PierOnSection[] {
   const b = terrainWorldBounds(series);
-  const p2 = piers.find((p) => p.id === 'P2') ?? piers[Math.floor(piers.length / 2)];
-  const xLine = p2?.x ?? 0;
+  const focusId = transversePierId ?? defaultTransversePierId(piers);
+  const focusPier = piers.find((p) => p.id === focusId) ?? piers[0];
+  const xLine = transverseLineWorldX(piers, focusId);
 
   if (section === 'A') {
     return [...piers]
@@ -188,7 +204,7 @@ export function piersOnSection(
         diameterM: p.diameter ?? 0.1,
       }));
   }
-  const tol = Math.max(0.04, (p2?.diameter ?? 0.1) * 0.55);
+  const tol = Math.max(0.04, (focusPier?.diameter ?? 0.1) * 0.55);
   return piers
     .filter((p) => Math.abs(p.x - xLine) <= tol)
     .sort((a, b) => a.z - b.z)
@@ -207,13 +223,15 @@ export function computeSectionKpi(
   foundationDepthM: number,
   pierScourDepthM: number,
   piers: PierDefinition[] = [],
+  transversePierId?: string,
 ): SectionKpi {
-  const samples = sampleSectionProfile(series, section, timeSeconds, 300, piers);
+  const tid = transversePierId ?? defaultTransversePierId(piers);
+  const samples = sampleSectionProfile(series, section, timeSeconds, 300, piers, tid);
   const len = sectionLengthM(series, section);
   const ds = len / Math.max(1, samples.length - 1);
-  const onSec = piersOnSection(series, section, piers);
+  const onSec = piersOnSection(series, section, piers, tid);
   const focus =
-    onSec.find((p) => p.pierId === 'P2') ??
+    onSec.find((p) => p.pierId === tid) ??
     onSec[Math.floor(onSec.length / 2)] ??
     ({ s: len / 2, diameterM: 0.1 } as PierOnSection);
   const ci = Math.round(focus.s / ds);

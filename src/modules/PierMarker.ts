@@ -1,10 +1,17 @@
+import type { BufferGeometry } from 'three';
 import {
   BoxGeometry,
   CatmullRomCurve3,
   CylinderGeometry,
+  DoubleSide,
+  EdgesGeometry,
   Group,
+  LineBasicMaterial,
+  LineSegments,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
+  RingGeometry,
   TubeGeometry,
   Vector3,
   type Material,
@@ -125,6 +132,7 @@ export class PierMarker implements Disposable {
       shaft.position.set(pier.x, this.baseElevation + height / 2, pier.z);
       shaft.name = `pier-${pier.id}`;
       this.group.add(shaft);
+      this.addPierSelectionFx(pier.id, shaft, shaftGeom, pier.x, pier.z, diameter * 0.55);
     } else {
       const shaftGeom = new CylinderGeometry(radius, radius, height, 24);
       const shaft = new Mesh(shaftGeom, shaftMat);
@@ -145,7 +153,76 @@ export class PierMarker implements Disposable {
       } else {
         this.group.add(shaft);
       }
+      this.addPierSelectionFx(pier.id, shaft, shaftGeom, pier.x, pier.z, radius);
     }
+  }
+
+  /**
+   * 선택 표시 — 샤프트 등급색은 그대로, 지면 타깃 링 + 모서리 라인만.
+   */
+  private addPierSelectionFx(
+    pierId: string,
+    shaft: Mesh,
+    shaftGeom: BoxGeometry | CylinderGeometry,
+    worldX: number,
+    worldZ: number,
+    footRadius: number,
+  ): void {
+    const r0 = Math.max(footRadius * 1.05, 0.04);
+    const r1 = r0 * 1.18;
+    const ringGeom = new RingGeometry(r0, r1, 48);
+    const ringMat = new MeshBasicMaterial({
+      color: 0x00e8c8,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: DoubleSide,
+    });
+    this.materials.add(ringMat);
+    const ring = new Mesh(ringGeom, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(worldX, this.baseElevation + 0.004, worldZ);
+    ring.name = `pier-${pierId}-sel-ring`;
+    ring.renderOrder = 8;
+    ring.visible = false;
+    this.disposables.push({ geom: ringGeom });
+
+    const r2 = r1 * 1.06;
+    const r3 = r1 * 1.34;
+    const haloGeom = new RingGeometry(r2, r3, 48);
+    const haloMat = new MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: DoubleSide,
+    });
+    this.materials.add(haloMat);
+    const halo = new Mesh(haloGeom, haloMat);
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.set(worldX, this.baseElevation + 0.003, worldZ);
+    halo.name = `pier-${pierId}-sel-halo`;
+    halo.renderOrder = 7;
+    halo.visible = false;
+    this.disposables.push({ geom: haloGeom });
+
+    const edgesGeom = new EdgesGeometry(shaftGeom, 24);
+    const edgesMat = new LineBasicMaterial({
+      color: 0xeaffff,
+      transparent: true,
+      opacity: 0,
+      depthTest: true,
+    });
+    this.materials.add(edgesMat);
+    const edges = new LineSegments(edgesGeom, edgesMat);
+    edges.position.copy(shaft.position);
+    edges.name = `pier-${pierId}-sel-edges`;
+    edges.renderOrder = 9;
+    edges.visible = false;
+    this.disposables.push({ geom: edgesGeom });
+
+    this.group.add(ring, halo, edges);
+    this.pierSelectionFx.set(pierId, { ring, ringMat, halo, haloMat, edges, edgesMat });
   }
 
   private computeBridgeLayout(piers: PierDefinition[]): BridgeLayout {
@@ -206,7 +283,7 @@ export class PierMarker implements Disposable {
       metalness: number,
       emissive = 0x000000,
       emissiveIntensity = 0,
-    ) =>
+    ): MeshStandardMaterial =>
       new MeshStandardMaterial({
         color,
         roughness,
@@ -1190,9 +1267,102 @@ export class PierMarker implements Disposable {
   public setBridgeStructureVisible(visible: boolean): void {
     this.group.traverse((obj) => {
       if (!(obj instanceof Mesh)) return;
-      const isShaft = /^pier-P\d+$/.test(obj.name);
-      obj.visible = visible ? true : isShaft;
+      const keepOnPlan =
+        /^pier-P\d+$/.test(obj.name) || /^pier-P\d+-sel-(ring|halo|edges)$/.test(obj.name);
+      obj.visible = visible ? true : keepOnPlan;
     });
+  }
+
+  private focusPierId: string | null = null;
+  private hoverPierId: string | null = null;
+  private focusAnimTime = 0;
+  private readonly pierSelectionFx = new Map<
+    string,
+    {
+      ring: Mesh;
+      ringMat: MeshBasicMaterial;
+      halo: Mesh;
+      haloMat: MeshBasicMaterial;
+      edges: LineSegments;
+      edgesMat: LineBasicMaterial;
+    }
+  >();
+
+  /** 3D 교각 클릭·호버 피킹 대상 */
+  public getPierPickables(): Mesh[] {
+    const out: Mesh[] = [];
+    this.group.traverse((obj) => {
+      if (!(obj instanceof Mesh) || !/^pier-P\d+$/.test(obj.name)) return;
+      out.push(obj as Mesh<BufferGeometry, Material>);
+    });
+    return out;
+  }
+
+  /** 선택·호버 — 지면 링·모서리선만 (등급색 샤프트 유지) */
+  public setPierFocus(focusId: string | null, hoverId: string | null): void {
+    this.focusPierId = focusId;
+    this.hoverPierId = hoverId;
+    this.syncPierShaftNeutral();
+    this.updateSelectionFx();
+  }
+
+  /** 애니메이션 루프 — 링·라인 펄스 */
+  public tickPierFocus(deltaSeconds: number): void {
+    if (!this.focusPierId && !this.hoverPierId) return;
+    this.focusAnimTime += deltaSeconds;
+    this.updateSelectionFx();
+  }
+
+  private syncPierShaftNeutral(): void {
+    this.group.traverse((obj) => {
+      if (!(obj instanceof Mesh)) return;
+      const m = /^pier-(P\d+)$/.exec(obj.name);
+      if (!m || !(obj.material instanceof MeshStandardMaterial)) return;
+      obj.material.emissive.set(0x000000);
+      obj.material.emissiveIntensity = 0;
+      obj.scale.set(1, 1, 1);
+    });
+  }
+
+  private updateSelectionFx(): void {
+    const t = this.focusAnimTime;
+    for (const [id, fx] of this.pierSelectionFx) {
+      const focused = id === this.focusPierId;
+      const hovered = id === this.hoverPierId && !focused;
+      if (!focused && !hovered) {
+        fx.ring.visible = false;
+        fx.halo.visible = false;
+        fx.edges.visible = false;
+        fx.ringMat.opacity = 0;
+        fx.haloMat.opacity = 0;
+        fx.edgesMat.opacity = 0;
+        continue;
+      }
+
+      if (focused) {
+        const pulse = 0.5 + 0.5 * Math.sin(t * 8);
+        const tick = 0.5 + 0.5 * Math.sin(t * 14 + 0.8);
+        fx.ring.visible = true;
+        fx.halo.visible = true;
+        fx.edges.visible = true;
+        fx.ringMat.opacity = 0.55 + 0.4 * pulse;
+        fx.ringMat.color.setHSL(0.48, 0.9, 0.52 + 0.12 * pulse);
+        fx.halo.rotation.z = t * 1.35;
+        fx.haloMat.opacity = 0.12 + 0.22 * tick;
+        fx.haloMat.color.setHex(0xffffff);
+        fx.edgesMat.opacity = 0.35 + 0.55 * pulse * tick;
+        fx.edgesMat.color.setHSL(0.5, 0.35, 0.92);
+      } else {
+        fx.ring.visible = true;
+        fx.halo.visible = false;
+        fx.edges.visible = false;
+        const soft = 0.5 + 0.5 * Math.sin(t * 6);
+        fx.ringMat.opacity = 0.22 + 0.18 * soft;
+        fx.ringMat.color.setHSL(0.52, 0.55, 0.55);
+        fx.haloMat.opacity = 0;
+        fx.edgesMat.opacity = 0;
+      }
+    }
   }
 
   /** 교각 샤프트 색상 (7·8·9 등급 표시) */
@@ -1207,6 +1377,8 @@ export class PierMarker implements Disposable {
         obj.material.color.set(hex);
       }
     });
+    this.syncPierShaftNeutral();
+    this.updateSelectionFx();
   }
 
   public resetPierShaftColors(defaultHex = '#ffffff'): void {

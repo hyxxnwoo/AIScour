@@ -3,6 +3,7 @@ import { structureCenterX } from '@/constants/experiment';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
 import {
   computeSectionKpi,
+  piersOnSection,
   sampleSectionProfile,
   sectionLengthM,
   sectionPointAtDistance,
@@ -53,6 +54,25 @@ describe('sectionProfile', () => {
     const wide = sectionProfileChartYDomain([withDeposit], 0.127);
     expect(wide.yMax).toBeGreaterThan(narrow.yMax);
     expect(wide.yMax).toBeGreaterThan(0.03);
+  });
+
+  it('횡단 B–B′는 교각 개수만큼 x 위치에서 각각 한 기둥을 잡는다', async () => {
+    const series = await new SyntheticScourSource({
+      frameCount: 3,
+      frameIntervalSeconds: 30,
+    }).load();
+    const piers = [
+      { id: 'P1', x: -0.5, z: 0, diameter: 0.12, height: 0.5, shape: 'circle' as const },
+      { id: 'P2', x: 0, z: 0, diameter: 0.12, height: 0.5, shape: 'circle' as const },
+      { id: 'P3', x: 0.5, z: 0, diameter: 0.12, height: 0.5, shape: 'circle' as const },
+    ];
+    expect(piersOnSection(series, 'B', piers, 'P1')).toEqual([
+      expect.objectContaining({ pierId: 'P1' }),
+    ]);
+    expect(piersOnSection(series, 'B', piers, 'P3')).toEqual([
+      expect.objectContaining({ pierId: 'P3' }),
+    ]);
+    expect(piersOnSection(series, 'A', piers)).toHaveLength(3);
   });
 
   it('KPI는 세굴심·여유율을 반환한다', async () => {

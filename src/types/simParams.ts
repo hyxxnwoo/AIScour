@@ -35,7 +35,7 @@ export interface SimParams {
   scrdifMax: number; // m — 세굴/퇴적 변화량 스케일
   waterDepth: number; // m — 퇴적물 표면 위 물 높이
   // ── 하상 재료
-  sandGrainSizeMm: number; // mm — 모래 입경(세굴 진행 속도에 약하게 반영)
+  sandGrainSizeMm: number; // mm — 하상·퇴적물 입경 d50 (세굴 진행 속도에 약하게 반영)
   sedimentThickness: number; // m — 퇴적층 두께(표면 y=0 아래)
   // ── 세굴
   scourRate: number; // 배율 (1.0 = 기본)
@@ -93,7 +93,14 @@ export interface SimParamMeta {
 /** 시뮬레이션 파라미터 패널용 수치 슬라이더 메타 */
 export const SIM_PARAM_META: SimParamMeta[] = [
   { key: 'inflowSpeed', label: '유입 유속', unit: 'm/s', min: 0.05, max: 1.0, step: 0.01 },
-  { key: 'sandGrainSizeMm', label: '모래 입경', unit: 'mm', min: 0.1, max: 2.0, step: 0.005 },
+  {
+    key: 'sandGrainSizeMm',
+    label: '하상·퇴적물 입경',
+    unit: 'mm',
+    min: 0.1,
+    max: 2.0,
+    step: 0.005,
+  },
   { key: 'sedimentThickness', label: '퇴적층 두께', unit: 'm', min: 0.03, max: 0.25, step: 0.005 },
   { key: 'scourRate', label: '세굴 속도 배율', unit: '×', min: 0.2, max: 5.0, step: 0.1 },
   {

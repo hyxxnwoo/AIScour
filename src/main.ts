@@ -1,5 +1,7 @@
 import '@/styles/main.css';
-
+import '@/styles/viz.css';
+import '@/styles/responsive.css';
+import { initGlobalVizTooltips } from '@/viz/tooltip';
 import { CameraPresets } from '@/components/CameraPresets';
 import { ColorLegend } from '@/components/ColorLegend';
 import { CsvUploadPanel } from '@/components/CsvUploadPanel';
@@ -17,10 +19,10 @@ import { LogoutButton } from '@/components/LogoutButton';
 import { PierScourMonitor } from '@/components/PierScourMonitor';
 import { GlobalNav } from '@/components/GlobalNav';
 import { ViewerSubNav } from '@/components/ViewerSubNav';
-import { StatusBar } from '@/components/StatusBar';
 import { ScreenPlaceholder } from '@/components/ScreenPlaceholder';
 import { SectionProfilePanel } from '@/components/SectionProfilePanel';
 import { PlanViewOverlay } from '@/components/PlanViewOverlay';
+import { PlanViewGuide } from '@/components/PlanViewGuide';
 import { computeSectionKpi } from '@/utils/sectionProfile';
 import { formatCaseHeadline, nextCaseId } from '@/utils/issueCaseId';
 import { GradeLegendPanel } from '@/components/GradeLegendPanel';
@@ -40,11 +42,16 @@ import {
 } from '@/utils/pierTimeSeries';
 import { isViewerScreen, ScreenRouter, SCREEN_TITLES, type ScreenId } from '@/app/ScreenRouter';
 import { gradeOf, worstPierByDepth } from '@/constants/grade';
+import { Picking } from '@/modules/Picking';
 import {
   inflowBoundaryLegendNote,
   inflowBoundaryLegendNoteShort,
 } from '@/utils/flumeInflowBoundary';
 import { ViewerToast } from '@/components/ViewerToast';
+import { viewState } from '@/state/viewState';
+import { captureCameraView, restoreCameraView } from '@/utils/cameraView';
+import { observeWidgetTier } from '@/viz/widget';
+import { bindViewerScreenViz, refreshViewerScreenMotion } from '@/viz/viewerScreenViz';
 import { TimeControls } from '@/components/TimeControls';
 import { AnimationLoop } from '@/core/AnimationLoop';
 import { CameraManager } from '@/core/CameraManager';
@@ -420,6 +427,7 @@ async function buildSimState(
 }
 
 async function bootstrap(router: ScreenRouter): Promise<void> {
+  initGlobalVizTooltips();
   const canvas = document.getElementById('scene-canvas') as HTMLCanvasElement | null;
   const appRoot = document.getElementById('app');
   const dockLeft = document.getElementById('dock-left');
@@ -429,7 +437,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   const viewerMain = document.getElementById('viewer-main');
   const gnbMount = document.getElementById('gnb');
   const subnavMount = document.getElementById('subnav');
-  const sbarMount = document.getElementById('sbar');
   const placeholderHost = document.getElementById('screen-placeholder-host');
   if (
     !canvas ||
@@ -441,13 +448,19 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     !viewerMain ||
     !gnbMount ||
     !subnavMount ||
-    !sbarMount ||
     !placeholderHost
   ) {
     throw new Error(
-      '필수 DOM (#scene-canvas, #app, docks, #viewer-stage, #viewer-center, #gnb, #subnav, #sbar) 을 찾을 수 없습니다.',
+      '필수 DOM (#scene-canvas, #app, docks, #viewer-stage, #viewer-center, #gnb, #subnav) 을 찾을 수 없습니다.',
     );
   }
+
+  /** 하단 상태바 UI 제거 — 기존 update 호출부 호환용 no-op */
+  const statusBar = {
+    update: (..._args: unknown[]): void => {},
+    setKeyboardHintsVisible: (..._args: unknown[]): void => {},
+    dispose: (): void => {},
+  };
 
   let navigateToScreen: (screen: ScreenId) => void = (screen) => {
     router.goto(screen);
@@ -473,17 +486,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     onNavigate: (screen) => navigateToScreen(screen),
   });
   subnavMount.appendChild(viewerSubNav.element);
-
-  const statusBar = new StatusBar({
-    caseId: '미생성',
-    coordinateSystem: 'Local (model)',
-    units: 'm, m/s',
-    foundationDepthM: DEFAULT_SIM_PARAMS.foundationDepth,
-    convertedAt: '2026-10-02 09:05',
-    frameIndex: 0,
-    frameCount: DEFAULT_SIM_PARAMS.frameCount,
-  });
-  sbarMount.appendChild(statusBar.element);
 
   const screenPlaceholder = new ScreenPlaceholder(router.screen);
   placeholderHost.appendChild(screenPlaceholder.element);
@@ -582,26 +584,70 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
 
   const planViewOverlay = new PlanViewOverlay();
   viewerMain.appendChild(planViewOverlay.element);
-  const planViewHint = document.createElement('div');
-  planViewHint.className = 'plan-view-hint';
-  planViewHint.textContent = '평면뷰(TOP) · 교량 레이어 자동 숨김';
-  viewerMain.appendChild(planViewHint);
 
   const sectionProfilePanel = new SectionProfilePanel({
     onSectionChange: (sec) => {
+      viewState.setSectionId(sec);
+      planViewGuide.setSection(sec);
       planViewOverlay.setSection(sec);
       planViewOverlay.setHover(null);
+      planViewOverlay.setActiveTransversePierId(
+        sec === 'B' ? sectionProfilePanel.getTransversePierId() : null,
+      );
       if (router.screen === 6) {
         statusBar.update({ extra: sec === 'A' ? '단면 A–A′' : '단면 B–B′' });
+        planViewOverlay.draw();
       }
     },
     onHover: (point) => {
       planViewOverlay.setHover(point);
       if (router.screen === 6) planViewOverlay.draw();
     },
+    onTransversePierChange: (pierId) => {
+      viewState.setSelectedPier(pierId);
+      planViewOverlay.setActiveTransversePierId(pierId);
+      if (router.screen === 6) planViewOverlay.draw();
+    },
   });
   viewerCenter.appendChild(sectionProfilePanel.element);
   sectionProfilePanel.element.classList.add('is-hidden');
+
+  const planViewGuide = new PlanViewGuide({
+    onSectionChange: (sec) => {
+      sectionProfilePanel.setSection(sec);
+      viewState.setSectionId(sec);
+      planViewOverlay.setSection(sec);
+      planViewOverlay.setHover(null);
+      planViewOverlay.setActiveTransversePierId(
+        sec === 'B' ? sectionProfilePanel.getTransversePierId() : null,
+      );
+      if (router.screen === 6) {
+        statusBar.update({ extra: sec === 'A' ? '단면 A–A′' : '단면 B–B′' });
+        planViewOverlay.draw();
+        sectionProfilePanel.notifyLayout();
+      }
+    },
+  });
+  viewerMain.appendChild(planViewGuide.element);
+
+  planViewOverlay.setOnPierPick((pierId) => {
+    if (sectionProfilePanel.getSection() !== 'B') {
+      sectionProfilePanel.setSection('B');
+      viewState.setSectionId('B');
+      planViewOverlay.setSection('B');
+      statusBar.update({ extra: '단면 B–B′' });
+    }
+    sectionProfilePanel.setTransversePierId(pierId);
+    viewState.setSelectedPier(pierId);
+    planViewOverlay.setActiveTransversePierId(pierId);
+    planViewOverlay.draw();
+  });
+
+  observeWidgetTier(viewerStage, (tier) => {
+    viewerStage.dataset.tier = tier;
+  });
+  observeWidgetTier(dockLeft);
+  observeWidgetTier(dockRight);
 
   const pierTimelinePanel = new PierScourTimelinePanel();
   viewerCenter.appendChild(pierTimelinePanel.element);
@@ -647,6 +693,46 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     sceneViewRadius(sim.series.baseTerrain, sim.fluidSeries),
   );
 
+  const pierIdFromObjectName = (name?: string): string | null => {
+    if (!name) return null;
+    const m = /^pier-(P\d+)$/.exec(name);
+    return m?.[1] ?? null;
+  };
+
+  const applyViewStateToViewer = (): void => {
+    pierLabelOverlay.setFocusState(viewState.selectedPierId, viewState.hoveredPierId);
+    if (router.screen !== 6) {
+      sim.pierMarker.setPierFocus(viewState.selectedPierId, viewState.hoveredPierId);
+    }
+  };
+  viewState.subscribe(applyViewStateToViewer);
+
+  const pierPicking = new Picking({
+    canvas,
+    camera: cameraManager.camera,
+    pickables: sim.pierMarker.getPierPickables(),
+    hoverThrottleMs: 48,
+  });
+  pierPicking.onClick((hit) => {
+    if (!isViewerScreen(router.screen) || router.screen === 6) return;
+    const id = pierIdFromObjectName(hit?.objectName);
+    if (id) viewState.setSelectedPier(id);
+  });
+  pierPicking.onHover((hit) => {
+    if (!isViewerScreen(router.screen) || router.screen === 6) {
+      viewState.setHoveredPier(null);
+      canvas.classList.remove('is-pier-hover');
+      return;
+    }
+    const id = pierIdFromObjectName(hit?.objectName);
+    viewState.setHoveredPier(id);
+    canvas.classList.toggle('is-pier-hover', id != null);
+  });
+
+  const syncPierPickables = (): void => {
+    pierPicking.updatePickables(sim.pierMarker.getPierPickables());
+  };
+
   const timeControls = new TimeControls({
     durationSeconds: 0,
     autoPlay: false,
@@ -654,6 +740,9 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   });
   timeControls.setTimelineEnabled(false, '「적용하고 결과 보기」 후 재생');
   viewerCenter.appendChild(timeControls.element);
+  pierTimelinePanel.setScrubHandler((t) => {
+    if (timeControls.isTimelineEnabled) timeControls.setTime(t);
+  });
 
   const viewerToast = new ViewerToast();
   viewerCenter.appendChild(viewerToast.element);
@@ -790,6 +879,9 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       onTracersVisibilityChange: (v) => sim.tracers.setVisible(v),
     },
   );
+  fluidControls.element.classList.add('viz-widget');
+  fluidControls.element.dataset.widgetId = 'fluid-controls';
+  observeWidgetTier(fluidControls.element);
   dockLeft.appendChild(fluidControls.element);
   applyFluidPrimaryQuantity(fluidControls.getPrimaryQuantity());
   syncFluidFieldLegend();
@@ -884,14 +976,50 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
 
   const syncViewerChrome = (screen: ScreenId): void => {
     const cellMode = screen === 7;
-    const gradeLabels = screen === 7 || screen === 8 || screen === 9;
+    const gradeLabels = screen === 5 || screen === 7 || screen === 8 || screen === 9;
     const riskMode = screen === 9;
     const setupView = screen === 4;
+    const analysisView = screen >= 6 && screen <= 9;
     riskJudgmentPanel.setVisible(riskMode);
     activePierMonitor.element.classList.toggle('is-hidden', riskMode || setupView);
     gradeLegendPanel.element.classList.toggle('is-hidden', !cellMode);
     pierLabelOverlay.setEnabled(gradeLabels);
+    viewerStage.classList.toggle('is-viewer-analysis', analysisView);
+    viewerStage.classList.toggle('is-screen-plan', screen === 6);
+    viewerStage.classList.toggle('is-screen-grade', screen === 7);
+    viewerStage.classList.toggle('is-screen-timeline', screen === 8);
+    viewerStage.classList.toggle('is-screen-risk', screen === 9);
+    activePierMonitor.element.classList.toggle(
+      'pier-scour-monitor--viz',
+      screen >= 5 && screen <= 8,
+    );
+    fluidControls.element.classList.toggle('fluid-controls--viewer', screen >= 5 && screen <= 9);
+    planViewGuide.element.classList.toggle('is-hidden', screen !== 6);
   };
+
+  let stopViewerScreenMotion: (() => void) | null = null;
+  const kickViewerScreenMotion = (screen: ScreenId): void => {
+    stopViewerScreenMotion?.();
+    if (screen < 6 || screen > 9) return;
+    stopViewerScreenMotion = refreshViewerScreenMotion(viewerStage);
+    viewerStage.classList.add('viewer-screen--enter');
+    window.setTimeout(() => viewerStage.classList.remove('viewer-screen--enter'), 880);
+  };
+
+  const unbindViewerScreenViz = bindViewerScreenViz({
+    viewerStage,
+    getScreen: () => router.screen,
+    sectionPanel: sectionProfilePanel.element,
+    timelinePanel: pierTimelinePanel.element,
+    gradeLegend: gradeLegendPanel.element,
+    riskPanel: riskJudgmentPanel.element,
+    pierMonitor: activePierMonitor.element,
+    fluidControls: fluidControls.element,
+    onReachScrub: (t) => {
+      if (!timeControls.isTimelineEnabled) return;
+      timeControls.setTime(t);
+    },
+  });
 
   /** 4번에서 적용 완료 후 이동할 화면 */
   let navigateAfterApply: ScreenId | null = null;
@@ -988,6 +1116,8 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     // 방금 폐기된 옛 인스턴스가 아니라 실제로 화면에 보이는 next 에 적용된다.
     params = nextParams;
     sim = next;
+    syncPierPickables();
+    applyViewStateToViewer();
     applyFluidPrimaryQuantity(fluidControls.getPrimaryQuantity());
     lastFluidLegendKey = '';
     syncFluidFieldLegend();
@@ -1140,14 +1270,10 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   banner.textContent = 'WebGL 컨텍스트가 손실되었습니다. 복원을 시도하는 중...';
   viewerCenter.appendChild(banner);
 
-  const restoreDefaultViewerCamera = (): void => {
-    cameraManager.focusOnDomain(
-      new Vector3(0, sim.waterLevelY * 0.5, 0),
-      sceneViewRadius(sim.series.baseTerrain, sim.fluidSeries),
-    );
-  };
-
   const applyScreenLayout = (screen: ScreenId, prevScreen?: ScreenId): void => {
+    if (prevScreen && isViewerScreen(prevScreen) && prevScreen !== 6) {
+      viewState.viewerCamera = captureCameraView(cameraManager);
+    }
     syncShellLayout(screen);
     const showViewer =
       screen === 4 || screen === 5 || screen === 6 || screen === 7 || screen === 8 || screen === 9;
@@ -1168,6 +1294,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     cameraPresets.element.classList.toggle('is-hidden', setupView);
     legend.element.classList.toggle('is-hidden', setupView);
     if (setupView) {
+      csvUploadPanel.refreshSetupFlow();
       const pendingCsv = takePendingCsvUpload();
       if (pendingCsv && pendingCsv.length > 0) {
         csvUploadPanel.openSetupWithPrefilledFiles(pendingCsv);
@@ -1187,6 +1314,10 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       syncPlanViewOverlaySize();
       pierLabelOverlay.setCamera(cameraManager.camera);
       if (planView) {
+        if (prevScreen !== 6 && prevScreen && isViewerScreen(prevScreen)) {
+          viewState.cameraBeforePlanView =
+            viewState.viewerCamera ?? captureCameraView(cameraManager);
+        }
         const planCenter = new Vector3(0, sim.waterLevelY * 0.5, 0);
         cameraManager.setPlanViewOrbitLock(true);
         cameraManager.applyPlanView(
@@ -1197,16 +1328,22 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
         sim.terrainWater.setVisible(false);
         sim.tracers.setVisible(false);
         sim.pierMarker.resetPierShaftColors();
+        sim.pierMarker.setPierFocus(null, null);
         statusBar.update({ extra: buildViewerStatusExtra(screen) });
         requestAnimationFrame(() => sectionProfilePanel.notifyLayout());
       } else {
         cameraManager.setPlanViewOrbitLock(false);
-        if ((screen === 4 || screen === 5) && prevScreen === 6) {
-          restoreDefaultViewerCamera();
+        if (
+          prevScreen === 6 &&
+          (screen === 4 || screen === 5 || screen === 7 || screen === 8 || screen === 9)
+        ) {
+          const cam = viewState.cameraBeforePlanView ?? viewState.viewerCamera;
+          if (cam) restoreCameraView(cameraManager, cam);
         }
       }
       if (!planView && screen === 7) {
-        cameraManager.applyPreset('reset', sceneRadius);
+        if (viewState.viewerCamera) restoreCameraView(cameraManager, viewState.viewerCamera);
+        else cameraManager.applyPreset('reset', sceneRadius);
         sim.pierMarker.setBridgeStructureVisible(false);
         sim.terrainWater.setVisible(fluidControls.isSliceVisible());
         sim.tracers.setVisible(fluidControls.isTracersVisible());
@@ -1215,7 +1352,10 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
         sim.pierMarker.setBridgeStructureVisible(true);
         sim.terrainWater.setVisible(fluidControls.isSliceVisible());
         sim.tracers.setVisible(fluidControls.isTracersVisible());
-        if (screen !== 8 && screen !== 9) sim.pierMarker.resetPierShaftColors();
+        if (screen === 4) {
+          sim.pierMarker.resetPierShaftColors();
+          sim.pierMarker.setPierFocus(null, null);
+        }
         statusBar.update({ extra: buildViewerStatusExtra(screen) });
       }
       loop.start();
@@ -1225,6 +1365,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       sim.pierMarker.resetPierShaftColors();
       pierLabelOverlay.setEnabled(false);
     }
+    kickViewerScreenMotion(screen);
   };
 
   rendererManager.onContextLossEvent(() => {
@@ -1289,6 +1430,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     if (!timelineLive) tracerAdvectDelta = delta;
     else if (timeControls.isPlaying && simDt > 0) tracerAdvectDelta = simDt;
 
+    sim.pierMarker.tickPierFocus(delta);
     sim.terrain.updateAtTime(t);
     sim.sedimentLayer.updateAtTime(t);
     const pierDepths = scalePierScourReadings(
@@ -1299,13 +1441,35 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     );
     activePierMonitor.setFoundationDepthM(params.foundationDepth);
     activePierMonitor.update(pierDepths);
+    if (router.screen === 7) {
+      gradeLegendPanel.updatePierMarkers(
+        pierDepths.map((d) => ({ pierId: d.pierId, scourDepthM: d.scourDepthM })),
+      );
+    }
+    let histFrame = sim.series.frames[0];
+    for (const f of sim.series.frames) {
+      if (f.timestampSeconds <= t) histFrame = f;
+    }
+    if (histFrame?.deltaElevations?.length) {
+      legend.setSampleValues(Array.from(histFrame.deltaElevations));
+    }
     const worst = worstPierByDepth(
       pierDepths.map((d) => ({ pierId: d.pierId, scourDepthM: d.scourDepthM })),
     );
     if (worst) {
       const g = gradeOf(worst.scourDepthM, params.foundationDepth);
       globalNav.setBadge({ grade: g, pierId: worst.pierId });
+      if (
+        !viewState.selectedPierId &&
+        (router.screen === 5 || router.screen === 7 || router.screen === 8 || router.screen === 9)
+      ) {
+        viewState.setSelectedPier(worst.pierId);
+      }
     }
+    viewerStage.classList.toggle(
+      'is-sim-playing',
+      timelineLive && timeControls.isPlaying && router.screen >= 5 && router.screen <= 9,
+    );
     const frameIdx = Math.round(
       (t / Math.max(sim.durationSeconds, 1e-9)) * Math.max(1, params.frameCount - 1),
     );
@@ -1320,7 +1484,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     );
     const viewW = viewerMain.clientWidth;
     const viewH = viewerMain.clientHeight;
-    if (router.screen === 7 || router.screen === 8 || router.screen === 9) {
+    if (router.screen === 5 || router.screen === 7 || router.screen === 8 || router.screen === 9) {
       sim.pierMarker.setPierShaftColors(
         new Map([...gradeColorMap.entries()].map(([id, g]) => [id, g.color])),
       );
@@ -1348,16 +1512,22 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       );
     }
     if (router.screen === 6) {
-      const p2Depth =
-        pierDepths.find((d) => d.pierId === 'P2')?.scourDepthM ?? pierDepths[0]?.scourDepthM ?? 0;
       const sec = sectionProfilePanel.getSection();
+      const transversePier = sectionProfilePanel.getTransversePierId();
+      planViewOverlay.setActiveTransversePierId(sec === 'B' ? transversePier : null);
+      const depthPierId = sec === 'B' ? transversePier : 'P2';
+      const pierDepthForKpi =
+        pierDepths.find((d) => d.pierId === depthPierId)?.scourDepthM ??
+        pierDepths[0]?.scourDepthM ??
+        0;
       const kpi = computeSectionKpi(
         sim.series,
         sec,
         t,
         params.foundationDepth,
-        p2Depth,
+        pierDepthForKpi,
         sim.pierDefs,
+        sec === 'B' ? transversePier : undefined,
       );
       sectionProfilePanel.update(sim.series, t, params.foundationDepth, sim.pierDefs, kpi);
       planViewOverlay.setContext(sim.series, sim.pierDefs, cameraManager.camera);
@@ -1417,6 +1587,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
 
   const dispose = (): void => {
     shortcuts.dispose();
+    pierPicking.dispose();
     loop.dispose();
     logoutButton.dispose();
     cameraPresets.dispose();
@@ -1443,6 +1614,9 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     dataPipelinePage.dispose();
     conditionSetupCaseBar.dispose();
     planViewOverlay.dispose();
+    planViewGuide.dispose();
+    unbindViewerScreenViz();
+    stopViewerScreenMotion?.();
     router.dispose();
     sim.dispose();
     lightManager.dispose();

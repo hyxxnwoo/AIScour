@@ -2,7 +2,11 @@ import { gradeOf } from '@/constants/grade';
 import type { PierDefinition } from '@/modules/PierMarker';
 import type { ScourSeries } from '@/types/terrain';
 import type { Disposable } from '@/types/disposable';
+import { observeWidgetTier } from '@/viz/widget';
+import { animateVizBars } from '@/viz/vizMotion';
+import { tweenNumber } from '@/viz/tween';
 import {
+  defaultTransversePierId,
   piersOnSection,
   sampleSectionProfile,
   sectionLengthM,
@@ -60,7 +64,9 @@ function buildProfSvg(
   piers: PierDefinition[],
   viewAspect?: number,
   hoverS: number | null = null,
+  transversePierId?: string,
 ): string {
+  const tid = transversePierId ?? defaultTransversePierId(piers);
   const H = 280;
   const baseAspect = 960 / H;
   const aspect = Math.max(
@@ -75,8 +81,8 @@ function buildProfSvg(
   const iw = W - L - R;
   const ih = H - T - B;
   const len = sectionLengthM(series, section);
-  const cur = sampleSectionProfile(series, section, timeSeconds, 160, piers);
-  const mid = sampleSectionProfile(series, section, midTimeSeconds, 160, piers);
+  const cur = sampleSectionProfile(series, section, timeSeconds, 160, piers, tid);
+  const mid = sampleSectionProfile(series, section, midTimeSeconds, 160, piers, tid);
   const { yMin, yMax } = sectionProfileChartYDomain([cur, mid], foundationDepthM);
   const ySpan = Math.max(yMax - yMin, 1e-9);
   const Y = (v: number): number => T + ih * (1 - (v - yMin) / ySpan);
@@ -96,7 +102,7 @@ function buildProfSvg(
     const major = Math.abs(v / yStep - Math.round(v / yStep)) < 1e-6 || Math.abs(v) < 1e-9;
     gridH += `<line x1="${L}" y1="${y}" x2="${W - R}" y2="${y}" stroke="${major ? CH.gridMajor : CH.gridMinor}" stroke-width="${major ? 1 : 0.75}"/>`;
     if (major) {
-      yLabels += `<text x="${L - 10}" y="${y + 4}" fill="${CH.ink}" font-size="10.5" font-family="system-ui,sans-serif" text-anchor="end">${v.toFixed(foundationDepthM > 1 ? 0 : 2)}</text>`;
+      yLabels += `<text x="${L - 10}" y="${y + 4}" fill="${CH.ink}" font-size="12.5" font-family="system-ui,sans-serif" text-anchor="end">${v.toFixed(foundationDepthM > 1 ? 0 : 2)}</text>`;
     }
   }
   let gridV = '';
@@ -107,10 +113,10 @@ function buildProfSvg(
     const s = i * xStep;
     const x = X(s);
     gridV += `<line x1="${x}" y1="${T}" x2="${x}" y2="${T + plotH}" stroke="${CH.gridMinor}" stroke-width="0.75"/>`;
-    xLabels += `<text x="${x}" y="${H - 18}" fill="${CH.ink}" font-size="10" font-family="system-ui,sans-serif" text-anchor="middle">${s.toFixed(len > 10 ? 0 : 2)}</text>`;
+    xLabels += `<text x="${x}" y="${H - 18}" fill="${CH.ink}" font-size="12" font-family="system-ui,sans-serif" text-anchor="middle">${s.toFixed(len > 10 ? 0 : 2)}</text>`;
   }
 
-  const pierSvg = piersOnSection(series, section, piers)
+  const pierSvg = piersOnSection(series, section, piers, tid)
     .map((p) => {
       const halfD = p.diameterM * 0.5;
       const s0 = Math.max(0, p.s - halfD);
@@ -120,7 +126,7 @@ function buildProfSvg(
       const yTop = T;
       const h = Y(-foundationDepthM) - T;
       return `<rect x="${xLeft}" y="${yTop}" width="${w}" height="${h}" rx="2" fill="${CH.pier}" opacity="0.28" stroke="rgba(207,224,236,0.35)" stroke-width="1"/>
-      <text x="${X(p.s)}" y="${T + 14}" fill="#e8f0fa" font-size="10.5" font-weight="600" font-family="system-ui,sans-serif" text-anchor="middle">${p.pierId}</text>`;
+      <text x="${X(p.s)}" y="${T + 14}" fill="#e8f0fa" font-size="12.5" font-weight="600" font-family="system-ui,sans-serif" text-anchor="middle">${p.pierId}</text>`;
     })
     .join('');
 
@@ -161,15 +167,17 @@ function buildProfSvg(
     ${hoverSvg}
     </g>
     ${yLabels}${xLabels}
-    <text x="${L - 10}" y="${T - 10}" fill="${CH.inkDim}" font-size="10" font-family="system-ui,sans-serif" text-anchor="end">Δz (m)</text>
-    <text x="${L + plotW / 2}" y="${H - 6}" fill="${CH.inkDim}" font-size="10" font-family="system-ui,sans-serif" text-anchor="middle">단면 거리 (m)</text>
-    <text x="${W - R - 4}" y="${y0 - 6}" fill="${CH.ink}" font-size="9.5" font-family="system-ui,sans-serif" text-anchor="end">초기 하상 0 m</text>
-    <text x="${W - R - 4}" y="${yFoot + 14}" fill="${CH.foot}" font-size="9.5" font-weight="600" font-family="system-ui,sans-serif" text-anchor="end">기초 −${foundationDepthM.toFixed(2)} m</text>
+    <text x="${L - 10}" y="${T - 10}" fill="${CH.inkDim}" font-size="12" font-family="system-ui,sans-serif" text-anchor="end">Δz (m)</text>
+    <text x="${L + plotW / 2}" y="${H - 6}" fill="${CH.inkDim}" font-size="12" font-family="system-ui,sans-serif" text-anchor="middle">단면 거리 (m)</text>
+    <text x="${W - R - 4}" y="${y0 - 6}" fill="${CH.ink}" font-size="12.5" font-family="system-ui,sans-serif" text-anchor="end">초기 하상 0 m</text>
+    <text x="${W - R - 4}" y="${yFoot + 14}" fill="${CH.foot}" font-size="12.5" font-weight="600" font-family="system-ui,sans-serif" text-anchor="end">기초 −${foundationDepthM.toFixed(2)} m</text>
   </svg>`;
 }
 
 export interface SectionProfilePanelHandlers {
   onSectionChange: (section: SectionId) => void;
+  /** B–B′ 교각 전환 — 평면 단면선·KPI 동기화 */
+  onTransversePierChange?: (pierId: string) => void;
   /** 그래프 가로 위치 → 단면선 위의 월드 좌표. 벗어나면 null */
   onHover?: (point: SectionWorldPoint | null) => void;
 }
@@ -178,9 +186,11 @@ export interface SectionProfilePanelHandlers {
 export class SectionProfilePanel implements Disposable {
   public readonly element: HTMLElement;
   private section: SectionId = 'A';
+  private transversePierId = 'P2';
   private readonly chartHost: HTMLElement;
   private readonly kpiHost: HTMLElement;
   private readonly titleEl: HTMLElement;
+  private readonly pierSegHost: HTMLElement;
   private readonly midLabel: HTMLElement;
   private readonly curLabel: HTMLElement;
   private readonly handlers: SectionProfilePanelHandlers;
@@ -191,11 +201,14 @@ export class SectionProfilePanel implements Disposable {
   private lastPiers: PierDefinition[] = [];
   private lastKpi: SectionKpi | null = null;
   private hoverS: number | null = null;
+  private pierSegBuiltKey = '';
+  private kpiShellReady = false;
 
   public constructor(handlers: SectionProfilePanelHandlers) {
     this.handlers = handlers;
     this.element = document.createElement('div');
-    this.element.className = 'section-profile-panel';
+    this.element.className = 'section-profile-panel section-profile-panel--viz viz-widget';
+    this.element.dataset.widgetId = 'section-profile';
     this.element.id = 'section-panel';
 
     const head = document.createElement('div');
@@ -217,8 +230,13 @@ export class SectionProfilePanel implements Disposable {
       btn.addEventListener('click', () => {
         this.section = id;
         this.syncSeg();
+        this.syncPierSeg();
         this.clearHover();
         this.handlers.onSectionChange(id);
+        this.setTitle();
+        if (this.lastSeries) {
+          this.paintChart(this.lastSeries, this.lastTime, this.lastFoundation, this.lastPiers);
+        }
       });
       seg.appendChild(btn);
     }
@@ -241,15 +259,18 @@ export class SectionProfilePanel implements Disposable {
       mkLeg('is-foot', '기초 저면'),
     );
 
-    head.append(this.titleEl, seg, legend);
+    this.pierSegHost = document.createElement('div');
+    this.pierSegHost.className = 'section-profile-panel__pier-seg';
+    head.append(this.titleEl, seg, this.pierSegHost, legend);
     this.chartHost = document.createElement('div');
-    this.chartHost.className = 'section-profile-panel__chart';
+    this.chartHost.className = 'section-profile-panel__chart viz-tier viz-tier--basic';
     this.kpiHost = document.createElement('div');
     this.kpiHost.className = 'section-profile-panel__kpis';
 
     this.chartHost.addEventListener('pointermove', this.onChartPointer);
     this.chartHost.addEventListener('pointerleave', this.onChartLeave);
     this.element.append(head, this.chartHost, this.kpiHost);
+    observeWidgetTier(this.element);
     this.syncSeg();
     this.setTitle();
 
@@ -287,6 +308,7 @@ export class SectionProfilePanel implements Disposable {
       piers,
       viewAspect,
       this.hoverS,
+      this.section === 'B' ? this.transversePierId : undefined,
     );
   }
 
@@ -316,7 +338,13 @@ export class SectionProfilePanel implements Disposable {
     const s = ((local.x - plotL) / plotW) * len;
     this.hoverS = s;
     this.handlers.onHover?.(
-      sectionPointAtDistance(this.lastSeries, this.section, s, this.lastPiers),
+      sectionPointAtDistance(
+        this.lastSeries,
+        this.section,
+        s,
+        this.lastPiers,
+        this.section === 'B' ? this.transversePierId : undefined,
+      ),
     );
   };
 
@@ -334,9 +362,26 @@ export class SectionProfilePanel implements Disposable {
     return this.section;
   }
 
+  public getTransversePierId(): string {
+    return this.transversePierId;
+  }
+
+  public setTransversePierId(pierId: string): void {
+    if (!this.lastPiers.some((p) => p.id === pierId)) return;
+    this.transversePierId = pierId;
+    this.syncPierSeg();
+    this.setTitle();
+    this.clearHover();
+    this.handlers.onTransversePierChange?.(pierId);
+    if (this.lastSeries) {
+      this.paintChart(this.lastSeries, this.lastTime, this.lastFoundation, this.lastPiers);
+    }
+  }
+
   public setSection(section: SectionId): void {
     this.section = section;
     this.syncSeg();
+    this.syncPierSeg();
     this.setTitle();
   }
 
@@ -355,29 +400,118 @@ export class SectionProfilePanel implements Disposable {
     this.lastFoundation = foundationDepthM;
     this.lastPiers = piers;
     this.lastKpi = kpi;
+    if (!piers.some((p) => p.id === this.transversePierId)) {
+      this.transversePierId = defaultTransversePierId(piers);
+    }
+    this.syncPierSeg();
+    this.setTitle();
     this.paintChart(series, timeSeconds, foundationDepthM, piers);
+    this.ensureKpiShell();
+    this.paintKpiValues(kpi, foundationDepthM);
+  }
+
+  private ensureKpiShell(): void {
+    if (this.kpiShellReady) return;
+    this.kpiShellReady = true;
+    const mk = (idx: number, tier: string): string =>
+      `<div class="section-profile-panel__kpi section-profile-panel__kpi--viz viz-kpi-visual ${tier}" data-kpi-idx="${idx}">
+        <div class="viz-kpi-visual__label" data-kpi-label></div>
+        <div class="viz-kpi-visual__value" data-kpi-value></div>
+        <div class="viz-kpi-visual__viz" data-kpi-viz></div>
+      </div>`;
+    this.kpiHost.innerHTML = `<div class="viz-tier viz-tier--core section-profile-panel__kpis-row">${mk(0, '')}${mk(1, '')}</div>
+      <div class="viz-tier viz-tier--detail section-profile-panel__kpis-row">${mk(2, '')}${mk(3, '')}${mk(4, '')}</div>`;
+  }
+
+  private paintKpiValues(kpi: SectionKpi, foundationDepthM: number): void {
     const g = gradeOf(kpi.maxScourDepthM, foundationDepthM);
-    const cards: Array<[string, string, string]> = [
-      ['최대 세굴 깊이 (P2)', `${kpi.maxScourDepthM.toFixed(2)} m`, g.color],
-      [
-        '단면 최대 퇴적',
-        kpi.maxDepositM > 1e-5 ? `${kpi.maxDepositM.toFixed(3)} m` : '—',
-        '#C4A574',
-      ],
-      ['세굴폭 (P2 세굴공)', `${kpi.scourWidthM.toFixed(2)} m`, '#fff'],
-      ['세굴공 단면적', `${kpi.scourAreaM2.toFixed(3)} m²`, '#fff'],
-      [
-        '기초 저면까지 여유',
-        `${kpi.marginToFootingM.toFixed(2)} m (${kpi.marginRemainPct.toFixed(0)} %)`,
-        g.color,
-      ],
+    const focusPier = this.section === 'B' ? this.transversePierId : 'P2';
+    const specs: Array<{
+      label: string;
+      num: number | null;
+      suffix: string;
+      decimals: number;
+      color: string;
+      barPct?: number;
+      area?: boolean;
+    }> = [
+      {
+        label: `최대 세굴 깊이 (${focusPier})`,
+        num: kpi.maxScourDepthM,
+        suffix: ' m',
+        decimals: 2,
+        color: g.color,
+      },
+      {
+        label: '단면 최대 퇴적',
+        num: kpi.maxDepositM > 1e-5 ? kpi.maxDepositM : null,
+        suffix: ' m',
+        decimals: 3,
+        color: '#C4A574',
+      },
+      {
+        label: '세굴폭 (P2 세굴공)',
+        num: kpi.scourWidthM,
+        suffix: ' m',
+        decimals: 2,
+        color: '#e8f0fa',
+        barPct: Math.min(100, (kpi.scourWidthM / 12) * 100),
+      },
+      {
+        label: '세굴공 단면적',
+        num: kpi.scourAreaM2,
+        suffix: ' m²',
+        decimals: 3,
+        color: '#e8f0fa',
+        area: true,
+      },
+      {
+        label: '기초 저면까지 여유',
+        num: kpi.marginToFootingM,
+        suffix: ` m (${kpi.marginRemainPct.toFixed(0)}%)`,
+        decimals: 2,
+        color: g.color,
+        barPct: kpi.marginRemainPct,
+      },
     ];
-    this.kpiHost.innerHTML = cards
-      .map(
-        ([label, value, color]) =>
-          `<div class="section-profile-panel__kpi"><div class="section-profile-panel__kpi-label">${label}</div><div class="section-profile-panel__kpi-value" style="color:${color}">${value}</div></div>`,
-      )
-      .join('');
+
+    specs.forEach((spec, idx) => {
+      const card = this.kpiHost.querySelector<HTMLElement>(`[data-kpi-idx="${idx}"]`);
+      if (!card) return;
+      const labelEl = card.querySelector('[data-kpi-label]') as HTMLElement;
+      const valueEl = card.querySelector('[data-kpi-value]') as HTMLElement;
+      const vizEl = card.querySelector('[data-kpi-viz]') as HTMLElement;
+      labelEl.textContent = spec.label;
+      valueEl.style.color = spec.color;
+      if (spec.num == null) {
+        valueEl.textContent = '—';
+        vizEl.innerHTML = '';
+        return;
+      }
+      const from = Number.parseFloat(valueEl.dataset.vizNum ?? String(spec.num));
+      tweenNumber(
+        from,
+        spec.num,
+        (v) => {
+          valueEl.dataset.vizNum = String(v);
+          if (idx === 4) {
+            valueEl.textContent = `${v.toFixed(spec.decimals)} m (${kpi.marginRemainPct.toFixed(0)} %)`;
+          } else {
+            valueEl.textContent = `${v.toFixed(spec.decimals)}${spec.suffix}`;
+          }
+        },
+        undefined,
+        { key: `sec-kpi-${idx}`, durationMs: 320 },
+      );
+      if (spec.barPct != null) {
+        vizEl.innerHTML = `<div class="viz-progress-bar section-profile-panel__kpi-bar"><i data-bar-pct="${spec.barPct.toFixed(1)}" style="width:0;background:${spec.color}"></i></div>`;
+        animateVizBars(vizEl);
+      } else if (spec.area) {
+        vizEl.innerHTML = `<svg width="44" height="22" viewBox="0 0 40 20" aria-hidden="true"><path d="M4 16 Q20 4 36 16 Z" fill="${spec.color}33" stroke="${spec.color}"/></svg>`;
+      } else {
+        vizEl.innerHTML = '';
+      }
+    });
   }
 
   private syncSeg(): void {
@@ -388,11 +522,65 @@ export class SectionProfilePanel implements Disposable {
     }
   }
 
+  private pierSegKey(): string {
+    const ids = [...this.lastPiers]
+      .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
+      .map((p) => p.id)
+      .join(',');
+    return `${this.section}|${ids}`;
+  }
+
+  private syncPierSegActiveOnly(): void {
+    for (const btn of this.pierSegHost.querySelectorAll<HTMLButtonElement>(
+      '.section-profile-panel__pier-btn',
+    )) {
+      btn.classList.toggle('is-on', btn.dataset.pierId === this.transversePierId);
+    }
+  }
+
+  private syncPierSeg(): void {
+    if (this.section !== 'B' || this.lastPiers.length === 0) {
+      this.pierSegHost.hidden = true;
+      this.pierSegHost.replaceChildren();
+      this.pierSegBuiltKey = '';
+      return;
+    }
+    this.pierSegHost.hidden = false;
+    const key = this.pierSegKey();
+    if (key === this.pierSegBuiltKey && this.pierSegHost.childElementCount > 0) {
+      this.syncPierSegActiveOnly();
+      return;
+    }
+    this.pierSegBuiltKey = key;
+    this.pierSegHost.replaceChildren();
+    const sorted = [...this.lastPiers].sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
+    for (const pier of sorted) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'section-profile-panel__pier-btn';
+      btn.textContent = pier.id;
+      btn.dataset.pierId = pier.id;
+      btn.classList.toggle('is-on', pier.id === this.transversePierId);
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.setTransversePierId(pier.id);
+      });
+      this.pierSegHost.appendChild(btn);
+    }
+  }
+
   private setTitle(): void {
+    const pierLabel =
+      this.lastPiers.length > 0
+        ? [...this.lastPiers]
+            .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
+            .map((p) => p.id)
+            .join('·')
+        : 'P1·P2·P3';
     this.titleEl.textContent =
       this.section === 'A'
-        ? '단면 A–A′ · 흐름 방향 종단 (P1·P2·P3 관통)'
-        : '단면 B–B′ · 횡단 (P2 관통)';
+        ? `단면 A–A′ · 흐름 방향 종단 (${pierLabel} 관통)`
+        : `단면 B–B′ · 횡단 (${this.transversePierId} 관통 · ${this.lastPiers.length}개 선)`;
   }
 
   public dispose(): void {

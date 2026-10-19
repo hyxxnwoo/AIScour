@@ -20,7 +20,7 @@ export type TimeChangeListener = (timeSeconds: number, isPlaying: boolean) => vo
 // 외부에서는 onChange 로 시간 변경을 구독한다.
 export class TimeControls implements Disposable {
   public readonly element: HTMLElement;
-  private duration: number;
+  private durationSec: number;
   private currentTime = 0;
   private speed: number;
   private playing: boolean;
@@ -46,7 +46,7 @@ export class TimeControls implements Disposable {
   private disabledHint = 'CSV 업로드 전';
 
   public constructor(options: TimeControlsOptions) {
-    this.duration = Math.max(0, options.durationSeconds);
+    this.durationSec = Math.max(0, options.durationSeconds);
     this.speed = options.initialSpeed ?? 1;
     this.looping = options.loop ?? true;
     this.playing = options.autoPlay ?? true;
@@ -94,7 +94,7 @@ export class TimeControls implements Disposable {
     this.slider.type = 'range';
     this.slider.className = 'time-controls__slider';
     this.slider.min = '0';
-    this.slider.max = String(Math.round(this.duration * this.sliderResolution));
+    this.slider.max = String(Math.round(this.durationSec * this.sliderResolution));
     this.slider.step = '1';
     this.slider.value = '0';
 
@@ -119,6 +119,7 @@ export class TimeControls implements Disposable {
     this.element.append(transport, this.slider, this.timeLabel, this.speedSelect, stepHint);
 
     this.bindEvents();
+    this.updatePlayButton();
     this.setTimelineEnabled(true);
   }
 
@@ -130,7 +131,7 @@ export class TimeControls implements Disposable {
     this.playBtn.addEventListener('click', this.togglePlay);
     this.fwdBtn.addEventListener('click', () => this.seekBy(this.seekStepSeconds));
     this.endBtn.addEventListener('click', () => {
-      if (this.timelineEnabled) this.setTime(this.duration);
+      if (this.timelineEnabled) this.setTime(this.durationSec);
     });
     this.slider.addEventListener('input', this.onSliderInput);
     this.slider.addEventListener('pointerdown', this.onScrubStart);
@@ -172,14 +173,14 @@ export class TimeControls implements Disposable {
 
   // AnimationLoop 가 매 프레임 호출. 재생 중일 때만 시간을 진행시킨다.
   public tick(deltaSeconds: number): void {
-    if (!this.timelineEnabled || !this.playing || this.duration === 0 || this.isUserScrubbing)
+    if (!this.timelineEnabled || !this.playing || this.durationSec === 0 || this.isUserScrubbing)
       return;
     let next = this.currentTime + deltaSeconds * this.speed;
-    if (next >= this.duration) {
+    if (next >= this.durationSec) {
       if (this.looping) {
-        next = next % this.duration;
+        next = next % this.durationSec;
       } else {
-        next = this.duration;
+        next = this.durationSec;
         this.setPlaying(false);
       }
     }
@@ -201,7 +202,7 @@ export class TimeControls implements Disposable {
 
   /** 재생·배속·스크럽 상태를 반영한 시뮬레이션 Δt(초). 일시정지면 0. */
   public simulationDelta(deltaSeconds: number): number {
-    if (!this.timelineEnabled || !this.playing || this.duration === 0 || this.isUserScrubbing) {
+    if (!this.timelineEnabled || !this.playing || this.durationSec === 0 || this.isUserScrubbing) {
       return 0;
     }
     return deltaSeconds * this.speed;
@@ -211,10 +212,14 @@ export class TimeControls implements Disposable {
     return this.currentTime;
   }
 
+  public get duration(): number {
+    return this.durationSec;
+  }
+
   public setDuration(durationSeconds: number): void {
-    this.duration = Math.max(0, durationSeconds);
-    this.slider.max = String(Math.round(this.duration * this.sliderResolution));
-    this.setTime(Math.min(this.currentTime, this.duration), { silent: true });
+    this.durationSec = Math.max(0, durationSeconds);
+    this.slider.max = String(Math.round(this.durationSec * this.sliderResolution));
+    this.setTime(Math.min(this.currentTime, this.durationSec), { silent: true });
   }
 
   public seekBy(deltaSeconds: number): void {
@@ -224,7 +229,7 @@ export class TimeControls implements Disposable {
 
   public setTime(timeSeconds: number, options?: { silent?: boolean; force?: boolean }): void {
     if (!this.timelineEnabled && !options?.force) return;
-    const clamped = Math.max(0, Math.min(timeSeconds, this.duration));
+    const clamped = Math.max(0, Math.min(timeSeconds, this.durationSec));
     if (clamped === this.currentTime) return;
     this.currentTime = clamped;
     this.slider.value = String(Math.round(clamped * this.sliderResolution));
@@ -255,10 +260,12 @@ export class TimeControls implements Disposable {
 
   private onScrubStart = (): void => {
     this.isUserScrubbing = true;
+    this.element.classList.add('is-scrubbing');
   };
 
   private onScrubEnd = (): void => {
     this.isUserScrubbing = false;
+    this.element.classList.remove('is-scrubbing');
   };
 
   private onSpeedChange = (): void => {
@@ -267,10 +274,12 @@ export class TimeControls implements Disposable {
 
   private updatePlayButton(): void {
     this.playBtn.textContent = this.playing ? '⏸' : '▶';
+    this.element.classList.toggle('is-playing', this.playing);
+    this.playBtn.classList.toggle('is-active', this.playing);
   }
 
   private formatTime(t: number): string {
-    return `${t.toFixed(1)}s / ${this.duration.toFixed(1)}s`;
+    return `${t.toFixed(1)}s / ${this.durationSec.toFixed(1)}s`;
   }
 
   private emit(): void {

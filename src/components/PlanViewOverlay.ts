@@ -14,6 +14,8 @@ export class PlanViewOverlay implements Disposable {
   private piers: PierDefinition[] = [];
   private camera: Camera | null = null;
   private hover: SectionWorldPoint | null = null;
+  private activeTransversePierId: string | null = null;
+  private onPierPick: ((pierId: string) => void) | null = null;
   private readonly tmp = new Vector3();
 
   public constructor() {
@@ -22,6 +24,15 @@ export class PlanViewOverlay implements Disposable {
     const ctx = this.element.getContext('2d');
     if (!ctx) throw new Error('2D context unavailable');
     this.ctx = ctx;
+    this.element.addEventListener('click', this.onCanvasClick);
+  }
+
+  public setActiveTransversePierId(pierId: string | null): void {
+    this.activeTransversePierId = pierId;
+  }
+
+  public setOnPierPick(handler: ((pierId: string) => void) | null): void {
+    this.onPierPick = handler;
   }
 
   public setSection(section: SectionId): void {
@@ -56,28 +67,49 @@ export class PlanViewOverlay implements Disposable {
     const b = terrainWorldBounds(this.series);
     const zLine =
       this.piers.length > 0 ? this.piers.reduce((a, p) => a + p.z, 0) / this.piers.length : 0;
-    const p2 =
-      this.piers.find((p) => p.id === 'P2') ?? this.piers[Math.floor(this.piers.length / 2)];
-    const xLine = p2?.x ?? 0;
-
-    let a: [number, number] | null;
-    let bpt: [number, number] | null;
-    let la: string;
-    let lb: string;
-    if (this.section === 'A') {
-      a = this.project(b.xMin, zLine, w, h);
-      bpt = this.project(b.xMax, zLine, w, h);
-      la = 'A';
-      lb = 'A′';
-    } else {
-      a = this.project(xLine, b.zMin, w, h);
-      bpt = this.project(xLine, b.zMax, w, h);
-      la = 'B';
-      lb = 'B′';
-    }
-    if (!a || !bpt) return;
-
     const g = this.ctx;
+
+    if (this.section === 'A') {
+      const a = this.project(b.xMin, zLine, w, h);
+      const bpt = this.project(b.xMax, zLine, w, h);
+      if (a && bpt) this.drawSectionLine(g, a, bpt, 'A', 'A′', true);
+    } else {
+      const ordered = [...this.piers].sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
+      const active =
+        this.activeTransversePierId ??
+        ordered.find((p) => p.id === 'P2')?.id ??
+        ordered[Math.floor(ordered.length / 2)]?.id ??
+        ordered[0]?.id;
+      for (const pier of ordered) {
+        const a = this.project(pier.x, b.zMin, w, h);
+        const bpt = this.project(pier.x, b.zMax, w, h);
+        if (!a || !bpt) continue;
+        const isActive = pier.id === active;
+        this.drawSectionLine(
+          g,
+          a,
+          bpt,
+          pier.id,
+          'B′',
+          isActive,
+          isActive ? undefined : 'rgba(78, 205, 196, 0.35)',
+        );
+      }
+    }
+
+    this.drawPierMarkers(w, h);
+    this.drawHover(w, h);
+  }
+
+  private drawSectionLine(
+    g: CanvasRenderingContext2D,
+    a: [number, number],
+    bpt: [number, number],
+    la: string,
+    lb: string,
+    emphasize: boolean,
+    strokeOverride?: string,
+  ): void {
     const dx = bpt[0] - a[0];
     const dy = bpt[1] - a[1];
     const len = Math.hypot(dx, dy) || 1;
@@ -87,11 +119,13 @@ export class PlanViewOverlay implements Disposable {
     const ny = ux;
 
     g.save();
-    g.shadowColor = 'rgba(78, 205, 196, 0.45)';
-    g.shadowBlur = 10;
-    g.lineWidth = 3;
-    g.setLineDash([10, 7]);
-    g.strokeStyle = 'rgba(78, 205, 196, 0.95)';
+    if (emphasize) {
+      g.shadowColor = 'rgba(78, 205, 196, 0.45)';
+      g.shadowBlur = 10;
+    }
+    g.lineWidth = emphasize ? 3 : 2;
+    g.setLineDash(emphasize ? [10, 7] : [6, 8]);
+    g.strokeStyle = strokeOverride ?? 'rgba(78, 205, 196, 0.95)';
     g.beginPath();
     g.moveTo(a[0], a[1]);
     g.lineTo(bpt[0], bpt[1]);
@@ -101,19 +135,19 @@ export class PlanViewOverlay implements Disposable {
     g.setLineDash([]);
     const drawCap = (x: number, y: number): void => {
       g.beginPath();
-      g.arc(x, y, 4.5, 0, Math.PI * 2);
-      g.fillStyle = 'rgba(78, 205, 196, 0.35)';
+      g.arc(x, y, emphasize ? 4.5 : 3.5, 0, Math.PI * 2);
+      g.fillStyle = emphasize ? 'rgba(78, 205, 196, 0.35)' : 'rgba(78, 205, 196, 0.18)';
       g.fill();
-      g.lineWidth = 2;
-      g.strokeStyle = '#4ecdc4';
+      g.lineWidth = emphasize ? 2 : 1.5;
+      g.strokeStyle = emphasize ? '#4ecdc4' : 'rgba(78, 205, 196, 0.55)';
       g.stroke();
     };
     drawCap(a[0], a[1]);
     drawCap(bpt[0], bpt[1]);
 
-    const labelPad = 18;
-    g.font = '600 11px system-ui, sans-serif';
-    g.fillStyle = '#e8f0fa';
+    const labelPad = emphasize ? 18 : 14;
+    g.font = emphasize ? '600 11px system-ui, sans-serif' : '500 10px system-ui, sans-serif';
+    g.fillStyle = emphasize ? '#e8f0fa' : 'rgba(232, 240, 250, 0.72)';
     g.strokeStyle = 'rgba(12, 32, 52, 0.85)';
     g.lineWidth = 3;
     g.textAlign = 'center';
@@ -123,11 +157,31 @@ export class PlanViewOverlay implements Disposable {
       g.fillText(text, x, y);
     };
     drawLabel(la, a[0] - ux * labelPad + nx * 10, a[1] - uy * labelPad + ny * 10);
-    drawLabel(lb, bpt[0] + ux * labelPad + nx * 10, bpt[1] + uy * labelPad + ny * 10);
-
-    this.drawPierMarkers(w, h);
-    this.drawHover(w, h);
+    if (emphasize) {
+      drawLabel(lb, bpt[0] + ux * labelPad + nx * 10, bpt[1] + uy * labelPad + ny * 10);
+    }
   }
+
+  private onCanvasClick = (event: MouseEvent): void => {
+    if (this.section !== 'B' || this.piers.length === 0) return;
+    const w = this.element.clientWidth;
+    const h = this.element.clientHeight;
+    const rect = this.element.getBoundingClientRect();
+    const cx = event.clientX - rect.left;
+    const cy = event.clientY - rect.top;
+    let bestId: string | null = null;
+    let bestD = 24;
+    for (const pier of this.piers) {
+      const p = this.project(pier.x, pier.z, w, h);
+      if (!p) continue;
+      const d = Math.hypot(p[0] - cx, p[1] - cy);
+      if (d < bestD) {
+        bestD = d;
+        bestId = pier.id;
+      }
+    }
+    if (bestId) this.onPierPick?.(bestId);
+  };
 
   private drawHover(w: number, h: number): void {
     if (!this.hover) return;
@@ -215,6 +269,7 @@ export class PlanViewOverlay implements Disposable {
   }
 
   public dispose(): void {
+    this.element.removeEventListener('click', this.onCanvasClick);
     this.element.remove();
   }
 }

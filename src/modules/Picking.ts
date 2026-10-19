@@ -6,6 +6,8 @@ export interface PickResult {
   worldX: number;
   worldY: number;
   worldZ: number;
+  /** Raycast hit mesh name (e.g. pier-P2) */
+  objectName?: string;
 }
 
 export type PickListener = (result: PickResult | null) => void;
@@ -87,6 +89,7 @@ export class Picking implements Disposable {
       worldX: first.point.x,
       worldY: first.point.y,
       worldZ: first.point.z,
+      objectName: first.object.name,
     };
   }
 

@@ -391,6 +391,8 @@ export class FluidControls implements Disposable {
   }
 
   private applySetupChrome(): void {
+    this.element.classList.toggle('fluid-controls--setup', this.setupMode && !this.readOnlyField);
+    this.element.classList.toggle('fluid-controls--viewer', !this.setupMode && this.readOnlyField);
     if (!this.setupMode || this.readOnlyField) return;
     this.liveCheckbox.checked = false;
     if (this.debounceTimer) {

@@ -1,5 +1,6 @@
 import type { Disposable } from '@/types/disposable';
 import { SIM_PARAM_META, type NumericSimParamKey, type SimParams } from '@/types/simParams';
+import { renderCrossSectionSchematic } from '@/viz/schematic';
 
 export interface SimParamPanelHandlers {
   onApply: (params: SimParams) => void;
@@ -26,6 +27,7 @@ export class SimParamPanel implements Disposable {
   private applyBtn!: HTMLButtonElement;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private liveCheckbox!: HTMLInputElement;
+  private schematicHost!: HTMLElement;
 
   public constructor(
     initialParams: SimParams,
@@ -43,6 +45,11 @@ export class SimParamPanel implements Disposable {
     title.className = 'sim-param-panel__title';
     title.textContent = '시뮬레이션 파라미터';
     this.element.appendChild(title);
+
+    this.schematicHost = document.createElement('div');
+    this.schematicHost.className = 'sim-param-panel__schematic';
+    this.element.appendChild(this.schematicHost);
+    this.refreshSchematic();
 
     const liveRow = document.createElement('label');
     liveRow.className = 'sim-param-panel__live';
@@ -139,6 +146,7 @@ export class SimParamPanel implements Disposable {
       const v = Number(slider.value);
       this.values[meta.key] = v;
       numInput.value = String(v);
+      this.refreshSchematic();
     };
 
     const applyNumValue = (): void => {
@@ -149,6 +157,7 @@ export class SimParamPanel implements Disposable {
       this.values[meta.key] = clamped;
       slider.value = String(clamped);
       numInput.value = String(clamped);
+      this.refreshSchematic();
       this.scheduleLiveApply();
     };
 
@@ -177,6 +186,11 @@ export class SimParamPanel implements Disposable {
       controls.slider.value = String(v);
       controls.numInput.value = String(v);
     }
+    this.refreshSchematic();
+  }
+
+  private refreshSchematic(): void {
+    this.schematicHost.innerHTML = renderCrossSectionSchematic(this.values);
   }
 
   public getParams(): SimParams {

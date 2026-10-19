@@ -120,6 +120,10 @@ export class GlobalNav implements Disposable {
     this.badgeDot.style.background = badge.grade.color;
     this.badgeDot.style.boxShadow = `0 0 0 3px ${badge.grade.color}33`;
     this.badgeText.textContent = `${badge.grade.name} · ${badge.pierId}`;
+    this.badgeEl.classList.toggle(
+      'global-nav__alertdot--pulse',
+      badge.grade.key === 'a3' || badge.grade.key === 'a4',
+    );
   }
 
   public dispose(): void {

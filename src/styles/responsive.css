@@ -1,0 +1,556 @@
+/* 가변 화면 — 영역 크기 기준 3단계 표출 (layout.ts 와 em 값 동기) */
+
+#app {
+  --viz-tier-basic-em: 14;
+  --viz-tier-detail-em: 22;
+  --widget-gap: clamp(6px, 0.6vw, 14px);
+  --gnb-h: clamp(42px, 3.2vw, 56px);
+  --subnav-h: clamp(30px, 2.4vw, 40px);
+  --sbar-h: 0px;
+  --dock-left-w: clamp(200px, 22vw, 320px);
+  --dock-right-w: clamp(210px, 24vw, 340px);
+  --dock-stack-gap: clamp(6px, 0.5vw, 12px);
+  --time-stack-height: clamp(68px, 6vh, 92px);
+  font-size: clamp(16px, 0.55vw + 14px, 19px);
+  --fs-xs: 13px;
+  --fs-sm: 15px;
+  --fs-md: 17px;
+  --fs-lg: 20px;
+}
+
+/* 큰 모니터 — 관리·연동 화면 가독성 */
+@media (min-width: 1280px) {
+  #app {
+    font-size: clamp(17px, 0.4vw + 15px, 20px);
+    --fs-xs: 14px;
+    --fs-sm: 16px;
+    --fs-md: 18px;
+    --fs-lg: 21px;
+  }
+
+  .mgmt-table--viz {
+    --mgmt-viz-head-fs: 0.8125rem;
+    --mgmt-viz-num-fs: 0.9375rem;
+    --mgmt-viz-pct-fs: 0.8125rem;
+    --mgmt-viz-bar-h: 9px;
+    --mgmt-viz-metric-gap: 5px;
+  }
+}
+
+.viz-widget-grid {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5em), 1fr));
+  gap: var(--widget-gap);
+  align-items: start;
+}
+
+.viz-widget {
+  container-type: inline-size;
+  min-width: 0;
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+
+.viz-widget--tier-change {
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s ease;
+}
+
+.viz-widget[data-tier='core'] .viz-tier--basic,
+.viz-widget[data-tier='core'] .viz-tier--detail,
+.viz-widget-grid[data-tier='core'] .viz-tier--basic,
+.viz-widget-grid[data-tier='core'] .viz-tier--detail {
+  display: none !important;
+}
+
+.viz-widget[data-tier='basic'] .viz-tier--detail,
+.viz-widget-grid[data-tier='basic'] .viz-tier--detail {
+  display: none !important;
+}
+
+.viz-tier--basic,
+.viz-tier--detail {
+  min-width: 0;
+}
+
+.viz-delta {
+  margin-left: 0.35em;
+  font-size: var(--fs-xs, 11px);
+  font-weight: 700;
+}
+
+.viz-delta--up {
+  color: #e8796b;
+}
+
+.viz-delta--down {
+  color: #5bd6a0;
+}
+
+.viewer-core-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(8px, 1vw, 16px);
+  padding: 6px 10px;
+  margin: 0 8px 4px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg-solid);
+  pointer-events: auto;
+  z-index: 8;
+}
+
+.viewer-core-strip__grade {
+  font-weight: 800;
+  font-size: clamp(14px, 1.1vw, 22px);
+}
+
+.viewer-core-strip__pier {
+  font-size: var(--fs-sm);
+  color: var(--accent-muted);
+}
+
+.viewer-core-strip__metric {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: clamp(15px, 1.15vw, 24px);
+}
+
+.viewer-core-strip__time {
+  margin-left: auto;
+  font-size: var(--fs-sm);
+  color: var(--accent-muted);
+}
+
+.viewer-core-strip--pulse .viewer-core-strip__grade {
+  animation: viz-pulse 0.85s ease;
+}
+
+.alert-sop-page__core {
+  margin: 8px 12px 0;
+}
+
+.section-profile-panel__kpis-row {
+  display: contents;
+}
+
+.viz-stepper--flow.viz-stepper--h {
+  gap: 2px;
+  background: linear-gradient(90deg, transparent, rgba(111, 182, 222, 0.35), transparent);
+  background-size: 200% 100%;
+  animation: viz-stepper-flow 2.4s linear infinite;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.ui-dock {
+  container-type: inline-size;
+}
+
+.viewer-stage[data-tier='core'] #dock-left .viz-tier--basic,
+.viewer-stage[data-tier='core'] #dock-right .viz-tier--basic,
+.viewer-stage[data-tier='core'] #dock-left .viz-tier--detail,
+.viewer-stage[data-tier='core'] #dock-right .viz-tier--detail {
+  display: none !important;
+}
+
+.viewer-stage[data-tier='basic'] #dock-left .viz-tier--detail,
+.viewer-stage[data-tier='basic'] #dock-right .viz-tier--detail {
+  display: none !important;
+}
+
+.mgmt-page__body {
+  container-type: inline-size;
+}
+
+.case-mgmt-page .mgmt-table-wrap {
+  container-type: inline-size;
+}
+
+/* 넓은 목록 영역에서만 viz 한 단계 추가 (좁으면 기본 스케일 유지) */
+@container (min-width: 58em) {
+  .case-mgmt-page .mgmt-table--viz {
+    --mgmt-table-vizcol-w: 5.15rem;
+    --mgmt-viz-num-fs: 0.875rem;
+    --mgmt-viz-pct-fs: 0.71875rem;
+    --mgmt-viz-bar-h: 9px;
+  }
+}
+
+@container (max-width: 36em) {
+  .case-mgmt-page .mgmt-table--viz {
+    --mgmt-table-vizcol-w: 4.35rem;
+    --mgmt-viz-num-fs: 0.78125rem;
+    --mgmt-viz-pct-fs: 0.625rem;
+    --mgmt-viz-bar-h: 7px;
+    --mgmt-viz-stack-gap: 5px;
+    --mgmt-viz-num-row: 1.25rem;
+    --mgmt-viz-meta-row: 1.25rem;
+  }
+}
+
+@container (max-width: 42em) {
+  .case-mgmt-page .mgmt-table .mgmt-table__cell--optional {
+    display: none;
+  }
+}
+
+@container (max-width: 52em) {
+  .mgmt-split {
+    flex-direction: column;
+  }
+
+  .case-mgmt-page .mgmt-panel--side {
+    flex: 0 0 auto;
+    max-height: min(42vh, 360px);
+  }
+}
+
+.pier-scour-monitor__pier.is-linked-highlight,
+.risk-judgment-panel__card.is-linked-highlight {
+  outline: 2px solid rgba(143, 212, 234, 0.75);
+  outline-offset: 2px;
+  background: rgba(143, 212, 234, 0.1);
+}
+
+.pier-scour-monitor__pier.is-linked-hover {
+  outline: 1px dashed rgba(143, 212, 234, 0.55);
+  outline-offset: 2px;
+}
+
+.viz-stepper--flow .viz-stepper__connector {
+  background: linear-gradient(90deg, transparent, rgba(111, 182, 222, 0.55), transparent);
+  background-size: 200% 100%;
+  animation: viz-stepper-flow 2.4s linear infinite;
+}
+
+@keyframes viz-stepper-flow {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.viz-semi-gauge--wave defs clipPath,
+.viz-semi-gauge__wave {
+  animation: viz-gauge-wave 3s ease-in-out infinite;
+}
+
+@keyframes viz-gauge-wave {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+/* ── 2·3번 관리 화면: 한 화면 밀도 · 잘림 방지 ── */
+.case-mgmt-page .mgmt-page__body > .case-bi-strip {
+  width: 100%;
+  --case-bi-body-h: 184px;
+}
+
+.case-mgmt-page .case-bi-panel--status .case-bi-kpi {
+  display: none;
+}
+
+.case-mgmt-page .case-bi-panel__body--grade .case-bi-grade__cols {
+  min-height: 0;
+  gap: 4px;
+  padding-bottom: 2px;
+}
+
+.case-mgmt-page .case-bi-panel--scatter .case-bi-kpi {
+  display: none;
+}
+
+.case-mgmt-page .case-bi-panel--scatter .case-bi-scatter-wrap {
+  flex: 1;
+}
+
+.case-mgmt-page .case-bi-legend {
+  justify-content: space-between;
+  height: 100%;
+}
+
+.case-mgmt-page .case-bi-legend__row {
+  padding: 3px 5px;
+}
+
+.case-mgmt-page .mgmt-badge {
+  display: none;
+}
+
+.case-mgmt-page .mgmt-table-wrap {
+  overflow: hidden;
+}
+
+.case-mgmt-page .mgmt-panel--side {
+  overflow: hidden;
+}
+
+.case-mgmt-page .case-sel-summary--compact .case-sel-summary__head {
+  padding-bottom: 6px;
+}
+
+.case-mgmt-page .case-sel-summary--compact .case-sel-summary__risk--compact {
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.case-mgmt-page .case-sel-summary__section--params .case-sel-summary__h3 {
+  display: none;
+}
+
+.case-mgmt-page .case-sel-summary__params {
+  gap: 4px 8px;
+}
+
+.case-mgmt-page .case-sel-summary__action {
+  display: none;
+}
+
+.case-mgmt-page .case-new-sim--compact {
+  grid-template-columns: 1fr minmax(128px, 200px);
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.case-mgmt-page .case-new-sim--compact .case-new-sim__title {
+  margin: 0;
+  font-size: 12px;
+  display: inline;
+  margin-right: 6px;
+}
+
+.case-mgmt-page .case-new-sim--compact .case-new-sim__copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.case-mgmt-page .case-new-sim--compact .case-new-sim__desc {
+  margin: 0;
+  font-size: 11px;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.case-mgmt-page .case-new-sim__cta {
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+.case-mgmt-page .mgmt-chip-row {
+  padding: 6px 10px 0;
+  gap: 6px;
+}
+
+.case-mgmt-page .mgmt-chip {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.case-mgmt-page .mgmt-filter-row {
+  padding: 6px 10px 8px;
+  gap: 6px;
+}
+
+.case-mgmt-page .mgmt-filter__label {
+  margin-bottom: 2px;
+  font-size: 10px;
+}
+
+.case-mgmt-page .mgmt-filter__select {
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.case-mgmt-page .mgmt-list-head {
+  padding: 4px 10px 0;
+}
+
+.case-mgmt-page .mgmt-h2 {
+  font-size: var(--fs-sm, 14px);
+}
+
+.case-mgmt-page .mgmt-sub {
+  font-size: 11px;
+}
+
+.case-mgmt-page .mgmt-table-wrap {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 8px 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.case-mgmt-page .mgmt-table-wrap .mgmt-table {
+  flex: 0 0 auto;
+}
+
+.case-mgmt-page .mgmt-table-wrap .mgmt-pager {
+  flex-shrink: 0;
+  padding: 6px 8px;
+}
+
+.case-mgmt-page .mgmt-table--viz {
+  --mgmt-viz-num-row: 1.125rem;
+  --mgmt-viz-meta-row: 1.125rem;
+  --mgmt-viz-bar-h: 7px;
+  --mgmt-viz-stack-gap: 4px;
+  --mgmt-viz-metric-gap: 3px;
+  --mgmt-table-vizcol-w: 4.5rem;
+}
+
+.case-mgmt-page .mgmt-table--viz th,
+.case-mgmt-page .mgmt-table--viz td {
+  padding: 5px 6px;
+}
+
+.case-mgmt-page .mgmt-table--viz thead th {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.case-mgmt-page .mgmt-panel--main > *:not(.mgmt-table-wrap) {
+  flex-shrink: 0;
+}
+
+.case-mgmt-page .mgmt-panel--side .mgmt-h2 {
+  margin: 0 0 4px;
+  font-size: var(--fs-sm, 14px);
+}
+
+.case-mgmt-page .mgmt-hint {
+  margin: 4px 0 0;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.case-mgmt-page .mgmt-panel--side .mgmt-side-actions {
+  margin-top: 8px;
+  padding-top: 0;
+  gap: 6px;
+}
+
+.case-mgmt-page .mgmt-badge {
+  margin-top: 6px;
+  font-size: 9px;
+}
+
+.case-mgmt-page .case-sel-summary__risk {
+  grid-template-columns: 1fr;
+  padding: 8px;
+  gap: 6px;
+}
+
+.case-mgmt-page .case-sel-summary__gauge-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.case-mgmt-page .case-sel-summary__section {
+  margin: 0;
+}
+
+.data-pipeline-page .mgmt-page__body {
+  gap: 8px;
+}
+
+.data-pipeline-page .pipeline-stage-strip {
+  flex-shrink: 0;
+}
+
+.data-pipeline-page .pipeline-side-panel {
+  border-radius: 10px;
+  border: 1px solid rgba(111, 182, 222, 0.12);
+  background: rgba(8, 22, 36, 0.45);
+}
+
+.data-pipeline-page .pipeline-kpi {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(111, 182, 222, 0.12);
+  background: rgba(8, 22, 36, 0.45);
+}
+
+.data-pipeline-page .data-pipeline__steps {
+  padding: 8px;
+  gap: 6px;
+}
+
+.data-pipeline-page .data-pipeline__step {
+  padding: 6px 8px;
+}
+
+.data-pipeline-page .data-pipeline__step-val {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.data-pipeline-page .data-pipeline__list-head {
+  padding: 6px 10px;
+}
+
+.data-pipeline-page .data-pipeline__table-wrap {
+  padding: 4px 8px;
+}
+
+.data-pipeline-page .data-pipeline__pager {
+  padding: 6px 8px;
+}
+
+.data-pipeline-page .mgmt-table--viz th,
+.data-pipeline-page .mgmt-table--viz td {
+  padding: 5px 6px;
+}
+
+@media (max-height: 860px) {
+  .case-mgmt-page .case-bi-kpi {
+    display: none;
+  }
+
+  .case-mgmt-page .case-bi-panel--status .case-bi-legend {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px;
+  }
+
+  .case-mgmt-page .case-bi-legend__row {
+    padding: 3px 6px;
+  }
+
+  .case-mgmt-page .mgmt-chip-row__note {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .case-bi-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viz-widget,
+  .viz-widget--tier-change,
+  .viz-stepper--flow .viz-stepper__connector,
+  .viz-semi-gauge__wave {
+    animation: none !important;
+    transition: none !important;
+  }
+}

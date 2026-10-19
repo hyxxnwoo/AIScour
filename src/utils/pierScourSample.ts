@@ -15,14 +15,15 @@ export function maxErosionAtPierFootprint(
   delta: Float32Array,
   terrain: ScourSeries['baseTerrain'],
   pier: PierDefinition,
-  pierDiameter = pier.diameter,
+  pierDiameter = pier.diameter ?? 1.6,
 ): number {
   const { width, height, cellSize } = terrain;
   const halfW = ((width - 1) * cellSize) / 2;
   const halfH = ((height - 1) * cellSize) / 2;
   const cx = Math.round((pier.x + halfW) / cellSize);
   const cy = Math.round((pier.z + halfH) / cellSize);
-  const searchRadius = pierDiameter / 2 + cellSize * 2;
+  const d = pierDiameter ?? 1.6;
+  const searchRadius = d / 2 + cellSize * 2;
   const rCells = Math.ceil(searchRadius / cellSize) + 1;
 
   let maxErosion = 0;

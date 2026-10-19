@@ -2,6 +2,8 @@ import type { PierDefinition } from '@/modules/PierMarker';
 import type { ScourFrame, ScourSeries } from '@/types/terrain';
 import type { Disposable } from '@/types/disposable';
 import { gradeOf } from '@/constants/grade';
+import { renderRingGauge } from '@/viz/gauge';
+import { renderSignedBar, renderSparkline } from '@/viz/sparkline';
 
 export interface CellSelection {
   gridX: number;
@@ -25,36 +27,6 @@ function estimateCellVelocity(worldX: number, worldZ: number, piers: PierDefinit
     m = Math.min(m, Math.hypot(worldX - p.x, worldZ - p.z));
   }
   return 0.85 + 1.0 * Math.exp(-(m * m) / 4);
-}
-
-function cellMiniSvg(series: ScourSeries, cell: CellSelection, timeSeconds: number): string {
-  const W = 280;
-  const H = 96;
-  const L = 30;
-  const R = 6;
-  const T = 8;
-  const B = 14;
-  const iw = W - L - R;
-  const ih = H - T - B;
-  const { width } = series.baseTerrain;
-  const { frames } = series;
-  const idx = cell.gridY * width + cell.gridX;
-  const vals = frames.map((f) => f.deltaElevations[idx] ?? 0);
-  const tMax = frames.at(-1)?.timestampSeconds ?? 1;
-  const mn = Math.min(...vals, -0.001);
-  const mx = Math.max(...vals, 0.001);
-  const Y = (v: number): number => T + ih * (1 - (v - mn) / (mx - mn || 1));
-  const X = (t: number): number => L + (iw * t) / Math.max(tMax, 1);
-  const pts = vals.map((v, i) => [X(frames[i]?.timestampSeconds ?? 0), Y(v)] as const);
-  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
-  const cx = X(timeSeconds);
-  const fi = frames.findIndex((f) => f.timestampSeconds >= timeSeconds);
-  const cv = vals[Math.max(0, fi)] ?? 0;
-  const cy = Y(cv);
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:100%"><line x1="${L}" y1="${Y(0)}" x2="${W - R}" y2="${Y(0)}" stroke="#4E6F8C" stroke-dasharray="4 3"/>
-    <path d="${path}" fill="none" stroke="#7ec8e3" stroke-width="1.8"/>
-    <line x1="${cx}" y1="${T}" x2="${cx}" y2="${T + ih}" stroke="#00D4B0" stroke-width="1.2"/>
-    <circle cx="${cx}" cy="${cy}" r="3.5" fill="#f4d35e"/></svg>`;
 }
 
 /** 7번 — 하상 클릭 셀 상세 팝업 */
@@ -123,25 +95,28 @@ export class CellDetailPopover implements Disposable {
 
     this.element.querySelector('.cell-detail-popover__title')!.textContent =
       `셀 (${cell.gridX}, ${cell.gridY}) 하상 표고 변화`;
-    this.chartHost.innerHTML = cellMiniSvg(series, cell, timeSeconds);
 
-    const scourLabel = delta < 0 ? '세굴' : '퇴적';
-    this.bodyEl.querySelectorAll('.cell-detail-popover__kv').forEach((el) => el.remove());
-    const kvs: Array<[string, string]> = [
-      ['좌표 (x, z)', `${cell.worldX.toFixed(2)}, ${cell.worldZ.toFixed(2)} m`],
-      ['현재 하상 변화', `${scourLabel} ${delta.toFixed(3)} m`],
-      ['최대 세굴 (전 구간)', `${maxScour.toFixed(3)} m`],
-      ['국부 유속 (davel)', `${u.toFixed(2)} m/s`],
-      ['하상 전단응력 (scrp)', `${tau.toFixed(1)} N/m²`],
-      ['시각', `${timeSeconds.toFixed(0)} s`],
-    ];
-    for (const [k, v] of kvs) {
-      const row = document.createElement('div');
-      row.className = 'cell-detail-popover__kv';
-      const isChange = k === '현재 하상 변화';
-      row.innerHTML = `<span>${k}</span><b${isChange ? ` style="color:${g.color}"` : ''}>${v}</b>`;
-      this.bodyEl.appendChild(row);
-    }
+    this.bodyEl.querySelectorAll('.cell-detail-popover__viz').forEach((el) => el.remove());
+    const viz = document.createElement('div');
+    viz.className = 'cell-detail-popover__viz';
+    const maxAbs = Math.max(Math.abs(maxScour), Math.abs(delta), 0.5);
+    viz.innerHTML = `
+      <div class="cell-detail-popover__viz-row">${renderSignedBar(delta, maxAbs)}</div>
+      <div class="cell-detail-popover__viz-row cell-detail-popover__viz-gauges">
+        ${renderRingGauge({ value: u, max: 2.5, size: 44, color: '#7ec8e3', label: `${u.toFixed(2)}` })}
+        ${renderRingGauge({ value: tau, max: 15, size: 44, color: '#E8B21A', label: `${tau.toFixed(0)}` })}
+      </div>
+      <div class="cell-detail-popover__viz-hint" data-tip="좌표 ${cell.worldX.toFixed(2)}, ${cell.worldZ.toFixed(2)} m · t=${timeSeconds.toFixed(0)} s">
+        유속 · 전단(N/m²) · 최대 세굴 ${maxScour.toFixed(3)} m
+      </div>`;
+    this.bodyEl.appendChild(viz);
+    this.chartHost.innerHTML = renderSparkline({
+      values: allVals,
+      currentIndex: frames.findIndex((f) => f.timestampSeconds >= timeSeconds),
+      width: 260,
+      height: 48,
+      stroke: g.color,
+    });
   }
 
   public dispose(): void {

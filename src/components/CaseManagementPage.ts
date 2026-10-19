@@ -1,4 +1,9 @@
-import { DEFAULT_FOUNDATION_DEPTH_M, gradeOf, remainPct } from '@/constants/grade';
+import {
+  BED_MATERIAL_GRAIN_HINT,
+  BED_MATERIAL_GRAIN_LABEL,
+  formatBedMaterialGrainMm,
+} from '@/constants/fieldLabels';
+import { DEFAULT_FOUNDATION_DEPTH_M } from '@/constants/grade';
 import {
   MOCK_CASE_CHIPS,
   MOCK_CASE_COUNT,
@@ -17,6 +22,23 @@ import {
   type CaseStatusChip,
 } from '@/utils/caseListFilter';
 import type { Disposable } from '@/types/disposable';
+import { bindCaseBiStrip, renderCaseBiStrip } from '@/viz/caseBiStrip';
+import { bindCaseSelectedSummary, renderCaseSelectedSummary } from '@/viz/caseSelectedSummary';
+import {
+  renderCaseIdCell,
+  renderCaseRowAction,
+  renderCaseStatusBadge,
+  renderRowSelectButton,
+  renderShapeCell,
+  renderUpdatedAtCell,
+} from '@/viz/tableCaseCells';
+import {
+  bindTableMetricViz,
+  renderTableMetricCell,
+  renderTableScourCell,
+  renderTableVizColHead,
+} from '@/viz/tableMetricCell';
+import { bindWidgetTiers } from '@/viz/widget';
 
 /** 목록 1페이지에 표시할 목업 케이스 수 */
 const PAGE_SIZE = MOCK_CASE_LIST_LIMIT;
@@ -40,6 +62,10 @@ export class CaseManagementPage implements Disposable {
   private filters: CaseListFilters = { ...DEFAULT_CASE_FILTERS };
   private page = 1;
   private toast = '';
+  private unbindTiers: (() => void) | null = null;
+  private unbindTableViz: (() => void) | null = null;
+  private unbindBiStrip: (() => void) | null = null;
+  private unbindCaseSummary: (() => void) | null = null;
 
   public constructor(handlers: CaseManagementPageHandlers) {
     this.handlers = handlers;
@@ -125,16 +151,33 @@ export class CaseManagementPage implements Disposable {
       this.render();
       return;
     }
-    const rowId = t.closest('[data-case-id]')?.getAttribute('data-case-id');
-    if (t.closest('[data-act="toggle-row"]') && rowId) {
-      const row = this.cases.find((c) => c.id === rowId);
-      if (!row) return;
-      if (row.selected) {
-        row.selected = false;
-      } else {
-        for (const c of this.cases) c.selected = false;
-        row.selected = true;
-      }
+    const scatterId = t.closest('[data-scatter-id]')?.getAttribute('data-scatter-id');
+    if (scatterId) {
+      for (const c of this.cases) c.selected = c.id === scatterId;
+      this.render();
+      return;
+    }
+    const gradeFromDonut = t
+      .closest('.case-bi-panel--grade .viz-donut-seg')
+      ?.getAttribute('data-donut-id');
+    const gradeBi =
+      t.closest('[data-act="bi-grade"]')?.getAttribute('data-grade-key') ??
+      (gradeFromDonut && /^a[1-4]$/.test(gradeFromDonut) ? gradeFromDonut : null);
+    if (gradeBi) {
+      const next = gradeBi as CaseListFilters['gradeKey'];
+      this.filters = {
+        ...this.filters,
+        gradeKey: this.filters.gradeKey === next ? 'all' : next,
+      };
+      this.page = 1;
+      this.render();
+      return;
+    }
+    const donutId = (t.closest('.viz-donut-seg')?.getAttribute('data-donut-id') ??
+      t.closest('[data-donut-id]')?.getAttribute('data-donut-id')) as CaseStatusChip | null;
+    if (donutId && donutId !== 'all') {
+      this.statusChip = this.statusChip === donutId ? 'all' : donutId;
+      this.page = 1;
       this.render();
       return;
     }
@@ -146,6 +189,26 @@ export class CaseManagementPage implements Disposable {
     const errCase = t.closest('[data-act="error-check"]')?.getAttribute('data-case-id');
     if (errCase) {
       this.handlers.onOpenDataPipelineError(errCase);
+      return;
+    }
+    const listRow = t.closest('tbody tr[data-case-id]');
+    if (
+      listRow instanceof HTMLTableRowElement &&
+      !t.closest('.mgmt-table__cell--act, [data-act="viewer"], [data-act="error-check"]')
+    ) {
+      const rowId = listRow.getAttribute('data-case-id');
+      if (rowId) {
+        const row = this.cases.find((c) => c.id === rowId);
+        if (row) {
+          if (row.selected) {
+            row.selected = false;
+          } else {
+            for (const c of this.cases) c.selected = false;
+            row.selected = true;
+          }
+          this.render();
+        }
+      }
       return;
     }
     if (t.closest('[data-act="open-viewer-selected"]')) {
@@ -185,48 +248,14 @@ export class CaseManagementPage implements Disposable {
     this.render();
   }
 
-  private renderSelectedSummary(fd: number): string {
-    const row = this.selectedCase();
-    if (!row) {
-      return `<tr><td colspan="2" class="mgmt-table__cell mgmt-muted case-mgmt-empty">목록에서 케이스를 <b>하나</b> 선택하면 요약이 표시됩니다.</td></tr>`;
-    }
-    const st = MOCK_CASE_STATUS[row.status];
-    const scour = row.maxScourM;
-    const g = scour != null ? gradeOf(scour, fd) : null;
-    const remain = scour != null ? remainPct(scour, fd) : null;
-    const pairs: Array<[string, string]> = [
-      ['케이스 ID', `<b>${row.id}</b>`],
-      [
-        '상태',
-        `<span class="mgmt-sbadge" style="background:${st.bg};color:${st.color}">${st.label}</span>`,
-      ],
-      ['교각 형상', row.shape],
-      ['직경', `${row.diameterM.toFixed(1)} m`],
-      ['교각 수', String(row.pierCount)],
-      ['유량', row.flow],
-      ['입경 d50', row.d50],
-      [
-        '최대 세굴심',
-        scour != null ? `<b>${scour.toFixed(2)} m</b>` : '<span class="mgmt-muted">—</span>',
-      ],
-      [
-        '등급',
-        g
-          ? `<span class="grade-pill grade-pill--${g.key}">${g.name}</span>`
-          : '<span class="mgmt-muted">—</span>',
-      ],
-      [
-        '잔여 여유율',
-        remain != null ? `${remain.toFixed(1)} %` : '<span class="mgmt-muted">—</span>',
-      ],
-      ['갱신', row.updatedAt],
-    ];
-    return pairs
-      .map(
-        ([label, value]) =>
-          `<tr><th class="mgmt-table__cell">${label}</th><td class="mgmt-table__cell mgmt-table__cell--c">${value}</td></tr>`,
-      )
-      .join('');
+  private renderBiStrip(filtered: MockCaseRow[], fd: number): string {
+    return renderCaseBiStrip({
+      allCases: this.cases,
+      filtered,
+      foundationDepthM: fd,
+      statusChip: this.statusChip,
+      gradeFilter: this.filters.gradeKey,
+    });
   }
 
   private render(): void {
@@ -234,6 +263,10 @@ export class CaseManagementPage implements Disposable {
     const selected = this.selectedCase();
     const selLabel = selected ? selected.id : '없음';
     const filtered = this.filteredCases();
+    const summaryHtml = renderCaseSelectedSummary({
+      row: selected,
+      foundationDepthM: fd,
+    });
     const pages = totalPages(filtered.length, PAGE_SIZE);
     const safePage = Math.min(this.page, pages);
     if (safePage !== this.page) this.page = safePage;
@@ -271,11 +304,11 @@ export class CaseManagementPage implements Disposable {
           <option value="mid" ${this.filters.flowBand === 'mid' ? 'selected' : ''}>0.08 – 0.10</option>
           <option value="high" ${this.filters.flowBand === 'high' ? 'selected' : ''}>&gt; 0.10</option>
         </select></div>
-      <div class="mgmt-filter"><div class="mgmt-filter__label">입경 d50</div>
+      <div class="mgmt-filter"><div class="mgmt-filter__label" data-tip="${BED_MATERIAL_GRAIN_HINT}">${BED_MATERIAL_GRAIN_LABEL}</div>
         <select class="mgmt-filter__select" data-filter="d50">
           <option value="all" ${this.filters.d50 === 'all' ? 'selected' : ''}>전체</option>
-          <option value="0.5" ${this.filters.d50 === '0.5' ? 'selected' : ''}>0.5</option>
-          <option value="0.8" ${this.filters.d50 === '0.8' ? 'selected' : ''}>0.8</option>
+          <option value="0.5" ${this.filters.d50 === '0.5' ? 'selected' : ''}>${formatBedMaterialGrainMm('0.5')}</option>
+          <option value="0.8" ${this.filters.d50 === '0.8' ? 'selected' : ''}>${formatBedMaterialGrainMm('0.8')}</option>
         </select></div>
       <div class="mgmt-filter"><div class="mgmt-filter__label">등급</div>
         <select class="mgmt-filter__select" data-filter="gradeKey">
@@ -294,33 +327,35 @@ export class CaseManagementPage implements Disposable {
           <option value="err" ${this.filters.status === 'err' ? 'selected' : ''}>QA 오류</option>
         </select></div>`;
 
+    const grainHint = BED_MATERIAL_GRAIN_HINT.replace(/"/g, '&quot;');
+    const diamMax = Math.max(...filtered.map((c) => c.diameterM), 0.01);
+    const flowMax = Math.max(...filtered.map((c) => Number.parseFloat(c.flow)), 0.01);
+    const d50Max = Math.max(...filtered.map((c) => Number.parseFloat(c.d50)), 0.01);
+
     const tbody = pageRows
       .map((r) => {
         const st = MOCK_CASE_STATUS[r.status];
-        const g = r.maxScourM != null ? gradeOf(r.maxScourM, fd) : null;
-        let act = '<span class="mgmt-muted">대기열 2</span>';
-        if (r.status === 'done') {
-          act = `<button type="button" class="mgmt-link" data-act="viewer" data-case-id="${r.id}">뷰어 →</button>`;
-        } else if (r.status === 'err') {
-          act = `<button type="button" class="mgmt-link" data-act="error-check" data-case-id="${r.id}">오류 확인 →</button>`;
-        } else if (r.status === 'run') {
-          act = '<span class="mgmt-muted">62 %</span>';
-        }
-        return `<tr class="${r.selected ? 'is-selected' : ''}">
-          <td class="mgmt-table__cell mgmt-table__cell--c">
-            <button type="button" class="mgmt-check mgmt-check--single" data-act="toggle-row" data-case-id="${r.id}" aria-pressed="${r.selected ? 'true' : 'false'}" title="케이스 하나만 선택">${r.selected ? '◉' : '○'}</button>
-          </td>
-          <td class="mgmt-table__cell"><b>${r.id}</b></td>
-          <td class="mgmt-table__cell">${r.shape}</td>
-          <td class="mgmt-table__cell mgmt-table__cell--c">${r.diameterM.toFixed(1)} m</td>
-          <td class="mgmt-table__cell mgmt-table__cell--c">${r.pierCount}</td>
-          <td class="mgmt-table__cell mgmt-table__cell--num">${r.flow}</td>
-          <td class="mgmt-table__cell mgmt-table__cell--num">${r.d50}</td>
-          <td class="mgmt-table__cell mgmt-table__cell--num"><b>${r.maxScourM != null ? `${r.maxScourM.toFixed(2)} m` : '—'}</b></td>
-          <td class="mgmt-table__cell">${g ? `<span class="grade-pill grade-pill--${g.key}">${g.name}</span>` : '<span class="mgmt-muted">—</span>'}</td>
-          <td class="mgmt-table__cell"><span class="mgmt-sbadge" style="background:${st.bg};color:${st.color}">${st.label}</span></td>
-          <td class="mgmt-table__cell mgmt-muted">${r.updatedAt}</td>
-          <td class="mgmt-table__cell">${act}</td>
+        const act = renderCaseRowAction(r.status, r.id);
+        const scourCell =
+          r.maxScourM != null
+            ? renderTableScourCell(r.maxScourM, fd, r.id)
+            : '<span class="mgmt-muted">—</span>';
+        const diamPct = (r.diameterM / diamMax) * 100;
+        const flowN = Number.parseFloat(r.flow);
+        const flowPct = (flowN / flowMax) * 100;
+        const d50N = Number.parseFloat(r.d50);
+        const d50Pct = (d50N / d50Max) * 100;
+        return `<tr class="${r.selected ? 'is-selected' : ''}" data-case-id="${r.id}" data-act="toggle-row" aria-selected="${r.selected ? 'true' : 'false'}">
+          <td class="mgmt-table__cell mgmt-table__cell--c">${renderRowSelectButton(r.id, r.selected)}</td>
+          <td class="mgmt-table__cell mgmt-table__cell--id">${renderCaseIdCell(r.id)}</td>
+          <td class="mgmt-table__cell mgmt-table__cell--optional mgmt-table__cell--shape">${renderShapeCell(r.shape)}</td>
+          <td class="mgmt-table__cell mgmt-table__cell--metric" data-metric="diameter">${renderTableMetricCell(`${r.diameterM.toFixed(1)} m`, diamPct, '#6FB6DE', { caseId: r.id, metric: 'diameter', tip: `직경 ${r.diameterM.toFixed(1)} m · 목록 최대 ${diamMax.toFixed(1)} m 대비 ${diamPct.toFixed(0)}%` })}</td>
+          <td class="mgmt-table__cell mgmt-table__cell--metric" data-metric="flow">${renderTableMetricCell(r.flow, flowPct, '#00D4B0', { caseId: r.id, metric: 'flow', tip: `유량 ${r.flow} · 목록 최대 ${flowMax.toFixed(0)} 대비 ${flowPct.toFixed(0)}%` })}</td>
+          <td class="mgmt-table__cell mgmt-table__cell--metric" data-metric="grain">${renderTableMetricCell(formatBedMaterialGrainMm(r.d50), d50Pct, '#C4A574', { caseId: r.id, metric: 'grain', tip: `${formatBedMaterialGrainMm(r.d50)} · 목록 최대 ${d50Max.toFixed(2)} mm 대비 ${d50Pct.toFixed(0)}%` })}</td>
+          <td class="mgmt-table__cell mgmt-table__cell--scour" data-metric="scour">${scourCell}</td>
+          <td class="mgmt-table__cell mgmt-table__cell--status">${renderCaseStatusBadge(st.label, st.color, st.bg, r.status)}</td>
+          <td class="mgmt-table__cell mgmt-table__cell--optional mgmt-table__cell--date">${renderUpdatedAtCell(r.updatedAt)}</td>
+          <td class="mgmt-table__cell mgmt-table__cell--act">${act}</td>
         </tr>`;
       })
       .join('');
@@ -338,19 +373,20 @@ export class CaseManagementPage implements Disposable {
         <span class="is-on">케이스 관리</span>
         <button type="button" class="mgmt-tabs__link" data-act="tab-data">데이터 연동 현황</button>
       </div>
+      ${this.renderBiStrip(filtered, fd)}
       <div class="mgmt-split">
         <section class="mgmt-panel mgmt-panel--main">
-          <div class="case-new-sim">
+          <div class="viz-tier viz-tier--detail case-new-sim case-new-sim--compact">
             <div class="case-new-sim__copy">
               <h3 class="case-new-sim__title">새 시뮬레이션</h3>
-              <p class="case-new-sim__desc">FLOW-3D 결과 CSV는 <b>조건 설정</b> 화면에서 업로드합니다. <b>적용하고 결과 보기</b>를 누르면 그 시뮬레이션의 케이스 ID가 발급됩니다.</p>
+              <p class="case-new-sim__desc">CSV는 <b>조건 설정</b>에서 업로드 · <b>적용하고 결과 보기</b> 시 케이스 ID 발급</p>
             </div>
             <button type="button" class="case-new-sim__cta" data-act="new-sim-start">새 해석 시작</button>
           </div>
-          <div class="mgmt-chip-row">${chips}
-            <span class="mgmt-chip-row__note">1차년도 목표 ${MOCK_TOTAL} case 이상 (계획서 A-1)</span>
+          <div class="mgmt-chip-row viz-widget" data-widget-id="case-chips">${chips}
+            <span class="mgmt-chip-row__note viz-tier viz-tier--detail">목표 ${MOCK_TOTAL}+ case</span>
           </div>
-          <div class="mgmt-filter-row">${filters}
+          <div class="mgmt-filter-row viz-tier viz-tier--basic">${filters}
             <button type="button" class="mgmt-search-btn" data-act="search">검색</button>
           </div>
           <div class="mgmt-list-head">
@@ -358,12 +394,31 @@ export class CaseManagementPage implements Disposable {
             <span class="mgmt-sub">${MOCK_TOTAL}건 중 <b>${filtered.length}</b>건 표시 · 선택 <b>${selLabel}</b> · 페이지 ${this.page}/${pages}</span>
           </div>
           <div class="mgmt-table-wrap">
-            <table class="mgmt-table">
-              <thead><tr>
-                <th></th><th>케이스 ID</th><th>교각 형상</th><th>직경</th><th>교각 수</th><th>유량</th><th>d50</th>
-                <th>최대 세굴심</th><th>등급</th><th>상태</th><th>갱신</th><th></th>
+            <table class="mgmt-table mgmt-table--pick mgmt-table--viz">
+              <colgroup>
+                <col class="mgmt-col--select" />
+                <col class="mgmt-col--id" />
+                <col class="mgmt-col--shape mgmt-table__cell--optional" />
+                <col class="mgmt-col--viz" span="2" />
+                <col class="mgmt-col--viz mgmt-col--viz-wide" />
+                <col class="mgmt-col--viz mgmt-col--viz-scour" />
+                <col class="mgmt-col--status" />
+                <col class="mgmt-col--date mgmt-table__cell--optional" />
+                <col class="mgmt-col--act" />
+              </colgroup>
+              <thead><tr class="mgmt-table__head-row">
+                <th><span class="mgmt-table__th-label"></span></th>
+                <th><span class="mgmt-table__th-label">케이스 ID</span></th>
+                <th class="mgmt-table__cell--optional"><span class="mgmt-table__th-label">교각 형상</span></th>
+                <th class="mgmt-table__th--viz">${renderTableVizColHead('직경')}</th>
+                <th class="mgmt-table__th--viz">${renderTableVizColHead('유량')}</th>
+                <th class="mgmt-table__th--viz mgmt-table__th--viz-wide" data-tip="${grainHint}">${renderTableVizColHead(['하상·퇴적물', '입경'])}</th>
+                <th class="mgmt-table__th--viz">${renderTableVizColHead('최대 세굴')}</th>
+                <th><span class="mgmt-table__th-label">상태</span></th>
+                <th class="mgmt-table__cell--optional"><span class="mgmt-table__th-label">갱신</span></th>
+                <th><span class="mgmt-table__th-label"></span></th>
               </tr></thead>
-              <tbody>${tbody || '<tr><td colspan="12" class="mgmt-muted mgmt-table__cell--c">조건에 맞는 케이스가 없습니다</td></tr>'}</tbody>
+              <tbody>${tbody || '<tr><td colspan="10" class="mgmt-muted mgmt-table__cell--c">조건에 맞는 케이스가 없습니다</td></tr>'}</tbody>
             </table>
             <div class="mgmt-pager">
               <button type="button" class="mgmt-pager__btn" data-act="page" data-page="${Math.max(1, this.page - 1)}" ${this.page <= 1 ? 'disabled' : ''}>◀</button>
@@ -372,9 +427,9 @@ export class CaseManagementPage implements Disposable {
             </div>
           </div>
         </section>
-        <aside class="mgmt-panel mgmt-panel--side">
+        <aside class="mgmt-panel mgmt-panel--side viz-widget viz-tier--detail" data-widget-id="case-compare">
           <h2 class="mgmt-h2">선택 케이스 요약</h2>
-          <table class="mgmt-table mgmt-table--compact">${this.renderSelectedSummary(fd)}</table>
+          ${summaryHtml}
           <p class="mgmt-hint">잔여 여유율·등급은 기초 근입 ${fd} m 기준 <span class="mgmt-prov">잠정</span></p>
           <div class="mgmt-side-actions">
             <button type="button" class="mgmt-btn" data-act="open-viewer-selected" ${selected ? '' : 'disabled'}>선택 케이스 뷰어에서 열기</button>
@@ -383,9 +438,24 @@ export class CaseManagementPage implements Disposable {
           <span class="mgmt-badge">DT-300 · 케이스 관리 (메인)</span>
         </aside>
       </div>`;
+    this.unbindTiers?.();
+    this.unbindTableViz?.();
+    this.unbindBiStrip?.();
+    this.unbindCaseSummary?.();
+    this.unbindTiers = bindWidgetTiers(this.host);
+    const tableWrap = this.host.querySelector('.mgmt-table-wrap');
+    this.unbindTableViz = tableWrap instanceof HTMLElement ? bindTableMetricViz(tableWrap) : null;
+    this.unbindBiStrip = bindCaseBiStrip(this.host);
+    const sidePanel = this.host.querySelector('.mgmt-panel--side');
+    this.unbindCaseSummary =
+      sidePanel instanceof HTMLElement ? bindCaseSelectedSummary(sidePanel) : null;
   }
 
   public dispose(): void {
+    this.unbindCaseSummary?.();
+    this.unbindBiStrip?.();
+    this.unbindTableViz?.();
+    this.unbindTiers?.();
     this.element.remove();
   }
 }

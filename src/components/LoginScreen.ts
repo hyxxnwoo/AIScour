@@ -1,4 +1,6 @@
 import type { Disposable } from '@/types/disposable';
+import { countUpText, tweenNumber } from '@/viz/tween';
+import { observeWidgetTier } from '@/viz/widget';
 
 export interface LoginScreenOptions {
   onSuccess: () => void;
@@ -121,12 +123,35 @@ interface StatDef {
   label: string;
   value: string;
   meterPct: number;
+  countTo?: number;
+  countFormat?: (v: number) => string;
 }
 
 const STATS: readonly StatDef[] = [
-  { icon: PULSE_ICON_SVG, label: '시뮬레이션 유속', value: '0.42 m/s', meterPct: 42 },
-  { icon: GAUGE_ICON_SVG, label: '시뮬레이션 세굴심', value: '1.8 / 3.0 m', meterPct: 60 },
-  { icon: PIER_ICON_SVG, label: '지원 교각 구성', value: '최대 3개 동시 배치', meterPct: 100 },
+  {
+    icon: PULSE_ICON_SVG,
+    label: '해석 케이스',
+    value: '200 case',
+    meterPct: 100,
+    countTo: 200,
+    countFormat: (v) => `${Math.round(v)} case`,
+  },
+  {
+    icon: GAUGE_ICON_SVG,
+    label: '세굴 / 기초 근입',
+    value: '3.42 / 5.2 m',
+    meterPct: 66,
+    countTo: 3.42,
+    countFormat: (v) => `${v.toFixed(2)} / 5.2 m`,
+  },
+  {
+    icon: PIER_ICON_SVG,
+    label: '교각 구성',
+    value: '기본 3 · 최대 5',
+    meterPct: 60,
+    countTo: 3,
+    countFormat: (v) => `기본 ${Math.round(v)} · 최대 5`,
+  },
 ];
 
 export class LoginScreen implements Disposable {
@@ -158,11 +183,12 @@ export class LoginScreen implements Disposable {
     this.element.appendChild(backdrop);
 
     const stage = document.createElement('div');
-    stage.className = 'login-screen__stage';
+    stage.className = 'login-screen__stage viz-widget';
+    stage.dataset.widgetId = 'login-stage';
 
     // ── 좌측 브랜드/실황 패널 (넓은 화면에서만 노출)
     const intro = document.createElement('div');
-    intro.className = 'login-screen__intro';
+    intro.className = 'login-screen__intro viz-tier viz-tier--detail';
 
     const introBadge = document.createElement('div');
     introBadge.className = 'login-screen__intro-badge';
@@ -191,16 +217,30 @@ export class LoginScreen implements Disposable {
         `<span class="login-screen__stat-body">` +
         `<span class="login-screen__stat-label">${s.label}</span>` +
         `<span class="login-screen__stat-value">${s.value}</span>` +
-        `<span class="login-screen__stat-meter"><span class="login-screen__stat-meter-fill" style="--pct:${s.meterPct}%"></span></span>` +
+        `<span class="login-screen__stat-meter"><span class="login-screen__stat-meter-fill" style="width:0"></span></span>` +
         `</span>`;
       stats.appendChild(tile);
+      const valueEl = tile.querySelector('.login-screen__stat-value') as HTMLElement;
+      const fill = tile.querySelector('.login-screen__stat-meter-fill') as HTMLElement;
+      if (s.countTo != null && s.countFormat) {
+        countUpText(valueEl, s.countTo, s.countFormat, { durationMs: 900, key: s.label });
+      }
+      tweenNumber(
+        0,
+        s.meterPct,
+        (v) => {
+          fill.style.width = `${v}%`;
+        },
+        undefined,
+        { durationMs: 900, key: `meter-${s.label}` },
+      );
     }
     intro.appendChild(stats);
     stage.appendChild(intro);
 
     // ── 우측 로그인 카드
     const card = document.createElement('div');
-    card.className = 'login-screen__card';
+    card.className = 'login-screen__card viz-tier viz-tier--core';
 
     const brand = document.createElement('div');
     brand.className = 'login-screen__brand';
@@ -279,6 +319,7 @@ export class LoginScreen implements Disposable {
     stage.appendChild(card);
 
     this.element.appendChild(stage);
+    observeWidgetTier(stage);
 
     this.onToggle = () => {
       const show = this.pwInput.type === 'password';

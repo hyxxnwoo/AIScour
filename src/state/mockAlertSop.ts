@@ -1,4 +1,5 @@
 import type { GradeKey } from '@/constants/grade';
+import { inferHistoryKind } from '@/viz/eventTimelineHelpers';
 
 /** 목업 — 10번 경보·SOP 초기 데이터 (SCDT_파일럿DT_화면10종_v2.html ST) */
 export interface SopChecklistItem {
@@ -11,15 +12,19 @@ export interface SopChecklistItem {
   who?: string;
 }
 
+/** 목업 — 이력 타임라인 시각화용 */
+export type SopHistoryKind = 'issue' | 'complete' | 'cancel' | 'attach' | 'system' | 'other';
+
 export interface SopHistoryEntry {
   at: string;
   who: string;
   text: string;
+  kind?: SopHistoryKind;
 }
 
 function nowStamp(): string {
   const d = new Date();
-  const p = (n: number) => String(n).padStart(2, '0');
+  const p = (n: number): string => String(n).padStart(2, '0');
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
@@ -49,7 +54,12 @@ export class MockAlertSopStore {
       { gradeKey: 'a4', title: '통행 제한 및 긴급 보강 검토', done: false, na: true },
     ];
     this.history = [
-      { at: '10-02 10:18', who: '박○○', text: 'A-041 P3 교각 — 현장 사진 3건 첨부 (목업)' },
+      {
+        at: '10-02 10:18',
+        who: '박○○',
+        text: 'A-041 P3 교각 — 현장 사진 3건 첨부 (목업)',
+        kind: 'attach',
+      },
       { at: '10-02 10:05', who: '이○○', text: 'B-015 QA 오류 연계 — 경보 우선순위 상향' },
       { at: '10-02 09:55', who: '김○○', text: '관리주체 1차 보고서 초안 전송 (목업)' },
       { at: '10-02 09:48', who: '시스템', text: 'P2 교각 잔여 여유율 38 % — 경계 등급 유지 알림' },
@@ -89,6 +99,7 @@ export class MockAlertSopStore {
         at: item.when,
         who: actor,
         text: `SOP 완료 — ${item.title}`,
+        kind: 'complete',
       });
     } else {
       delete item.when;
@@ -97,6 +108,7 @@ export class MockAlertSopStore {
         at: nowStamp(),
         who: actor,
         text: `SOP 완료 취소 — ${item.title}`,
+        kind: 'cancel',
       });
     }
   }
@@ -108,6 +120,15 @@ export class MockAlertSopStore {
       at: nowStamp(),
       who: actor,
       text: 'SOP 전 항목 완료 — 경보 종료',
+      kind: 'complete',
     });
+  }
+
+  /** viz 타임라인용 — kind 보장 */
+  public historyForTimeline(): Array<SopHistoryEntry & { kind: SopHistoryKind }> {
+    return this.history.map((h) => ({
+      ...h,
+      kind: h.kind ?? inferHistoryKind(h.text, h.who),
+    }));
   }
 }

@@ -1,5 +1,6 @@
 import { colorRampToCssGradient } from '@/utils/colorRamp';
 import type { Disposable } from '@/types/disposable';
+import { binMaxCount, binValues } from '@/viz/histogram';
 
 export interface ColorLegendOptions {
   // 표시 단위 (예: 'm')
@@ -18,6 +19,8 @@ export class ColorLegend implements Disposable {
   private readonly maxLabel: HTMLSpanElement;
   private readonly midLabel: HTMLSpanElement;
   private readonly unit: string;
+  private readonly histogramHost: HTMLElement;
+  private absMax = 1;
 
   public constructor(options: ColorLegendOptions = {}) {
     this.unit = options.unit ?? 'm';
@@ -37,6 +40,10 @@ export class ColorLegend implements Disposable {
     bar.style.background = colorRampToCssGradient('to right');
     this.element.appendChild(bar);
 
+    this.histogramHost = document.createElement('div');
+    this.histogramHost.className = 'viz-histogram-overlay color-legend__histogram';
+    this.element.appendChild(this.histogramHost);
+
     const scale = document.createElement('div');
     scale.className = 'color-legend__scale';
     this.minLabel = document.createElement('span');
@@ -47,7 +54,7 @@ export class ColorLegend implements Disposable {
 
     const hint = document.createElement('div');
     hint.className = 'color-legend__hint';
-    hint.textContent = '음(−) 세굴, 양(+) 퇴적 · 0을 흰색 기준으로 고정';
+    hint.textContent = `음(−) 세굴, 양(+) 퇴적 · 0 기준 (${this.unit})`;
     this.element.appendChild(hint);
 
     this.setRange(options.initialAbsMax ?? 1);
@@ -56,10 +63,29 @@ export class ColorLegend implements Disposable {
   // 좌측은 -absMax(세굴), 우측은 +absMax(퇴적), 중앙은 0
   public setRange(absMax: number): void {
     const v = Math.max(0, absMax);
+    this.absMax = v;
     const dec = v >= 1 ? 1 : 2;
     this.minLabel.textContent = `−${v.toFixed(dec)} 세굴`;
     this.midLabel.textContent = '0';
     this.maxLabel.textContent = `+${v.toFixed(dec)} 퇴적`;
+  }
+
+  /** scrdif / delta 분포 히스토그램 (컬러바 아래) */
+  public setSampleValues(values: number[]): void {
+    if (values.length === 0) {
+      this.histogramHost.innerHTML = '';
+      return;
+    }
+    const domain: [number, number] = [-this.absMax, this.absMax];
+    const bins = binValues(values, 12, domain);
+    const maxC = binMaxCount(bins) || 1;
+    this.histogramHost.innerHTML = bins
+      .map((b) => {
+        const h = Math.max(2, (b.count / maxC) * 28);
+        const tip = `${b.lo.toFixed(2)}~${b.hi.toFixed(2)}: ${b.count}`;
+        return `<span class="viz-histogram-overlay__bin" style="height:${h}px" data-tip="${tip}"></span>`;
+      })
+      .join('');
   }
 
   public dispose(): void {

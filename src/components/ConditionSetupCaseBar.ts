@@ -13,32 +13,45 @@ export class ConditionSetupCaseBar implements Disposable {
   private select!: HTMLSelectElement;
   private activeCaseId = '';
   private pinned: { id: string; label: string } | null = null;
+  private statusEl!: HTMLElement;
 
   public constructor(handlers: ConditionSetupCaseBarHandlers) {
     this.handlers = handlers;
     this.element = document.createElement('div');
-    this.element.className = 'condition-setup-case is-hidden';
+    this.element.className = 'condition-setup-case condition-setup-case--viz is-hidden';
 
-    const title = document.createElement('div');
-    title.className = 'condition-setup-case__title';
-    title.textContent = '1 · 케이스';
-    this.element.appendChild(title);
+    const head = document.createElement('header');
+    head.className = 'condition-setup-case__head';
+    head.innerHTML = `<span class="condition-setup-case__step">1</span>
+      <h3 class="condition-setup-case__title">케이스</h3>`;
+    this.element.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'condition-setup-case__body';
+
+    this.statusEl = document.createElement('p');
+    this.statusEl.className = 'condition-setup-case__status';
+    body.appendChild(this.statusEl);
 
     this.select = document.createElement('select');
     this.select.className = 'condition-setup-case__select';
     this.select.addEventListener('change', () => {
       this.activeCaseId = this.select.value;
+      this.updateStatus();
       this.handlers.onCaseChange(this.activeCaseId);
     });
     this.rebuildOptions();
-    this.element.appendChild(this.select);
+    body.appendChild(this.select);
 
-    const upload = document.createElement('div');
+    const upload = document.createElement('p');
     upload.className = 'condition-setup-case__upload-hint';
     upload.innerHTML =
       '처리 현황은 <button type="button" class="condition-setup-case__link">데이터 연동</button>에서 확인합니다.';
     upload.querySelector('button')?.addEventListener('click', () => this.handlers.onOpenPipeline());
-    this.element.appendChild(upload);
+    body.appendChild(upload);
+
+    this.element.appendChild(body);
+    this.updateStatus();
   }
 
   /** CSV 적용으로 방금 생긴 케이스. 목록 필터(검증완료·오류)와 별도로 고른 값으로 둔다. */
@@ -46,6 +59,20 @@ export class ConditionSetupCaseBar implements Disposable {
     this.pinned = { id, label };
     this.activeCaseId = id;
     this.rebuildOptions();
+    this.updateStatus();
+  }
+
+  private updateStatus(): void {
+    if (!this.activeCaseId) {
+      this.statusEl.textContent =
+        '시뮬레이션 적용 전 — 기존 케이스를 고르거나 CSV 적용 후 ID가 발급됩니다.';
+      this.element.classList.remove('condition-setup-case--ready');
+      return;
+    }
+    const row = MOCK_CASES.find((c) => c.id === this.activeCaseId);
+    const st = row ? MOCK_CASE_STATUS[row.status].label : '신규';
+    this.statusEl.textContent = `${this.activeCaseId} · ${st}`;
+    this.element.classList.add('condition-setup-case--ready');
   }
 
   private rebuildOptions(): void {
@@ -76,6 +103,19 @@ export class ConditionSetupCaseBar implements Disposable {
     if (this.select.querySelector(`option[value="${caseId}"]`)) {
       this.select.value = caseId;
     }
+    this.updateStatus();
+  }
+
+  public getCaseLabel(): string {
+    if (!this.activeCaseId) return '미선택';
+    const opt = this.select.querySelector<HTMLOptionElement>(
+      `option[value="${this.activeCaseId}"]`,
+    );
+    return opt?.textContent ?? this.activeCaseId;
+  }
+
+  public isCaseReady(): boolean {
+    return this.activeCaseId.length > 0;
   }
 
   public setVisible(visible: boolean): void {

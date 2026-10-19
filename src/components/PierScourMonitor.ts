@@ -7,6 +7,10 @@ import {
 } from '@/constants/grade';
 import type { PierScourDepth } from '@/utils/pierScourSample';
 import type { Disposable } from '@/types/disposable';
+import { viewState } from '@/state/viewState';
+import { renderSparkline } from '@/viz/sparkline';
+import { tweenNumber } from '@/viz/tween';
+import { observeWidgetTier } from '@/viz/widget';
 
 export interface PierScourMonitorOptions {
   pierIds: string[];
@@ -31,16 +35,24 @@ export class PierScourMonitor implements Disposable {
     marginLbl: HTMLElement;
     fill: HTMLElement;
     knob: HTMLElement;
+    spark: HTMLElement;
+    block: HTMLElement;
   }> = [];
+  private readonly depthHistory = new Map<string, number[]>();
+  private lastGradeKeys: string[] = [];
+  private readonly pierIds: string[];
 
   public constructor(options: PierScourMonitorOptions) {
+    this.pierIds = [...options.pierIds];
     this.foundationDepthM = options.foundationDepthM;
     this.element = document.createElement('div');
-    this.element.className = 'pier-scour-monitor';
+    this.element.className = 'pier-scour-monitor viz-widget';
+    this.element.dataset.widgetId = 'pier-scour-monitor';
 
     const head = document.createElement('div');
     head.className = 'pier-scour-monitor__head';
-    head.textContent = '교각별 세굴 모니터';
+    head.innerHTML =
+      '교각별 세굴 모니터 <span class="pier-scour-monitor__hint">클릭 → 3D 연동</span>';
     this.element.appendChild(head);
 
     const list = document.createElement('div');
@@ -68,8 +80,17 @@ export class PierScourMonitor implements Disposable {
 
       meta.append(pierId, pill, depthLbl, marginLbl);
 
+      block.dataset.pierId = id;
+      block.addEventListener('click', () => {
+        viewState.setSelectedPier(id);
+      });
+      block.addEventListener('mouseenter', () => viewState.setHoveredPier(id));
+      block.addEventListener('mouseleave', () => {
+        if (viewState.hoveredPierId === id) viewState.setHoveredPier(null);
+      });
+
       const gauge = document.createElement('div');
-      gauge.className = 'pier-scour-monitor__gauge';
+      gauge.className = 'pier-scour-monitor__gauge viz-tier viz-tier--basic';
 
       const track = document.createElement('div');
       track.className = 'pier-scour-monitor__track';
@@ -96,25 +117,41 @@ export class PierScourMonitor implements Disposable {
       knob.className = 'pier-scour-monitor__knob';
       gauge.append(track, knob);
 
-      block.append(meta, gauge);
+      const spark = document.createElement('div');
+      spark.className = 'pier-scour-monitor__spark viz-tier viz-tier--detail';
+      block.append(meta, gauge, spark);
       list.appendChild(block);
-      this.rows.push({ pill, depthLbl, marginLbl, fill, knob });
+      this.depthHistory.set(id, []);
+      this.rows.push({ pill, depthLbl, marginLbl, fill, knob, spark, block });
     }
 
     this.element.appendChild(list);
 
     this.scaleHost = document.createElement('div');
-    this.scaleHost.className = 'pier-scour-monitor__scale';
+    this.scaleHost.className = 'pier-scour-monitor__scale viz-tier viz-tier--basic';
     this.element.appendChild(this.scaleHost);
 
     const foot = document.createElement('div');
-    foot.className = 'pier-scour-monitor__foot';
+    foot.className = 'pier-scour-monitor__foot viz-tier viz-tier--detail';
     foot.textContent = IS_THRESHOLD_PROVISIONAL
       ? '세굴심 / 기초 근입 · 잔여 여유율 70 / 40 / 20 % 기준 잠정'
       : '세굴심 / 기초 근입 · 잔여 여유율 70 / 40 / 20 %';
     this.element.appendChild(foot);
 
     this.rebuildScale();
+    observeWidgetTier(this.element);
+    this.element.querySelectorAll('.pier-scour-monitor__fill').forEach((fill) => {
+      fill.classList.add('pier-scour-monitor__fill--motion');
+    });
+    viewState.subscribe(() => {
+      const sel = viewState.selectedPierId;
+      const hover = viewState.hoveredPierId;
+      for (const r of this.rows) {
+        const id = r.block.dataset.pierId;
+        r.block.classList.toggle('is-linked-highlight', sel != null && id === sel);
+        r.block.classList.toggle('is-linked-hover', hover != null && id === hover && id !== sel);
+      }
+    });
   }
 
   public setFoundationDepthM(foundationDepthM: number): void {
@@ -160,9 +197,37 @@ export class PierScourMonitor implements Disposable {
       const grade = gradeOf(depth, fd);
       const barPct = Math.min(100, (depth / fd) * 100);
 
+      const prevKey = this.lastGradeKeys[i];
+      if (prevKey && prevKey !== grade.key) {
+        row.block.classList.add('pier-scour-monitor__pier--pulse');
+        window.setTimeout(() => row.block.classList.remove('pier-scour-monitor__pier--pulse'), 800);
+      }
+      this.lastGradeKeys[i] = grade.key;
+
       row.pill.textContent = grade.name;
       row.pill.className = `pier-scour-monitor__pill pier-scour-monitor__pill--${grade.key}`;
-      row.depthLbl.textContent = `${depth.toFixed(2)} m`;
+      const pierId = this.pierIds[i] ?? `P${i + 1}`;
+      const hist = this.depthHistory.get(pierId) ?? [];
+      hist.push(depth);
+      if (hist.length > 32) hist.shift();
+      this.depthHistory.set(pierId, hist);
+      row.spark.innerHTML = renderSparkline({
+        values: hist,
+        width: 120,
+        height: 24,
+        stroke: grade.color,
+      });
+      const displayDepth = Number.parseFloat(row.depthLbl.dataset.vizDepth ?? String(depth));
+      tweenNumber(
+        displayDepth,
+        depth,
+        (v) => {
+          row.depthLbl.dataset.vizDepth = String(v);
+          row.depthLbl.textContent = `${v.toFixed(2)} m`;
+        },
+        undefined,
+        { key: `pier-depth-${pierId}`, durationMs: 280 },
+      );
       row.depthLbl.style.color = grade.color;
       row.marginLbl.textContent = `여유 ${pctRemain.toFixed(0)}%`;
       row.fill.style.width = `${barPct.toFixed(1)}%`;

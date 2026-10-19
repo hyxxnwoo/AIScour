@@ -1,4 +1,6 @@
 /** 목업 — 3번 CSV 파이프라인 파일·단계 로그 */
+import { PIPELINE_QA_QC_STAGE_LABEL } from '@/constants/fieldLabels';
+
 export type PipelineResultKey = 'ok' | 'warn' | 'err' | 'run' | 'wait';
 
 export interface PipelineStageLog {
@@ -21,7 +23,13 @@ export interface MockPipelineFile {
   logs: PipelineStageLog[];
 }
 
-const STAGE_NAMES = ['업로드', '파싱', '경량화 · 변환', 'QA / QC', '서비스 반영'] as const;
+const STAGE_NAMES = [
+  '업로드',
+  '파싱',
+  '경량화 · 변환',
+  PIPELINE_QA_QC_STAGE_LABEL,
+  '서비스 반영',
+] as const;
 
 function logsForFile(
   result: PipelineResultKey,
@@ -37,10 +45,10 @@ function logsForFile(
       if (result === 'run') {
         return { stage, time: '—', state: 'run', detail: detailSeed };
       }
-      if (result === 'err' && stage === 'QA / QC') {
+      if (result === 'err' && stage === PIPELINE_QA_QC_STAGE_LABEL) {
         return { stage, time: '09:42', state: 'err', detail: detailSeed };
       }
-      if (result === 'warn' && stage === 'QA / QC') {
+      if (result === 'warn' && stage === PIPELINE_QA_QC_STAGE_LABEL) {
         return { stage, time: '09:37', state: 'err', detail: detailSeed };
       }
       if (result === 'wait' && stage === '업로드') {
@@ -69,7 +77,7 @@ const SEED_PIPELINE_FILES: MockPipelineFile[] = [
       { stage: '업로드', time: '08:58', state: 'ok', detail: '482 MB 수신' },
       { stage: '파싱', time: '08:59', state: 'ok', detail: '1,102,400 행 · 7 열' },
       { stage: '경량화 · 변환', time: '09:02', state: 'ok', detail: '60 프레임 · glTF 5.8 MB' },
-      { stage: 'QA / QC', time: '09:04', state: 'ok', detail: '물리 제약 통과' },
+      { stage: PIPELINE_QA_QC_STAGE_LABEL, time: '09:04', state: 'ok', detail: '물리 제약 통과' },
       { stage: '서비스 반영', time: '09:05', state: 'ok', detail: '케이스 A-032 검증완료' },
     ],
   },
@@ -86,7 +94,7 @@ const SEED_PIPELINE_FILES: MockPipelineFile[] = [
       { stage: '업로드', time: '09:12', state: 'ok', detail: '455 MB 수신' },
       { stage: '파싱', time: '09:13', state: 'ok', detail: '998,200 행 · 7 열' },
       { stage: '경량화 · 변환', time: '09:16', state: 'ok', detail: '60 프레임 · glTF 4.2 MB' },
-      { stage: 'QA / QC', time: '09:18', state: 'ok', detail: '통과' },
+      { stage: PIPELINE_QA_QC_STAGE_LABEL, time: '09:18', state: 'ok', detail: '통과' },
       { stage: '서비스 반영', time: '09:20', state: 'ok', detail: '케이스 A-041 검증완료' },
     ],
   },
@@ -103,7 +111,12 @@ const SEED_PIPELINE_FILES: MockPipelineFile[] = [
       { stage: '업로드', time: '09:30', state: 'ok', detail: '390 MB 수신' },
       { stage: '파싱', time: '09:31', state: 'ok', detail: '920,000 행 · 7 열' },
       { stage: '경량화 · 변환', time: '09:35', state: 'ok', detail: '60 프레임 · glTF 5.1 MB' },
-      { stage: 'QA / QC', time: '09:37', state: 'err', detail: '경고 — 교각 주변 셀 수 12' },
+      {
+        stage: PIPELINE_QA_QC_STAGE_LABEL,
+        time: '09:37',
+        state: 'err',
+        detail: '경고 — 교각 주변 셀 수 12',
+      },
       { stage: '서비스 반영', time: '—', state: 'wait', detail: 'QA 승인 대기' },
     ],
   },
@@ -120,7 +133,12 @@ const SEED_PIPELINE_FILES: MockPipelineFile[] = [
       { stage: '업로드', time: '09:35', state: 'ok', detail: '512 MB 수신' },
       { stage: '파싱', time: '09:36', state: 'ok', detail: '1,284,000 행 · 7 열' },
       { stage: '경량화 · 변환', time: '09:40', state: 'ok', detail: '60 프레임 · glTF 6.1 MB' },
-      { stage: 'QA / QC', time: '09:42', state: 'err', detail: '물리 제약 위반 — ds/D 상한 초과' },
+      {
+        stage: PIPELINE_QA_QC_STAGE_LABEL,
+        time: '09:42',
+        state: 'err',
+        detail: '물리 제약 위반 — ds/D 상한 초과',
+      },
       { stage: '서비스 반영', time: '—', state: 'wait', detail: '보류' },
     ],
   },
@@ -137,7 +155,7 @@ const SEED_PIPELINE_FILES: MockPipelineFile[] = [
       { stage: '업로드', time: '10:02', state: 'ok', detail: '12 MB 수신' },
       { stage: '파싱', time: '10:03', state: 'run', detail: '구분자 자동 감지 중…' },
       { stage: '경량화 · 변환', time: '—', state: 'wait', detail: '대기' },
-      { stage: 'QA / QC', time: '—', state: 'wait', detail: '대기' },
+      { stage: PIPELINE_QA_QC_STAGE_LABEL, time: '—', state: 'wait', detail: '대기' },
       { stage: '서비스 반영', time: '—', state: 'wait', detail: '대기' },
     ],
   },
@@ -154,7 +172,7 @@ const SEED_PIPELINE_FILES: MockPipelineFile[] = [
       { stage: '업로드', time: '—', state: 'wait', detail: '대기열 2번째' },
       { stage: '파싱', time: '—', state: 'wait', detail: '대기' },
       { stage: '경량화 · 변환', time: '—', state: 'wait', detail: '대기' },
-      { stage: 'QA / QC', time: '—', state: 'wait', detail: '대기' },
+      { stage: PIPELINE_QA_QC_STAGE_LABEL, time: '—', state: 'wait', detail: '대기' },
       { stage: '서비스 반영', time: '—', state: 'wait', detail: '대기' },
     ],
   },

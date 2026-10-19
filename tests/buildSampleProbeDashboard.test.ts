@@ -305,7 +305,6 @@ describe('buildSampleProbeDashboardMulti (교각 1개당 CSV 1개)', () => {
       pierArrangement: 'along',
     });
 
-    const terrain = built.scour.baseTerrain;
     const piers = built.scour.baseTerrain.metadata?.piers ?? [];
     const frame = built.scour.frames[0]!;
 

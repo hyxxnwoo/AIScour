@@ -44,7 +44,7 @@ function makeLoadResult(columns: SampleProbeColumns): CsvDashboardLoadResult {
         id: p.id,
         x: p.x,
         z: p.z,
-        diameter: p.diameter,
+        diameter: p.diameter ?? 1.6,
       })) ?? [],
   };
 }

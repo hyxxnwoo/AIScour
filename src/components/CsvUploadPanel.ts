@@ -54,6 +54,8 @@ function basename(path: string): string {
   return idx >= 0 ? normalized.slice(idx + 1) : normalized;
 }
 
+type CsvSetupFlowStep = 'select' | 'parse' | 'apply';
+
 export class CsvUploadPanel implements Disposable {
   public readonly element: HTMLElement;
   private readonly handlers: CsvUploadPanelHandlers;
@@ -84,21 +86,25 @@ export class CsvUploadPanel implements Disposable {
   private readonly blockerProgressBar: HTMLElement;
   private readonly blockerDock: HTMLElement;
   private readonly actionRow: HTMLElement;
+  private readonly flowStrip: HTMLElement;
+  private readonly flowStepBtns: Record<CsvSetupFlowStep, HTMLButtonElement>;
+  private lastFlowStep: CsvSetupFlowStep | null = null;
 
   public constructor(handlers: CsvUploadPanelHandlers) {
     this.handlers = handlers;
     this.element = document.createElement('div');
-    this.element.className = 'csv-upload-panel';
+    this.element.className = 'csv-upload-panel csv-upload-panel--viz';
 
-    const title = document.createElement('div');
-    title.className = 'csv-upload-panel__title';
-    title.textContent = '2 · CSV 파싱';
-    this.element.appendChild(title);
+    const flow = this.buildFlowStrip();
+    this.flowStrip = flow.strip;
+    this.flowStepBtns = flow.buttons;
+    this.element.appendChild(this.flowStrip);
 
     const hint = document.createElement('p');
     hint.className = 'csv-upload-panel__hint';
+    hint.dataset.flowHint = '1';
     hint.textContent =
-      '기둥 개수 → 교량 설치 → 교량 형식 → 파일 선택 순서로 정합니다. 파싱 후 「적용하고 결과 보기」로 3D 장면을 만듭니다.';
+      '① CSV 선택 — 기둥·교량·파일을 정한 뒤, 단계 표시에 따라 파싱 → 적용 순으로 진행합니다.';
     this.element.appendChild(hint);
 
     this.openBtn = document.createElement('button');
@@ -210,6 +216,135 @@ export class CsvUploadPanel implements Disposable {
 
     this.syncParseReadyFromSlots();
     this.syncApplySceneEnabled();
+    this.syncSetupFlowStep();
+  }
+
+  /** 4번 조건 설정 진입 시 단계 하이라이트 갱신 */
+  public refreshSetupFlow(): void {
+    this.syncSetupFlowStep(true);
+  }
+
+  private buildFlowStrip(): {
+    strip: HTMLElement;
+    buttons: Record<CsvSetupFlowStep, HTMLButtonElement>;
+  } {
+    const strip = document.createElement('div');
+    strip.className = 'csv-setup-flow csv-setup-flow--enter';
+    strip.setAttribute('role', 'list');
+    strip.setAttribute('aria-label', 'CSV 업로드 단계');
+
+    const defs: Array<{ id: CsvSetupFlowStep; n: number; label: string; sub: string }> = [
+      { id: 'select', n: 1, label: 'CSV 선택', sub: '기둥·파일' },
+      { id: 'parse', n: 2, label: 'CSV 파싱', sub: '검증' },
+      { id: 'apply', n: 3, label: '적용하고 결과 보기', sub: '3D 장면' },
+    ];
+
+    const buttons = {} as Record<CsvSetupFlowStep, HTMLButtonElement>;
+    defs.forEach((d, i) => {
+      if (i > 0) {
+        const conn = document.createElement('span');
+        conn.className = 'csv-setup-flow__conn';
+        conn.setAttribute('aria-hidden', 'true');
+        strip.appendChild(conn);
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'csv-setup-flow__step';
+      btn.dataset.flowStep = d.id;
+      btn.dataset.stepN = String(d.n);
+      btn.setAttribute('role', 'listitem');
+      btn.innerHTML = `<span class="csv-setup-flow__idx">${d.n}</span>
+        <span class="csv-setup-flow__text"><b>${d.label}</b><i>${d.sub}</i></span>`;
+      btn.addEventListener('click', () => this.onFlowStepClick(d.id));
+      strip.appendChild(btn);
+      buttons[d.id] = btn;
+    });
+
+    return { strip, buttons };
+  }
+
+  private onFlowStepClick(step: CsvSetupFlowStep): void {
+    const current = this.computeFlowStep();
+    if (step === 'select') {
+      this.openSetup();
+      return;
+    }
+    if (step === 'parse') {
+      if (current === 'parse' && !this.isLoading && this.loadBtn.disabled === false) {
+        void this.startLoad();
+      } else if (current === 'select') {
+        this.openSetup();
+      }
+      return;
+    }
+    if (step === 'apply' && this.lastLoadResult && !this.applySceneLoading && !this.isLoading) {
+      void Promise.resolve(this.handlers.onApplyScene?.());
+    }
+  }
+
+  private computeFlowStep(): CsvSetupFlowStep {
+    if (this.lastLoadResult && !this.isLoading) return 'apply';
+    const filesReady =
+      this.parseReadyFiles.length === this.analysisPierCount && this.parseReadyFiles.length > 0;
+    if (filesReady || this.isLoading) return 'parse';
+    return 'select';
+  }
+
+  private syncSetupFlowStep(pulseOnStepChange = false): void {
+    const step = this.computeFlowStep();
+    const filesReady =
+      this.parseReadyFiles.length === this.analysisPierCount && this.parseReadyFiles.length > 0;
+    const parsed = this.lastLoadResult !== null;
+
+    this.element.dataset.flowStep = step;
+    this.flowStrip.dataset.flowStep = step;
+
+    const hintEl = this.element.querySelector('.csv-upload-panel__hint');
+    if (hintEl) {
+      const hints: Record<CsvSetupFlowStep, string> = {
+        select: '① CSV 선택 — 모달에서 기둥 수·교량·교각별 CSV를 확정하세요.',
+        parse: '② CSV 파싱 — 파일이 모두 선택되었습니다. 파싱을 실행하세요.',
+        apply: '③ 적용하고 결과 보기 — 파싱이 끝났습니다. 3D 장면을 만든 뒤 세굴 뷰로 이동합니다.',
+      };
+      hintEl.textContent = hints[step];
+    }
+
+    for (const id of ['select', 'parse', 'apply'] as const) {
+      const btn = this.flowStepBtns[id];
+      const isActive = step === id;
+      const isDone = (id === 'select' && filesReady) || (id === 'parse' && parsed) || false;
+      btn.classList.toggle('is-active', isActive);
+      btn.classList.toggle('is-done', isDone && !isActive);
+      btn.classList.toggle(
+        'is-loading',
+        (isActive && id === 'parse' && this.isLoading) ||
+          (isActive && id === 'apply' && this.applySceneLoading),
+      );
+      btn.disabled =
+        (id === 'parse' && !filesReady && !parsed) ||
+        (id === 'apply' && !parsed) ||
+        (id === 'select' && this.isLoading);
+      btn.setAttribute('aria-current', isActive ? 'step' : 'false');
+      const idxEl = btn.querySelector('.csv-setup-flow__idx');
+      if (idxEl) {
+        idxEl.textContent = isDone && !isActive ? '✓' : (btn.dataset.stepN ?? '');
+      }
+    }
+
+    this.openBtn.classList.toggle('is-flow-focus', step === 'select' && !this.isLoading);
+    this.loadBtn.classList.toggle('is-flow-focus', step === 'parse' && !parsed && !this.isLoading);
+    this.applySceneBtn.classList.toggle(
+      'is-flow-focus',
+      step === 'apply' && !this.applySceneLoading,
+    );
+
+    if (pulseOnStepChange && this.lastFlowStep !== step) {
+      const target =
+        step === 'select' ? this.openBtn : step === 'parse' ? this.loadBtn : this.applySceneBtn;
+      target.classList.add('is-flow-pulse');
+      window.setTimeout(() => target.classList.remove('is-flow-pulse'), 1200);
+    }
+    this.lastFlowStep = step;
   }
 
   /** CSV 파싱 성공 후에만 「적용하고 결과 보기」 허용 */
@@ -217,6 +352,7 @@ export class CsvUploadPanel implements Disposable {
     const ready = this.lastLoadResult !== null;
     this.applySceneBtn.disabled = !ready || this.isLoading || this.applySceneLoading;
     this.applySceneBtn.title = ready ? '' : 'CSV 파싱을 먼저 완료해 주세요.';
+    this.syncSetupFlowStep();
   }
 
   private structureDefaults(): CsvSetupSelection {
@@ -277,6 +413,7 @@ export class CsvUploadPanel implements Disposable {
     await this.snapshotSlotFilesIfNeeded();
     this.syncParseReadyFromSlots();
     this.handlers.onSetupApplied?.(selection);
+    this.syncSetupFlowStep(true);
   }
 
   private refreshSummary(): void {
@@ -361,6 +498,7 @@ export class CsvUploadPanel implements Disposable {
     }
     this.statusEl.classList.remove('is-ready');
     this.loadBtn.disabled = this.isLoading;
+    this.syncSetupFlowStep(true);
   }
 
   /**
@@ -404,6 +542,7 @@ export class CsvUploadPanel implements Disposable {
 
   public pulseAttention(): void {
     this.element.classList.add('csv-upload-panel--attention');
+    this.syncSetupFlowStep(true);
     window.setTimeout(() => this.element.classList.remove('csv-upload-panel--attention'), 2800);
   }
 
@@ -455,6 +594,7 @@ export class CsvUploadPanel implements Disposable {
     this.syncApplySceneEnabled();
     this.setSlotInputsDisabled(loading);
     this.setParseBlocker(loading);
+    this.syncSetupFlowStep();
   }
 
   private cancelLoad(): void {
@@ -535,12 +675,14 @@ export class CsvUploadPanel implements Disposable {
       this.progressBar.style.width = '100%';
       this.blockerProgressBar.style.width = '100%';
       this.lastLoadResult = result;
+      this.element.classList.add('csv-upload-panel--parsed');
       this.previewBtn.hidden = false;
       this.setParseBlocker(false);
       await Promise.resolve(this.handlers.onLoaded(result));
       this.statusEl.textContent = this.formatLoadCompleteStatus(result);
       this.statusEl.classList.add('is-ready');
       this.syncApplySceneEnabled();
+      this.syncSetupFlowStep(true);
     } catch (err: unknown) {
       if (isCsvParseAbortError(err)) {
         this.statusEl.textContent = err.message;
@@ -555,6 +697,7 @@ export class CsvUploadPanel implements Disposable {
       this.flushProgressFrame();
       this.abortController = null;
       this.setLoading(false);
+      this.syncSetupFlowStep();
     }
   }
 
