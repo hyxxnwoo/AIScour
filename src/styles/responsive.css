@@ -37,6 +37,34 @@
   }
 }
 
+.global-nav {
+  min-width: 0;
+}
+
+.global-nav__logo,
+.global-nav__link {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.global-nav__menus {
+  flex: 1 0 auto;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.global-nav__right {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.global-nav__case {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .viz-widget-grid {
   container-type: inline-size;
   display: grid;
@@ -167,6 +195,11 @@
   container-type: inline-size;
 }
 
+/* 너비 쿼리만 쓴다. 높이 봉쇄를 두면 페이지가 내용만큼 길어지지 않는다 */
+.case-mgmt-page {
+  container: case-mgmt / inline-size;
+}
+
 .case-mgmt-page .mgmt-table-wrap {
   container-type: inline-size;
 }
@@ -202,11 +235,6 @@
 @container (max-width: 52em) {
   .mgmt-split {
     flex-direction: column;
-  }
-
-  .case-mgmt-page .mgmt-panel--side {
-    flex: 0 0 auto;
-    max-height: min(42vh, 360px);
   }
 }
 
@@ -253,19 +281,95 @@
 }
 
 /* ── 2·3번 관리 화면: 한 화면 밀도 · 잘림 방지 ── */
+.case-mgmt-page .mgmt-page__body {
+  overflow: hidden;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* 차트 스트립은 한 줄로 유지하고, 남는 높이는 목록이 가져간다 */
 .case-mgmt-page .mgmt-page__body > .case-bi-strip {
   width: 100%;
-  --case-bi-body-h: 184px;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  --case-bi-body-h: clamp(64px, 12vh, 132px);
+  overflow: hidden;
+}
+
+.case-mgmt-page .case-bi-panel--scatter {
+  grid-column: auto;
+}
+
+.case-mgmt-page .case-bi-panel {
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.case-mgmt-page .case-bi-viz-slot {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.case-mgmt-page .case-bi-viz-slot svg {
+  display: block;
+  width: 100%;
+  max-width: var(--case-bi-viz-w);
+  height: auto;
+  max-height: var(--case-bi-body-h);
+}
+
+.case-mgmt-page .case-bi-legend__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.case-mgmt-page .mgmt-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .case-mgmt-page .case-bi-panel--status .case-bi-kpi {
   display: none;
 }
 
+.case-mgmt-page .case-bi-panel__body--grade {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.case-mgmt-page .case-bi-panel__body--grade .case-bi-grade__chart {
+  min-height: 0;
+  overflow: hidden;
+}
+
 .case-mgmt-page .case-bi-panel__body--grade .case-bi-grade__cols {
   min-height: 0;
+  height: 100%;
   gap: 4px;
   padding-bottom: 2px;
+  align-items: stretch;
+}
+
+.case-mgmt-page .case-bi-panel__body--grade .case-bi-grade__col {
+  height: 100%;
+  min-height: 0;
+  padding: 2px 2px 3px;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+.case-mgmt-page .case-bi-panel__body--grade .case-bi-grade__col-track {
+  flex: 0 0 auto;
+  height: clamp(28px, 4.5vh, 52px);
+  min-height: 0;
+  max-height: none;
 }
 
 .case-mgmt-page .case-bi-panel--scatter .case-bi-kpi {
@@ -289,12 +393,16 @@
   display: none;
 }
 
-.case-mgmt-page .mgmt-table-wrap {
-  overflow: hidden;
+.case-mgmt-page .mgmt-panel--main {
+  min-width: 0;
+  min-height: 0;
 }
 
 .case-mgmt-page .mgmt-panel--side {
-  overflow: hidden;
+  overflow: auto;
+  min-height: 0;
+  min-width: 0;
+  max-height: 100%;
 }
 
 .case-mgmt-page .case-sel-summary--compact .case-sel-summary__head {
@@ -391,20 +499,47 @@
 }
 
 .case-mgmt-page .mgmt-table-wrap {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
-  padding: 4px 8px 6px;
+  min-width: 0;
+  padding: 4px 8px 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.case-mgmt-page .mgmt-table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
 }
 
 .case-mgmt-page .mgmt-table-wrap .mgmt-table {
-  flex: 0 0 auto;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.case-mgmt-page .mgmt-table--viz thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-shell, #16324c);
+}
+
+.case-mgmt-page .mgmt-table-vizcol--head {
+  min-height: 0;
 }
 
 .case-mgmt-page .mgmt-table-wrap .mgmt-pager {
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  justify-content: safe center;
+  overflow-x: auto;
   padding: 6px 8px;
+  background: var(--bg-shell, #16324c);
+  border-top: 1px solid #1a3348;
 }
 
 .case-mgmt-page .mgmt-table--viz {
@@ -539,9 +674,381 @@
   }
 }
 
-@media (max-width: 900px) {
-  .case-bi-strip {
+@container case-mgmt (max-width: 960px) {
+  .case-mgmt-page .case-bi-panel__hint {
+    display: none;
+  }
+
+  .case-mgmt-page .case-bi-panel__title {
+    white-space: nowrap;
+  }
+}
+
+/* 차트 3칸이 너무 좁아지면 세로로 쌓지 않고 한 줄을 가로로 넘긴다 */
+@container case-mgmt (max-width: 640px) {
+  .case-mgmt-page .mgmt-page__body > .case-bi-strip {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(220px, 1fr);
+    overflow-x: auto;
+    overflow-y: hidden;
+    --case-bi-body-h: 120px;
+  }
+}
+
+@media (max-height: 760px) {
+  .case-mgmt-page .mgmt-page__body > .case-bi-strip {
+    --case-bi-body-h: 96px;
+    --case-bi-viz-w: 76px;
+  }
+}
+
+@media (max-height: 720px) {
+  .case-mgmt-page .case-new-sim--compact .case-new-sim__desc {
+    display: none;
+  }
+}
+
+@container case-mgmt (max-width: 52em) {
+  .case-mgmt-page .mgmt-filter-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+  }
+
+  .case-mgmt-page .mgmt-filter {
+    min-width: 0;
+  }
+
+  .case-mgmt-page .mgmt-search-btn {
+    min-height: 28px;
+  }
+}
+
+@container case-mgmt (max-width: 520px) {
+  .case-mgmt-page .case-new-sim--compact {
     grid-template-columns: 1fr;
+  }
+
+  .case-mgmt-page .case-new-sim__cta {
+    min-height: 36px;
+  }
+
+  .case-mgmt-page .mgmt-filter-row {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .case-mgmt-page .mgmt-filter {
+    flex: 0 0 7.5rem;
+    min-width: 7.5rem;
+  }
+
+  .case-mgmt-page .mgmt-search-btn {
+    flex: 0 0 auto;
+    align-self: flex-end;
+  }
+}
+
+/* 목록 폭이 좁으면 핵심 열만 남기고 숫자 칸을 줄여 가로로 잘리지 않게 한다 */
+@container (max-width: 46em) {
+  .case-mgmt-page .mgmt-table--viz {
+    --mgmt-table-vizcol-w: 3.2rem;
+  }
+
+  .case-mgmt-page .mgmt-table--viz .mgmt-col--id {
+    width: 5.2rem;
+  }
+
+  .case-mgmt-page .mgmt-table--viz .mgmt-col--status {
+    width: 5rem;
+  }
+
+  .case-mgmt-page .mgmt-table--viz .mgmt-col--act {
+    width: 4.2rem;
+  }
+
+  .case-mgmt-page .mgmt-case-id {
+    padding: 3px 6px;
+    font-size: 0.75rem;
+  }
+
+  .case-mgmt-page .mgmt-sbadge--table {
+    padding: 3px 6px;
+    gap: 4px;
+  }
+
+  .case-mgmt-page .mgmt-table-vizcol--btn,
+  .case-mgmt-page .mgmt-table-vizcol--head {
+    max-width: 100%;
+  }
+
+  .case-mgmt-page .mgmt-table-vizcol__num {
+    white-space: nowrap;
+  }
+}
+
+/* 화면이 낮으면 필터를 한 줄로 두고 목록이 페이지 스크롤로 이어지게 한다 */
+@media (max-height: 760px) {
+  .case-mgmt-page .case-bi-panel__hint {
+    display: none;
+  }
+
+  .case-mgmt-page .mgmt-filter-row {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .case-mgmt-page .mgmt-filter {
+    flex: 1 0 7.25rem;
+    min-width: 7.25rem;
+  }
+
+  .case-mgmt-page .mgmt-search-btn {
+    flex: 0 0 auto;
+    align-self: flex-end;
+  }
+
+  .case-mgmt-page .case-new-sim--compact {
+    padding: 6px 10px;
+  }
+}
+
+/* 어떤 창 크기에서도 화면 껍데기는 뷰포트 안에 두고, 긴 목록만 칸 안에서 스크롤한다 */
+.screen-placeholder-host.is-active {
+  overflow: hidden;
+  height: 100%;
+  min-height: 0;
+}
+
+.screen-placeholder-host.is-active > .screen-stack-page:not(.is-hidden) {
+  flex: 1 1 auto;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mgmt-page {
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mgmt-page .mgmt-page__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.mgmt-page .mgmt-tabs,
+.mgmt-page .case-bi-strip,
+.mgmt-page .pipeline-stage-strip,
+.mgmt-page .case-new-sim,
+.mgmt-page .mgmt-chip-row,
+.mgmt-page .mgmt-filter-row,
+.mgmt-page .mgmt-list-head,
+.mgmt-page .data-pipeline__list-head,
+.mgmt-page .mgmt-pager,
+.mgmt-page .data-pipeline__pager {
+  flex-shrink: 0;
+}
+
+.mgmt-page .mgmt-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  align-items: stretch;
+}
+
+.mgmt-page .mgmt-panel--main,
+.data-pipeline-page .data-pipeline__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.mgmt-page .mgmt-panel--side,
+.data-pipeline-page .data-pipeline__side {
+  min-height: 0;
+  max-height: 100%;
+  overflow: auto;
+}
+
+.mgmt-page .mgmt-table-wrap,
+.data-pipeline-page .data-pipeline__table-wrap,
+.case-mgmt-page .mgmt-table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+
+.alert-sop-page--fill {
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.alert-sop-page--fill .alert-sop-page__cols {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  height: auto;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.alert-sop-page--fill .alert-sop-page__col--list,
+.alert-sop-page--fill .alert-sop-page__col--grades {
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 320px;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.alert-sop-page--fill .alert-sop-page__col--main,
+.alert-sop-page--fill .alert-sop-page__main-scroll,
+.alert-sop-page--fill .alert-sop-page__list-scroll {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.alert-sop-page--fill .alert-sop-page__list-scroll,
+.alert-sop-page--fill .alert-sop-page__sop-stack,
+.alert-sop-page--fill .alert-sop-page__col--grades {
+  overflow: auto;
+}
+
+.global-nav {
+  overflow: hidden;
+}
+
+.global-nav__menus {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.global-nav__right {
+  flex: 0 0 auto;
+}
+
+.viewer-subnav {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.viewer-subnav__lbl,
+.viewer-subnav__tab {
+  flex-shrink: 0;
+}
+
+.viewer-stage,
+.viewer-center,
+.viewer-main {
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+}
+
+.time-controls {
+  max-width: calc(100% - 16px);
+  bottom: 8px;
+}
+
+/* 좁으면 요약을 목록 아래로 두되, 둘 다 화면 안에 남긴다 */
+@container (max-width: 52em) {
+  .case-mgmt-page .mgmt-split,
+  .data-pipeline-page .mgmt-split {
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .case-mgmt-page .mgmt-panel--main,
+  .data-pipeline-page .data-pipeline__main {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow: hidden;
+  }
+
+  .case-mgmt-page .mgmt-panel--side,
+  .data-pipeline-page .data-pipeline__side {
+    flex: 0 1 auto;
+    width: auto;
+    max-height: min(200px, 32%);
+    overflow: auto;
+  }
+}
+
+@media (max-width: 980px) {
+  #app {
+    --dock-left-w: clamp(148px, 22vw, 200px);
+    --dock-right-w: clamp(156px, 24vw, 210px);
+  }
+
+  .alert-sop-page--fill .alert-sop-page__cols {
+    flex-wrap: wrap;
+    align-content: stretch;
+  }
+
+  .alert-sop-page--fill .alert-sop-page__col--list,
+  .alert-sop-page--fill .alert-sop-page__col--grades {
+    flex: 1 1 220px;
+    max-width: none;
+    max-height: 42%;
+  }
+
+  .alert-sop-page--fill .alert-sop-page__col--main {
+    flex: 1 1 100%;
+    max-height: 58%;
+    order: -1;
+  }
+}
+
+@media (max-height: 820px) {
+  #app {
+    --gnb-h: 40px;
+    --subnav-h: 30px;
+    --time-stack-height: 58px;
+    --dock-stack-gap: 4px;
+  }
+
+  .case-mgmt-page .mgmt-page__body > .case-bi-strip {
+    --case-bi-body-h: clamp(52px, 9vh, 88px);
+  }
+
+  .ui-dock {
+    padding: 6px 6px calc(var(--time-stack-height) + 6px);
+  }
+
+  .alert-sop-page--fill {
+    padding: 6px 10px 8px;
+  }
+}
+
+@media (max-height: 680px) {
+  .case-mgmt-page .mgmt-chip-row__note,
+  .case-mgmt-page .case-new-sim--compact .case-new-sim__desc,
+  .case-mgmt-page .case-bi-panel__hint {
+    display: none;
+  }
+
+  .case-mgmt-page .mgmt-page__body > .case-bi-strip {
+    --case-bi-body-h: 48px;
   }
 }
 

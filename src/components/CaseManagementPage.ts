@@ -394,6 +394,7 @@ export class CaseManagementPage implements Disposable {
             <span class="mgmt-sub">${MOCK_TOTAL}건 중 <b>${filtered.length}</b>건 표시 · 선택 <b>${selLabel}</b> · 페이지 ${this.page}/${pages}</span>
           </div>
           <div class="mgmt-table-wrap">
+            <div class="mgmt-table-scroll">
             <table class="mgmt-table mgmt-table--pick mgmt-table--viz">
               <colgroup>
                 <col class="mgmt-col--select" />
@@ -420,6 +421,7 @@ export class CaseManagementPage implements Disposable {
               </tr></thead>
               <tbody>${tbody || '<tr><td colspan="10" class="mgmt-muted mgmt-table__cell--c">조건에 맞는 케이스가 없습니다</td></tr>'}</tbody>
             </table>
+            </div>
             <div class="mgmt-pager">
               <button type="button" class="mgmt-pager__btn" data-act="page" data-page="${Math.max(1, this.page - 1)}" ${this.page <= 1 ? 'disabled' : ''}>◀</button>
               ${pagerBtns}
