@@ -899,6 +899,10 @@
 }
 
 .alert-sop-page--fill .alert-sop-page__cols {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
@@ -909,12 +913,18 @@
 
 .alert-sop-page--fill .alert-sop-page__col--list,
 .alert-sop-page--fill .alert-sop-page__col--grades {
-  flex: 1 1 220px;
+  flex: 1 1 0;
   min-width: 0;
-  max-width: 320px;
+  max-width: none;
+  width: auto;
   min-height: 0;
   max-height: 100%;
   overflow: hidden;
+}
+
+.alert-sop-page--fill .alert-sop-page__col--main {
+  flex: 1.35 1 0;
+  max-width: none;
 }
 
 .alert-sop-page--fill .alert-sop-page__col--main,
@@ -1002,20 +1012,44 @@
 
   .alert-sop-page--fill .alert-sop-page__cols {
     flex-wrap: wrap;
-    align-content: stretch;
+    align-content: flex-start;
+    overflow-y: auto;
   }
 
   .alert-sop-page--fill .alert-sop-page__col--list,
   .alert-sop-page--fill .alert-sop-page__col--grades {
-    flex: 1 1 220px;
+    flex: 1 1 calc(50% - 4px);
     max-width: none;
-    max-height: 42%;
+    min-height: 24rem;
+    max-height: none;
   }
 
   .alert-sop-page--fill .alert-sop-page__col--main {
-    flex: 1 1 100%;
-    max-height: 58%;
+    flex: 0 0 100%;
+    min-height: 22rem;
+    max-height: none;
     order: -1;
+  }
+
+  /* 좁은 화면에서는 가운데 영역 자체를 스크롤해 카드·SOP 행이 잘리지 않게 한다. */
+  .alert-sop-page--fill .alert-sop-page__main-scroll {
+    display: block;
+    overflow-y: auto;
+  }
+
+  .alert-sop-page--fill .alert-sop-page__sop-list,
+  .alert-sop-page--fill .alert-sop-page__sop-stack {
+    display: block;
+    overflow: visible;
+  }
+
+  .alert-sop-page--fill .alert-sop-page__sop-row {
+    min-height: 3.75rem;
+    margin-bottom: 8px !important;
+  }
+
+  .alert-sop-page--fill .alert-sop-page__hist-block {
+    min-height: 9rem;
   }
 }
 

@@ -218,11 +218,13 @@ export function renderAlertListCard(input: AlertListCardInput): string {
   const pickHint = isFocus ? '<span class="alert-sop-page__alert-pick">선택됨</span>' : '';
   return `<button type="button" class="alert-sop-page__alert-item ${isFocus ? 'is-focus' : ''}" data-act="alert-pick" data-alert-id="${esc(rec.id)}" data-grade-key="${gradeKey}" data-status="${rec.status}" style="--alert-accent:${gradeColor}">
     <span class="alert-sop-page__alert-accent" aria-hidden="true"></span>
-    ${pickHint}
     <div class="alert-sop-page__alert-head">
       <span class="grade-pill grade-pill--${gradeKey}">${gradeName}</span>
       <span class="alert-sop-page__alert-pier">${esc(rec.pier)}</span>
-      <span class="alert-sop-page__alert-time">${esc(rec.issuedAt)}</span>
+      <span class="alert-sop-page__alert-meta">
+        <span class="alert-sop-page__alert-time">${esc(rec.issuedAt)}</span>
+        ${pickHint}
+      </span>
     </div>
     <div class="alert-sop-page__alert-sub alert-sop-page__alert-sub--viz">
       <span class="alert-sop-page__remain-ring" aria-hidden="true" data-tip="잔여 여유율(%)">
