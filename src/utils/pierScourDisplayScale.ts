@@ -38,12 +38,17 @@ export function scalePierScourDepthM(
   return Math.min(cap, scaled);
 }
 
+/**
+ * 읽기값 전체에 표시용 배율을 적용한다. enabled=false(실측 CSV)면 실측 세굴심을 그대로 돌려준다.
+ */
 export function scalePierScourReadings(
   readings: PierScourDepth[],
   foundationDepthM: number,
   timeSeconds: number,
   durationSeconds: number,
+  enabled = true,
 ): PierScourDepth[] {
+  if (!enabled) return readings;
   return readings.map((r) => ({
     pierId: r.pierId,
     scourDepthM: scalePierScourDepthM(

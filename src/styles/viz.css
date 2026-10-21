@@ -4624,3 +4624,74 @@
     opacity: 0;
   }
 }
+
+/* 여러 케이스(CSV) 전환 + 시나리오 조건 */
+.case-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.case-switcher__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.case-switcher__title {
+  color: #cfd8e3;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.case-switcher__select {
+  flex: 1;
+  min-width: 0;
+  background: var(--btn-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--panel-border-soft);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.case-switcher__scenario {
+  color: #cfd8e3;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.case-switcher__fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0;
+}
+
+.case-switcher__fields dt {
+  color: #8ea3b8;
+}
+
+.case-switcher__fields dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.case-switcher__region {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cfd8e3;
+  cursor: pointer;
+}
+
+/* 기준(S01)과 다른 조건 */
+.case-switcher__fields .is-changed {
+  color: #e8b21a;
+  font-weight: 600;
+}

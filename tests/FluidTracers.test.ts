@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createEmptyFluidSeries } from '@/data/createEmptyFluidSeries';
 import { SyntheticFluidSource } from '@/data/SyntheticFluidSource';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
 import {
@@ -7,9 +8,6 @@ import {
   fluidSeriesHasFlowAtTime,
   probeSpeed,
 } from '@/modules/FluidTracers';
-import { buildSampleProbeDashboard } from '@/data/buildSampleProbeDashboard';
-import { readFileSync } from 'node:fs';
-import { parseSampleProbeCsvText } from '@/utils/parseSampleProbeCsv';
 import { structureCenterX } from '@/constants/experiment';
 import { defaultFluidSliceHeight } from '@/utils/fluidWorld';
 import { Scene } from 'three';
@@ -316,14 +314,27 @@ describe('FluidTracers', () => {
     tracers.dispose();
   });
 
-  it('sampledata.csv t=0 은 격자 유속 0 → fluidSeriesHasFlowAtTime(0) false', () => {
-    const dataset = parseSampleProbeCsvText(
-      readFileSync('public/data/sampledata.csv', 'utf8'),
-    );
-    const built = buildSampleProbeDashboard(dataset);
-    expect(built.fluid).not.toBeNull();
-    expect(fluidSeriesHasFlow(built.fluid!)).toBe(false);
-    expect(fluidSeriesHasFlowAtTime(built.fluid!, 0)).toBe(false);
+  it('격자 유속이 전부 0 이면 fluidSeriesHasFlow·fluidSeriesHasFlowAtTime 이 false', async () => {
+    const still = createEmptyFluidSeries({
+      width: 8,
+      height: 4,
+      depth: 8,
+      cellSize: 0.05,
+      frameCount: 2,
+      frameIntervalSeconds: 30,
+    });
+    expect(fluidSeriesHasFlow(still)).toBe(false);
+    expect(fluidSeriesHasFlowAtTime(still, 0)).toBe(false);
+
+    const flowing = await new SyntheticFluidSource({
+      width: 8,
+      height: 4,
+      depth: 8,
+      cellSize: 0.05,
+      frameCount: 2,
+      inflowSpeed: 0.25,
+    }).load();
+    expect(fluidSeriesHasFlow(flowing)).toBe(true);
   });
 
   it('격자 유속 0 이라도 setProbeVelocity(조건 u)면 입자 메쉬를 표시한다', async () => {

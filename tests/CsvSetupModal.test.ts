@@ -13,7 +13,7 @@ function openModal(initial?: Partial<CsvSetupSelection>): {
       pierCount: 3,
       bridgeEnabled: true,
       bridgeType: 'girder',
-      files: [null, null, null],
+      files: [],
       ...initial,
     },
     (selection) => {
@@ -46,7 +46,7 @@ describe('CsvSetupModal', () => {
     expect(
       modal.element.querySelector('.csv-setup-modal__panel--files')?.hasAttribute('hidden'),
     ).toBe(true);
-    expect(modal.element.textContent).toContain('교각이 몇 개인지 고릅니다');
+    expect(modal.element.textContent).toContain('기둥이 몇 개인지 고릅니다');
     expect(stepButton(modal.element, 'files').disabled).toBe(true);
 
     modal.dispose();
@@ -68,7 +68,7 @@ describe('CsvSetupModal', () => {
       modal.element.querySelector('.csv-setup-modal__panel--type')?.hasAttribute('hidden'),
     ).toBe(true);
     expect(modal.element.textContent).toContain('기둥 3개 · 교량 없음');
-    expect(modal.element.querySelectorAll('.csv-setup-modal__file')).toHaveLength(3);
+    expect(modal.element.querySelectorAll('.csv-setup-modal__file')).toHaveLength(1);
 
     modal.dispose();
   });
@@ -109,7 +109,7 @@ describe('CsvSetupModal', () => {
     expect(confirmed[0]?.pierCount).toBe(1);
     expect(confirmed[0]?.bridgeEnabled).toBe(true);
     expect(confirmed[0]?.bridgeType).toBe('cable-stayed');
-    expect(confirmed[0]?.files[0]?.name).toBe('P1.csv');
+    expect(confirmed[0]?.files.map((f) => f.name)).toEqual(['P1.csv']);
     expect(modal.element.hidden).toBe(true);
 
     modal.dispose();
@@ -128,6 +128,52 @@ describe('CsvSetupModal', () => {
     expect(modal.element.querySelector('.csv-setup-modal__back')?.hasAttribute('hidden')).toBe(
       true,
     );
+
+    modal.dispose();
+  });
+
+  it('여러 CSV 를 고르면 파일명 순으로 모두 확정한다', () => {
+    const { modal, confirmed } = openModal({ bridgeEnabled: false });
+
+    clickNamed(modal.element, '다음');
+    clickNamed(modal.element, '다음');
+    const input = modal.element.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error('file input missing');
+    expect(input.multiple).toBe(true);
+
+    const files = [
+      new File(['b'], 's02_all_timesteps.csv', { type: 'text/csv' }),
+      new File(['a'], 's01_all_timesteps.csv', { type: 'text/csv' }),
+      new File(['x'], 'memo.txt', { type: 'text/plain' }),
+    ];
+    Object.defineProperty(input, 'files', { configurable: true, value: files });
+    input.dispatchEvent(new Event('change'));
+
+    clickNamed(modal.element, '선택 완료');
+    expect(confirmed[0]?.files.map((f) => f.name)).toEqual([
+      's01_all_timesteps.csv',
+      's02_all_timesteps.csv',
+    ]);
+
+    modal.dispose();
+  });
+
+  it('CSV 가 아닌 파일만 고르면 안내하고 확정하지 않는다', () => {
+    const { modal, confirmed } = openModal({ bridgeEnabled: false });
+
+    clickNamed(modal.element, '다음');
+    clickNamed(modal.element, '다음');
+    const input = modal.element.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error('file input missing');
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new File(['x'], 'memo.txt', { type: 'text/plain' })],
+    });
+    input.dispatchEvent(new Event('change'));
+
+    expect(modal.element.textContent).toContain('CSV 파일만 선택할 수 있습니다');
+    clickNamed(modal.element, '선택 완료');
+    expect(confirmed).toHaveLength(0);
 
     modal.dispose();
   });

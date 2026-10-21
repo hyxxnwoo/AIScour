@@ -18,6 +18,7 @@ import {
   type Scene,
 } from 'three';
 import type { Disposable } from '@/types/disposable';
+import type { PierFooting } from '@/types/terrain';
 import type { BridgeType, StructureShape } from '@/types/simParams';
 
 export interface PierDefinition {
@@ -26,6 +27,10 @@ export interface PierDefinition {
   z: number;
   diameter?: number;
   height?: number;
+  /** 교각별 최대 세굴심을 찾는 반경(m, 교각 중심 기준). */
+  scourSearchRadius?: number;
+  /** 교각 아래 정사각 하단부. 지표 위로 드러난 부분만 그린다. */
+  footing?: PierFooting;
   shape?: StructureShape;
   color?: number;
 }
@@ -110,7 +115,26 @@ export class PierMarker implements Disposable {
     this.scene.add(this.group);
   }
 
+  /** 교각 아래 하단부(노출 부분). 선택·피킹은 샤프트가 맡는다. */
+  private addFooting(pier: PierDefinition, footing: PierFooting): void {
+    const { shape, lengthX, widthZ, height } = footing;
+    // 정사각·직사각형은 상자, 원형·타원형은 원기둥(타원형은 x·z 로 늘린다).
+    const round = shape === 'circle' || shape === 'ellipse';
+    const geom = round
+      ? new CylinderGeometry(0.5, 0.5, height, 48)
+      : new BoxGeometry(lengthX, height, widthZ);
+    const mat = new MeshStandardMaterial({ color: 0x8b95a1, roughness: 0.82, metalness: 0.04 });
+    this.materials.add(mat);
+    this.disposables.push({ geom });
+    const mesh = new Mesh(geom, mat);
+    if (round) mesh.scale.set(lengthX, 1, widthZ);
+    mesh.position.set(pier.x, this.baseElevation + height / 2, pier.z);
+    mesh.name = `pier-${pier.id}-footing`;
+    this.group.add(mesh);
+  }
+
   private addPier(pier: PierDefinition, shaftTopY?: number): void {
+    if (pier.footing) this.addFooting(pier, pier.footing);
     const diameter = pier.diameter ?? 1.0;
     const fullHeight = pier.height ?? 6.0;
     const height =

@@ -1,4 +1,4 @@
-import { sampleDeltaBilinear } from '@/data/buildScrdifBedField';
+import { sampleDeltaBilinear } from '@/utils/fluidWorld';
 import type { PierDefinition } from '@/modules/PierMarker';
 import type { ScourSeries } from '@/types/terrain';
 import { remainPct } from '@/constants/grade';

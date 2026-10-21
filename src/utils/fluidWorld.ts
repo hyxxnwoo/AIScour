@@ -329,3 +329,33 @@ export function sampleTerrainBedAtWorld(
   const z11 = sample(Math.min(width - 1, x0 + 1), Math.min(height - 1, y0 + 1));
   return z00 * (1 - tx) * (1 - ty) + z10 * tx * (1 - ty) + z01 * (1 - tx) * ty + z11 * tx * ty;
 }
+
+/** 월드 XZ에서 지형 Δ 격자를 bilinear 보간 (단면·프로브 공용). */
+export function sampleDeltaBilinear(
+  delta: Float32Array,
+  terrain: TerrainGrid,
+  worldX: number,
+  worldZ: number,
+): number {
+  const { width, height, cellSize } = terrain;
+  const halfW = ((width - 1) * cellSize) / 2;
+  const halfH = ((height - 1) * cellSize) / 2;
+  const fx = (worldX + halfW) / cellSize;
+  const fy = (worldZ + halfH) / cellSize;
+  if (fx < 0 || fy < 0 || fx > width - 1 || fy > height - 1) return 0;
+
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const x1 = Math.min(width - 1, x0 + 1);
+  const y1 = Math.min(height - 1, y0 + 1);
+  const tx = fx - x0;
+  const ty = fy - y0;
+
+  const c00 = delta[y0 * width + x0] ?? 0;
+  const c10 = delta[y0 * width + x1] ?? 0;
+  const c01 = delta[y1 * width + x0] ?? 0;
+  const c11 = delta[y1 * width + x1] ?? 0;
+  const c0 = c00 * (1 - tx) + c10 * tx;
+  const c1 = c01 * (1 - tx) + c11 * tx;
+  return c0 * (1 - ty) + c1 * ty;
+}

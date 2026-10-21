@@ -1,6 +1,7 @@
 import type { Disposable } from '@/types/disposable';
-import type { CsvDashboardLoadResult } from '@/data/loadCsvDashboard';
-import { SAMPLE_PROBE_FIELDS, type SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
+import type { CsvDashboardLoadResult, ScrdifPreviewColumns } from '@/data/loadCsvDashboard';
+
+const PREVIEW_FIELDS = ['x', 'y', 'scrdif'] as const;
 import { computeVirtualWindow } from '@/utils/virtualRows';
 
 const PREVIEW_MAX_COLS = 12;
@@ -70,7 +71,7 @@ export class CsvDataPreviewModal implements Disposable {
   private readonly rowsBody: HTMLElement;
   private readonly cleanups: Array<() => void> = [];
   private loadResult: CsvDashboardLoadResult | null = null;
-  private probeColumns: SampleProbeColumns | null = null;
+  private probeColumns: ScrdifPreviewColumns | null = null;
   private scrollFrame: number | null = null;
 
   public constructor() {
@@ -135,7 +136,7 @@ export class CsvDataPreviewModal implements Disposable {
     const rowsHeader = document.createElement('div');
     rowsHeader.className = 'csv-preview-modal__rows-header';
     rowsHeader.setAttribute('role', 'row');
-    for (const label of ['#', ...SAMPLE_PROBE_FIELDS]) {
+    for (const label of ['#', ...PREVIEW_FIELDS]) {
       const cell = document.createElement('span');
       cell.className = 'csv-preview-modal__rows-cell csv-preview-modal__rows-cell--head';
       cell.setAttribute('role', 'columnheader');
@@ -214,7 +215,7 @@ export class CsvDataPreviewModal implements Disposable {
 
   public open(
     result: CsvDashboardLoadResult,
-    probeColumns: SampleProbeColumns | null = null,
+    probeColumns: ScrdifPreviewColumns | null = null,
   ): void {
     this.loadResult = result;
     this.probeColumns = probeColumns ?? result.columns;
@@ -246,19 +247,7 @@ export class CsvDataPreviewModal implements Disposable {
     }
 
     this.rowsSection.hidden = false;
-    const stats = this.probeColumns.stats;
-    if (stats) {
-      const parts = [
-        `데이터 ${this.probeColumns.count.toLocaleString()}행`,
-        `파일 ${stats.fileLineCount.toLocaleString()}줄`,
-      ];
-      if (stats.skippedLinesAfterHeader > 0) {
-        parts.push(`건너뜀 ${stats.skippedLinesAfterHeader.toLocaleString()}줄`);
-      }
-      this.rowsCountEl.textContent = `${parts.join(' · ')} · 가상 스크롤`;
-    } else {
-      this.rowsCountEl.textContent = `데이터 ${this.probeColumns.count.toLocaleString()}행 · 가상 스크롤`;
-    }
+    this.rowsCountEl.textContent = `데이터 ${this.probeColumns.count.toLocaleString()}행 · 마지막 시간 열 scrdif · 가상 스크롤`;
     this.rowsScrollWrap.scrollTop = 0;
     this.rowsSpacer.style.height = `${this.probeColumns.count * ROW_HEIGHT_PX}px`;
   }
@@ -294,7 +283,7 @@ export class CsvDataPreviewModal implements Disposable {
       indexCell.textContent = String(rowIndex + 1);
       row.appendChild(indexCell);
 
-      for (const field of SAMPLE_PROBE_FIELDS) {
+      for (const field of PREVIEW_FIELDS) {
         const cell = document.createElement('span');
         cell.className = 'csv-preview-modal__rows-cell';
         cell.setAttribute('role', 'cell');
@@ -314,19 +303,8 @@ export class CsvDataPreviewModal implements Disposable {
     const items: Array<[string, string]> = [];
 
     if (this.probeColumns && this.probeColumns.count > 0) {
-      const stats = this.probeColumns.stats;
-      if (stats) {
-        items.push(['파일 줄 수', `${stats.fileLineCount.toLocaleString()}줄`]);
-        items.push(['파싱된 데이터 행', `${stats.dataRowCount.toLocaleString()}행`]);
-        if (stats.timeBlockCount !== undefined) {
-          items.push(['t 시간 블록', `${stats.timeBlockCount.toLocaleString()}개`]);
-        }
-        if (stats.skippedLinesAfterHeader > 0) {
-          items.push(['건너뛴 데이터 줄', `${stats.skippedLinesAfterHeader.toLocaleString()}줄`]);
-        }
-      } else {
-        items.push(['파싱된 데이터 행', `${this.probeColumns.count.toLocaleString()}행`]);
-      }
+      items.push(['파싱된 데이터 행', `${this.probeColumns.count.toLocaleString()}행`]);
+      items.push(['시간 열', `${this.probeColumns.timeColumnCount.toLocaleString()}개`]);
     }
 
     items.push(['세굴 격자', `${scour.baseTerrain.width} × ${scour.baseTerrain.height}`]);

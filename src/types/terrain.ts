@@ -27,8 +27,6 @@ export interface TerrainMetadata {
   capturedAt?: string;
   /** CSV 평균 유속 기준 흐름 방향(rad). 교량 데크 축 결정에 사용. */
   flowHeading?: number;
-  /** 유입부 배고픈 물 세굴(data x≤0.22 m)을 scrdif 가시화에서 제외했는지. */
-  inflowBoundaryMasked?: boolean;
   /** Δ 색상 대비(1=선형, 다교량 CSV는 1.35 등). */
   scourColorContrastGamma?: number;
   // 교각 정의(선택). 메타에 포함되어 있으면 PierMarker 가 자동 생성한다.
@@ -42,6 +40,22 @@ export interface PierDefinitionMeta {
   z: number;
   diameter?: number;
   height?: number;
+  /** 교각별 최대 세굴심을 찾는 반경(m, 교각 중심 기준). 미지정 시 발 아래 근처만 본다. */
+  scourSearchRadius?: number;
+  /** 교각 아래 하단부(기초). 지표 위로 드러난 부분만 그린다. */
+  footing?: PierFooting;
+}
+
+export type FootingShape = 'square' | 'circle' | 'ellipse' | 'rectangle';
+
+export interface PierFooting {
+  shape: FootingShape;
+  /** 유동(+X) 방향 길이(m). */
+  lengthX: number;
+  /** 횡(Z) 방향 폭(m). */
+  widthZ: number;
+  /** 지표 위로 드러난 높이(m). */
+  height: number;
 }
 
 // 시간에 따른 세굴 깊이 변화. 베이스 지형(TerrainGrid) 과 동일한 격자를 가정한다.

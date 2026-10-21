@@ -11,15 +11,6 @@ export const FLUME = {
   foundationDepthM: 0.127,
   // 입구에서 퇴적물 시작까지의 구간(미터). 구조물이 놓이는 전방 구역.
   structureFrontX: 0.1,
-  /**
-   * FLOW-3D data x 기준 유입 경계(배고픈 물 세굴). 가시화 마스크는 flumeInflowBoundary.ts.
-   * fixedBed x<0.09 m, 이동상 0.10 m~, hungry-water 세굴 ~0.21 m까지 시간에 따라 확장.
-   */
-  inflowBoundary: {
-    fixedBedMaxDataX: 0.09,
-    mobileBedStartDataX: 0.1,
-    hungryWaterScourMaskMaxDataX: 0.22,
-  },
   // 모래 입경(mm)
   sandGrainSizeMm: 0.385,
   // 수심(미터). 퇴적물 표면 위 물 높이.
@@ -39,6 +30,24 @@ export const FLUME = {
   // 수조 실측치 대비 X·Z 도메인 여유(미터, 각 측). 지형·유체·수면이 동일하게 확장된다.
   terrainMarginX: 0.12,
   terrainMarginZ: 0.18,
+} as const;
+
+/**
+ * 경량화 CFD CSV 케이스의 구조물 고정 조건(환경조건.xlsx).
+ * 원기둥 직경 0.0625 m, 노출 높이 0.30 m. 교각 중심에서 직경의 2배 안을 세굴 탐색 영역으로 본다.
+ */
+export const CSV_STRUCTURE = {
+  diameterM: 0.0625,
+  exposedHeightM: 0.3,
+  /** 구조물(기둥) 개수. */
+  pierCount: 3,
+  /** 하단부가 지표 위로 드러난 높이(m). 나머지 0.08 m 는 모래지반에 묻혀 있다(총 높이 0.13 m). */
+  footingExposedM: 0.05,
+  /** 하단부 매립 높이 = 기초 근입 깊이(등급 판정 기준). */
+  foundationDepthM: 0.08,
+  /** 모래지반 두께. */
+  sedimentThicknessM: 0.08,
+  scourSearchRadiusFactor: 2,
 } as const;
 
 export interface FlumeGeometry {

@@ -33,6 +33,7 @@ export function buildPierDepthSeries(
   series: ScourSeries,
   piers: PierDefinition[],
   foundationDepthM: number,
+  applyDisplayScale = true,
 ): PierDepthSeries[] {
   const { frames } = series;
   if (frames.length === 0) {
@@ -46,13 +47,15 @@ export function buildPierDepthSeries(
       times.push(frame.timestampSeconds);
       const raw = pierScourDepths(series, [pier], frame.timestampSeconds)[0]?.scourDepthM ?? 0;
       depths.push(
-        scalePierScourDepthM(
-          raw,
-          pier.id,
-          foundationDepthM,
-          frame.timestampSeconds,
-          durationSeconds,
-        ),
+        applyDisplayScale
+          ? scalePierScourDepthM(
+              raw,
+              pier.id,
+              foundationDepthM,
+              frame.timestampSeconds,
+              durationSeconds,
+            )
+          : Math.max(0, raw),
       );
     }
     return { pierId: pier.id, times, depths };

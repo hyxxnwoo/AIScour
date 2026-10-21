@@ -99,6 +99,9 @@ export class FluidControls implements Disposable {
   private readonly quantityInputs = new Map<FluidQuantity, HTMLInputElement>();
   private readonly valueInputs = new Map<NumericSimParamKey, HTMLInputElement>();
   private selectedQuantities!: Set<FluidQuantity>;
+  private titleEl!: HTMLElement;
+  private unitsEl!: HTMLElement;
+  private scourOnly = false;
   private primaryQuantity!: FluidQuantity;
   private readonly sliceToggle: HTMLInputElement;
   private readonly tracersToggle: HTMLInputElement;
@@ -128,6 +131,7 @@ export class FluidControls implements Disposable {
     const title = document.createElement('div');
     title.className = 'fluid-controls__title';
     title.textContent = '유체 필드';
+    this.titleEl = title;
     this.element.appendChild(title);
 
     const initialSelected = new Set(
@@ -354,6 +358,7 @@ export class FluidControls implements Disposable {
     const unitsLine = document.createElement('div');
     unitsLine.className = 'fluid-controls__units';
     unitsLine.textContent = `u,v,w ${options.velocityUnit ?? 'm/s'} · scrdif ${options.scrdifUnit ?? 'm'}`;
+    this.unitsEl = unitsLine;
     this.element.appendChild(unitsLine);
 
     this.setReadOnlyField(options.readOnlyField ?? false);
@@ -560,6 +565,36 @@ export class FluidControls implements Disposable {
     } else {
       this.probeMetaEl.textContent = '';
     }
+  }
+
+  /**
+   * 유속(u,v,w)이 없는 하상 변화 전용 CSV: 유속 항목·추적 입자 행을 숨기고 하상 변화(scrdif)만 남긴다.
+   */
+  public setScourOnlyMode(enabled: boolean): void {
+    this.scourOnly = enabled;
+    for (const q of FLUID_DASHBOARD_QUANTITIES) {
+      const row = this.quantityInputs.get(q)?.closest('.fluid-controls__field-row');
+      if (row instanceof HTMLElement) row.hidden = enabled && q !== 'scrdif';
+    }
+    this.tracersRow.hidden = enabled;
+    this.unitsEl.hidden = enabled;
+    this.titleEl.textContent = enabled ? '하상 변화' : '유체 필드';
+    if (!enabled) return;
+    this.tracersNoticeEl.hidden = true;
+    this.selectedQuantities.clear();
+    this.selectedQuantities.add('scrdif');
+    this.primaryQuantity = 'scrdif';
+    for (const [q, input] of this.quantityInputs) input.checked = q === 'scrdif';
+    this.syncPrimaryMarkers();
+  }
+
+  public isScourOnlyMode(): boolean {
+    return this.scourOnly;
+  }
+
+  /** 「지형 위 수면」 체크 상태를 코드로 바꾼다(change 이벤트는 발생시키지 않는다). */
+  public setSliceChecked(checked: boolean): void {
+    this.sliceToggle.checked = checked;
   }
 
   public isProbeMode(): boolean {

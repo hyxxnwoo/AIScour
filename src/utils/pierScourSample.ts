@@ -16,6 +16,7 @@ export function maxErosionAtPierFootprint(
   terrain: ScourSeries['baseTerrain'],
   pier: PierDefinition,
   pierDiameter = pier.diameter ?? 1.6,
+  searchRadiusM?: number,
 ): number {
   const { width, height, cellSize } = terrain;
   const halfW = ((width - 1) * cellSize) / 2;
@@ -23,7 +24,7 @@ export function maxErosionAtPierFootprint(
   const cx = Math.round((pier.x + halfW) / cellSize);
   const cy = Math.round((pier.z + halfH) / cellSize);
   const d = pierDiameter ?? 1.6;
-  const searchRadius = d / 2 + cellSize * 2;
+  const searchRadius = searchRadiusM ?? d / 2 + cellSize * 2;
   const rCells = Math.ceil(searchRadius / cellSize) + 1;
 
   let maxErosion = 0;
@@ -59,7 +60,13 @@ function sampleScourAtPier(
   const frame = frames[frameIdx];
   if (!frame) return 0;
 
-  return maxErosionAtPierFootprint(frame.deltaElevations, series.baseTerrain, pier, pierDiameter);
+  return maxErosionAtPierFootprint(
+    frame.deltaElevations,
+    series.baseTerrain,
+    pier,
+    pierDiameter,
+    pier.scourSearchRadius,
+  );
 }
 
 /** 교각 주변 최대 세굴 깊이(m) */

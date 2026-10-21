@@ -1,10 +1,6 @@
 import type { Disposable } from '@/types/disposable';
-import type {
-  CsvDashboardLoadResult,
-  CsvLoadProgress,
-  LoadCsvDashboardOptions,
-} from '@/data/loadCsvDashboard';
-import { loadCsvDashboard } from '@/data/loadCsvDashboard';
+import type { CsvDashboardLoadResult, CsvLoadProgress } from '@/data/loadCsvDashboard';
+import { loadCsvDashboards } from '@/data/loadCsvDashboard';
 import { isCsvParseAbortError } from '@/utils/csvParseAbort';
 import { computeCsvProgressPct } from '@/utils/csvProgress';
 import { snapshotUploadFiles, UPLOAD_SNAPSHOT_MAX_BYTES } from '@/utils/readUploadFile';
@@ -12,8 +8,10 @@ import { CsvDataPreviewModal } from '@/components/CsvDataPreviewModal';
 import { bridgeTypeLabel, CsvSetupModal, type CsvSetupSelection } from '@/components/CsvSetupModal';
 import type { BridgeType } from '@/types/simParams';
 import { buildCsvSetupPrefill, filterCsvUploadFiles } from '@/utils/csvSetupPrefill';
+
 export interface CsvUploadPanelHandlers {
-  onLoaded: (result: CsvDashboardLoadResult) => void | Promise<void>;
+  /** 파싱된 케이스 목록(파일 1개 = 케이스 1개). 항상 1개 이상. */
+  onLoaded: (results: CsvDashboardLoadResult[]) => void | Promise<void>;
   /** 「적용하고 결과 보기」 — 3D 장면 생성·뷰어 이동 */
   onApplyScene?: () => void | Promise<void>;
   onError?: (message: string) => void;
@@ -23,7 +21,6 @@ export interface CsvUploadPanelHandlers {
   onSetupApplied?: (selection: CsvSetupSelection) => void;
   /** 외부에서 넘긴 파일 수에 맞춰 실행 조건의 기둥 수를 맞출 때 */
   onAnalysisPierCountChange?: (count: number) => void;
-  getLoadOptions?: () => Partial<LoadCsvDashboardOptions>;
   getStructure?: () => {
     pierCount: 1 | 2 | 3;
     bridgeEnabled: boolean;
@@ -66,7 +63,7 @@ export class CsvUploadPanel implements Disposable {
   private analysisPierCount = 3;
   private bridgeEnabled = true;
   private bridgeType: BridgeType = 'girder';
-  private readonly pierSlotFiles: Array<File | null> = [null, null, null];
+  private selectedFiles: File[] = [];
   private readonly setupModal: CsvSetupModal;
   private progressBar!: HTMLElement;
   private loadBtn!: HTMLButtonElement;
@@ -77,6 +74,7 @@ export class CsvUploadPanel implements Disposable {
   private applySceneLoading = false;
   private parseReadyFiles: File[] = [];
   private abortController: AbortController | null = null;
+  /** 파싱된 첫 케이스(미리보기·적용 버튼 활성 판단용). */
   private lastLoadResult: CsvDashboardLoadResult | null = null;
   private readonly previewModal = new CsvDataPreviewModal();
   private pendingProgress: CsvLoadProgress | null = null;
@@ -284,16 +282,14 @@ export class CsvUploadPanel implements Disposable {
 
   private computeFlowStep(): CsvSetupFlowStep {
     if (this.lastLoadResult && !this.isLoading) return 'apply';
-    const filesReady =
-      this.parseReadyFiles.length === this.analysisPierCount && this.parseReadyFiles.length > 0;
+    const filesReady = this.parseReadyFiles.length > 0;
     if (filesReady || this.isLoading) return 'parse';
     return 'select';
   }
 
   private syncSetupFlowStep(pulseOnStepChange = false): void {
     const step = this.computeFlowStep();
-    const filesReady =
-      this.parseReadyFiles.length === this.analysisPierCount && this.parseReadyFiles.length > 0;
+    const filesReady = this.parseReadyFiles.length > 0;
     const parsed = this.lastLoadResult !== null;
 
     this.element.dataset.flowStep = step;
@@ -361,7 +357,7 @@ export class CsvUploadPanel implements Disposable {
       pierCount: (structure?.pierCount ?? this.analysisPierCount) as 1 | 2 | 3,
       bridgeEnabled: structure?.bridgeEnabled ?? this.bridgeEnabled,
       bridgeType: structure?.bridgeType ?? this.bridgeType,
-      files: [...this.pierSlotFiles],
+      files: [...this.selectedFiles],
     };
   }
 
@@ -399,9 +395,7 @@ export class CsvUploadPanel implements Disposable {
     this.analysisPierCount = selection.pierCount;
     this.bridgeEnabled = selection.bridgeEnabled;
     this.bridgeType = selection.bridgeType;
-    for (let i = 0; i < 3; i += 1) {
-      this.pierSlotFiles[i] = i < selection.pierCount ? (selection.files[i] ?? null) : null;
-    }
+    this.selectedFiles = [...selection.files];
     if (hadResult) {
       this.lastLoadResult = null;
       this.previewBtn.hidden = true;
@@ -419,54 +413,25 @@ export class CsvUploadPanel implements Disposable {
   private refreshSummary(): void {
     const bridge = this.bridgeEnabled ? `교량 ${bridgeTypeLabel(this.bridgeType)}` : '교량 없음';
     const lines = [`기둥 ${this.analysisPierCount}개 · ${bridge}`];
-    for (let i = 0; i < this.analysisPierCount; i += 1) {
-      const file = this.pierSlotFiles[i];
-      lines.push(file ? `P${i + 1} ${file.name}` : `P${i + 1} 파일 없음`);
+    if (this.selectedFiles.length === 0) {
+      lines.push('CSV 파일 없음');
+    } else {
+      lines.push(
+        `CSV ${this.selectedFiles.length}개: ${this.selectedFiles.map((f) => f.name).join(', ')}`,
+      );
     }
     this.summaryEl.textContent = lines.join('\n');
   }
 
-  public getAnalysisPierCount(): number {
-    return this.analysisPierCount;
-  }
-
-  /** 오른쪽 기둥 개수에 맞춰 파일 칸 수를 바꾼다. 파싱 결과는 무효가 된다. */
-  public setSlotCount(count: 1 | 2 | 3): void {
-    if (this.isLoading || count === this.analysisPierCount) return;
-    const hadResult = this.lastLoadResult !== null;
-    this.analysisPierCount = count;
-    for (let i = count; i < 3; i += 1) {
-      this.pierSlotFiles[i] = null;
-    }
-    this.refreshSummary();
-    if (hadResult) {
-      this.lastLoadResult = null;
-      this.previewBtn.hidden = true;
-      this.handlers.onInvalidated?.();
-    }
-    this.syncParseReadyFromSlots();
-    if (hadResult && this.parseReadyFiles.length === this.analysisPierCount) {
-      this.statusEl.textContent = '기둥 수가 바뀌었습니다. 다시 파싱하세요.';
-      this.statusEl.classList.remove('is-ready');
-      this.loadBtn.disabled = false;
-    }
-  }
-
   private async snapshotSlotFilesIfNeeded(): Promise<void> {
-    const active = this.pierSlotFiles.slice(0, this.analysisPierCount).filter(Boolean) as File[];
+    const active = this.selectedFiles;
     if (active.length === 0) return;
 
     const hasLarge = active.some((f) => f.size > UPLOAD_SNAPSHOT_MAX_BYTES);
     if (hasLarge) return;
 
     try {
-      const snapshotted = await snapshotUploadFiles(active);
-      for (let i = 0, si = 0; i < this.analysisPierCount; i += 1) {
-        if (this.pierSlotFiles[i]) {
-          this.pierSlotFiles[i] = snapshotted[si] ?? this.pierSlotFiles[i];
-          si += 1;
-        }
-      }
+      this.selectedFiles = await snapshotUploadFiles(active);
       this.refreshSummary();
     } catch {
       /* 스냅샷 실패 시 원본 File 로 스트리밍 파싱 */
@@ -474,70 +439,22 @@ export class CsvUploadPanel implements Disposable {
   }
 
   private syncParseReadyFromSlots(): void {
-    const missing: number[] = [];
-    const files: File[] = [];
-    for (let i = 0; i < this.analysisPierCount; i += 1) {
-      const f = this.pierSlotFiles[i];
-      if (!f) missing.push(i + 1);
-      else files.push(f);
-    }
+    const files = [...this.selectedFiles];
 
     this.parseReadyFiles = files;
-    if (missing.length > 0) {
-      this.statusEl.textContent = `교각 P${missing.join(', P')} CSV를 선택해 주세요. (${files.length}/${this.analysisPierCount})`;
+    if (files.length === 0) {
+      this.statusEl.textContent = 'CSV 파일을 선택해 주세요.';
       this.statusEl.classList.remove('is-ready');
       this.loadBtn.disabled = true;
       return;
     }
 
     const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-    if (this.analysisPierCount === 1) {
-      this.statusEl.textContent = `${files[0]?.name ?? 'CSV'} · ${formatBytes(totalBytes)} · 파싱할 수 있습니다`;
-    } else {
-      this.statusEl.textContent = `교각 ${this.analysisPierCount}개 CSV · ${formatBytes(totalBytes)} · 파싱할 수 있습니다`;
-    }
+    const label = files.length === 1 ? files[0].name : `케이스 ${files.length}개`;
+    this.statusEl.textContent = `${label} · ${formatBytes(totalBytes)} · 파싱할 수 있습니다`;
     this.statusEl.classList.remove('is-ready');
     this.loadBtn.disabled = this.isLoading;
     this.syncSetupFlowStep(true);
-  }
-
-  /**
-   * @deprecated 2번 → 4번은 openSetupWithPrefilledFiles 사용. 슬롯만 채울 때만 유지.
-   */
-  public async ingestExternalFiles(files: File[], autoLoad = false): Promise<void> {
-    const raw = filterCsvUploadFiles(files);
-    if (raw.length === 0) {
-      this.parseReadyFiles = [];
-      this.syncParseReadyFromSlots();
-      return;
-    }
-
-    const count = Math.min(3, Math.max(1, raw.length)) as 1 | 2 | 3;
-    this.setSlotCount(count);
-    this.handlers.onAnalysisPierCountChange?.(count);
-    for (let i = 0; i < 3; i += 1) {
-      this.pierSlotFiles[i] = null;
-    }
-    for (let i = 0; i < count; i += 1) {
-      this.pierSlotFiles[i] = raw[i] ?? null;
-    }
-    this.refreshSummary();
-
-    this.statusEl.textContent = '파일 읽는 중…';
-    this.loadBtn.disabled = true;
-    this.setSlotInputsDisabled(true);
-
-    try {
-      await this.snapshotSlotFilesIfNeeded();
-      this.syncParseReadyFromSlots();
-      if (autoLoad && this.parseReadyFiles.length === this.analysisPierCount) {
-        await this.startLoad();
-      }
-    } finally {
-      if (!this.isLoading) {
-        this.setSlotInputsDisabled(false);
-      }
-    }
   }
 
   public pulseAttention(): void {
@@ -550,7 +467,17 @@ export class CsvUploadPanel implements Disposable {
     this.openBtn.disabled = disabled;
   }
 
-  private formatLoadCompleteStatus(result: CsvDashboardLoadResult): string {
+  /** CSV 0 셀에서 검출한 교각 수를 기둥 개수(1~3)에 반영한다. */
+  private syncPierCountFromResult(result: CsvDashboardLoadResult): void {
+    const detected = Math.min(3, result.piers.length);
+    if (detected < 1 || detected === this.analysisPierCount) return;
+    this.analysisPierCount = detected;
+    this.refreshSummary();
+    this.handlers.onAnalysisPierCountChange?.(detected);
+  }
+
+  private formatLoadCompleteStatus(results: CsvDashboardLoadResult[]): string {
+    const result = results[0];
     const base = `파싱 완료 · ${result.scour.baseTerrain.width}×${result.scour.baseTerrain.height} · 프레임 ${result.scour.frames.length}개`;
     const parts = [base];
     if (result.fluid) {
@@ -564,6 +491,13 @@ export class CsvUploadPanel implements Disposable {
     }
     if (result.autoAdjusted) {
       parts.push('프레임 자동 축소');
+    }
+    const warnings = results.flatMap((r) => r.warnings);
+    if (warnings.length > 0) {
+      parts.push(`⚠ ${warnings.join(' / ')}`);
+    }
+    if (results.length > 1) {
+      parts.unshift(`케이스 ${results.length}개(${results.map((r) => r.caseName).join(', ')})`);
     }
     return parts.join(' · ');
   }
@@ -590,7 +524,7 @@ export class CsvUploadPanel implements Disposable {
   private setLoading(loading: boolean): void {
     this.isLoading = loading;
     this.loadBtn.hidden = loading;
-    this.loadBtn.disabled = loading || this.parseReadyFiles.length !== this.analysisPierCount;
+    this.loadBtn.disabled = loading || this.parseReadyFiles.length === 0;
     this.syncApplySceneEnabled();
     this.setSlotInputsDisabled(loading);
     this.setParseBlocker(loading);
@@ -641,7 +575,7 @@ export class CsvUploadPanel implements Disposable {
   }
 
   private async startLoad(): Promise<void> {
-    if (this.isLoading || this.parseReadyFiles.length !== this.analysisPierCount) return;
+    if (this.isLoading || this.parseReadyFiles.length === 0) return;
     this.abortController = new AbortController();
     const { signal } = this.abortController;
     this.previewBtn.hidden = true;
@@ -663,8 +597,7 @@ export class CsvUploadPanel implements Disposable {
     });
 
     try {
-      const result = await loadCsvDashboard(this.parseReadyFiles, {
-        ...this.handlers.getLoadOptions?.(),
+      const results = await loadCsvDashboards(this.parseReadyFiles, {
         stepMultiple: 1,
         signal,
         onProgress: (p) => this.setProgress(p, p.phase === 'classify'),
@@ -674,12 +607,13 @@ export class CsvUploadPanel implements Disposable {
 
       this.progressBar.style.width = '100%';
       this.blockerProgressBar.style.width = '100%';
-      this.lastLoadResult = result;
+      this.lastLoadResult = results[0] ?? null;
       this.element.classList.add('csv-upload-panel--parsed');
       this.previewBtn.hidden = false;
       this.setParseBlocker(false);
-      await Promise.resolve(this.handlers.onLoaded(result));
-      this.statusEl.textContent = this.formatLoadCompleteStatus(result);
+      this.syncPierCountFromResult(results[0]);
+      await Promise.resolve(this.handlers.onLoaded(results));
+      this.statusEl.textContent = this.formatLoadCompleteStatus(results);
       this.statusEl.classList.add('is-ready');
       this.syncApplySceneEnabled();
       this.syncSetupFlowStep(true);

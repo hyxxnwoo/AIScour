@@ -28,10 +28,26 @@ describe('pierTimeSeries', () => {
       frameIntervalSeconds: 30,
       pier: { x: pierX, z: 0 },
     }).load();
-    const piers = [{ id: 'P1', x: pierX, z: 0, diameter: 0.1, height: 0.5, shape: 'circle' as const }];
-    const built = buildPierDepthSeries(series, piers, 0.127)[0]!;
+    const piers = [
+      { id: 'P1', x: pierX, z: 0, diameter: 0.1, height: 0.5, shape: 'circle' as const },
+    ];
+    const built = buildPierDepthSeries(series, piers, 5.2)[0]!;
     expect(built.depths.at(-1)).toBeGreaterThanOrEqual(built.depths[0] ?? 0);
     const reach = computePierReachTimes(built, 0.127);
     expect(reach.pierId).toBe('P1');
+  });
+
+  it('applyDisplayScale=false 이면 원시 세굴심을 쓴다', async () => {
+    const pierX = structureCenterX();
+    const series = await new SyntheticScourSource({
+      frameCount: 8,
+      frameIntervalSeconds: 30,
+      pier: { x: pierX, z: 0 },
+    }).load();
+    const piers = [{ id: 'P2', x: pierX, z: 0, diameter: 0.1, height: 0.5 }];
+    const scaled = buildPierDepthSeries(series, piers, 5.2)[0]!;
+    const raw = buildPierDepthSeries(series, piers, 5.2, false)[0]!;
+    expect(Math.max(...raw.depths)).toBeLessThan(Math.max(...scaled.depths));
+    expect(raw.depths.every((d) => d >= 0)).toBe(true);
   });
 });

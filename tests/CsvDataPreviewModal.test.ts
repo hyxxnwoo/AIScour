@@ -1,51 +1,39 @@
 import { describe, expect, it } from 'vitest';
 import { CsvDataPreviewModal } from '@/components/CsvDataPreviewModal';
-import { buildSampleProbeDashboard } from '@/data/buildSampleProbeDashboard';
-import type { CsvDashboardLoadResult } from '@/data/loadCsvDashboard';
-import { datasetFromColumns, type SampleProbeColumns } from '@/utils/parseSampleProbeCsv';
+import type { CsvDashboardLoadResult, ScrdifPreviewColumns } from '@/data/loadCsvDashboard';
+import { buildScrdifDashboard } from '@/data/buildScrdifDashboard';
+import { parseScrdifTimeCsvText } from '@/utils/parseScrdifTimeCsv';
+import { makeScrdifCsv } from './helpers/scrdifCsv';
 
-function makeProbeColumns(count: number): SampleProbeColumns {
+function makeProbeColumns(count: number): ScrdifPreviewColumns {
   const x = new Float32Array(count);
   const y = new Float32Array(count);
-  const z = new Float32Array(count);
-  const u = new Float32Array(count);
-  const v = new Float32Array(count);
-  const w = new Float32Array(count);
   const scrdif = new Float32Array(count);
-
   for (let i = 0; i < count; i += 1) {
     x[i] = i;
     y[i] = i * 0.1;
-    z[i] = -i * 0.01;
-    u[i] = 1;
-    v[i] = 2;
-    w[i] = 3;
     scrdif[i] = 0.04;
   }
-
-  return { x, y, z, u, v, w, scrdif, count };
+  return { x, y, scrdif, count, timeColumnCount: 3 };
 }
 
-function makeLoadResult(columns: SampleProbeColumns): CsvDashboardLoadResult {
-  const dataset = datasetFromColumns(columns);
-  const built = buildSampleProbeDashboard(dataset);
+function makeLoadResult(columns: ScrdifPreviewColumns): CsvDashboardLoadResult {
+  const dataset = parseScrdifTimeCsvText(makeScrdifCsv());
+  const built = buildScrdifDashboard(dataset);
   return {
+    caseName: 's01',
+    scenario: null,
+    warnings: [],
     scour: built.scour,
     probeSeries: built.probeSeries,
-    fluid: built.fluid,
-    columns: dataset.flatColumns,
+    fluid: null,
+    columns,
     dataset,
     stepMultiple: 1,
     requestedStepMultiple: 1,
     autoAdjusted: false,
     csvScrdifAllZero: false,
-    piers:
-      built.scour.baseTerrain.metadata?.piers?.map((p) => ({
-        id: p.id,
-        x: p.x,
-        z: p.z,
-        diameter: p.diameter ?? 1.6,
-      })) ?? [],
+    piers: built.piers,
   };
 }
 
@@ -59,7 +47,7 @@ describe('CsvDataPreviewModal', () => {
 
     expect(modal.element.hidden).toBe(false);
     expect(modal.element.textContent).toContain('세굴 프레임');
-    expect(modal.element.textContent).toMatch(/1개/);
+    expect(modal.element.textContent).toMatch(/3개/);
 
     modal.dispose();
   });
@@ -80,9 +68,9 @@ describe('CsvDataPreviewModal', () => {
     const headerCells = modal.element.querySelectorAll(
       '.csv-preview-modal__rows-header .csv-preview-modal__rows-cell--head',
     );
-    expect(headerCells.length).toBe(8);
+    expect(headerCells.length).toBe(4);
     expect(headerCells[1]?.textContent).toBe('x');
-    expect(headerCells[7]?.textContent).toBe('scrdif');
+    expect(headerCells[3]?.textContent).toBe('scrdif');
 
     const renderedRows = modal.element.querySelectorAll('.csv-preview-modal__rows-row');
     expect(renderedRows.length).toBeGreaterThan(0);

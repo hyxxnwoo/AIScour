@@ -1,3 +1,4 @@
+import { MAX_CSV_CASES } from '@/data/loadCsvDashboard';
 import type { Disposable } from '@/types/disposable';
 import type { BridgeType } from '@/types/simParams';
 
@@ -5,7 +6,8 @@ export interface CsvSetupSelection {
   pierCount: 1 | 2 | 3;
   bridgeEnabled: boolean;
   bridgeType: BridgeType;
-  files: Array<File | null>;
+  /** 케이스(CSV) 목록. 파일 1개 = 케이스 1개. */
+  files: File[];
 }
 
 const BRIDGE_OPTIONS: Array<{ value: BridgeType; label: string }> = [
@@ -22,7 +24,7 @@ const STEP_ORDER: SetupStep[] = ['pier', 'bridge', 'type', 'files'];
 const STEP_META: Record<SetupStep, { label: string; prompt: string }> = {
   pier: {
     label: '기둥 개수',
-    prompt: '교각이 몇 개인지 고릅니다. 고른 개수만큼 CSV가 필요합니다.',
+    prompt: '기둥이 몇 개인지 고릅니다. CSV를 올리면 기둥 위치를 자동 검출해 개수를 맞춥니다.',
   },
   bridge: {
     label: '교량 설치',
@@ -34,7 +36,7 @@ const STEP_META: Record<SetupStep, { label: string; prompt: string }> = {
   },
   files: {
     label: '파일 선택',
-    prompt: '교각마다 CSV 파일을 하나씩 올립니다.',
+    prompt: `결과 CSV 를 고릅니다. 케이스(s01, s02…)를 여러 개 함께 고르면 뷰어에서 바꿔 볼 수 있습니다(최대 ${MAX_CSV_CASES}개).`,
   },
 };
 
@@ -69,7 +71,7 @@ export class CsvSetupModal implements Disposable {
   private pierCount: 1 | 2 | 3 = 3;
   private bridgeEnabled = true;
   private bridgeType: BridgeType = 'girder';
-  private readonly files: Array<File | null> = [null, null, null];
+  private files: File[] = [];
   private pierButtons: HTMLButtonElement[] = [];
   private bridgeButtons: HTMLButtonElement[] = [];
   private bridgeChoiceButtons: HTMLButtonElement[] = [];
@@ -181,9 +183,7 @@ export class CsvSetupModal implements Disposable {
     this.pierCount = initial.pierCount;
     this.bridgeEnabled = initial.bridgeEnabled;
     this.bridgeType = initial.bridgeType;
-    this.files[0] = initial.files[0] ?? null;
-    this.files[1] = initial.files[1] ?? null;
-    this.files[2] = initial.files[2] ?? null;
+    this.files = initial.files.slice(0, MAX_CSV_CASES);
     this.noteEl.textContent = '';
     this.syncPierButtons();
     this.syncBridgeChoices();
@@ -209,7 +209,7 @@ export class CsvSetupModal implements Disposable {
       pierCount: this.pierCount,
       bridgeEnabled: this.bridgeEnabled,
       bridgeType: this.bridgeType,
-      files: [this.files[0], this.files[1], this.files[2]],
+      files: [...this.files],
     };
     const notify = this.onConfirm;
     this.close();
@@ -217,16 +217,13 @@ export class CsvSetupModal implements Disposable {
   }
 
   private filesReady(): boolean {
-    for (let i = 0; i < this.pierCount; i += 1) {
-      if (!this.files[i]) return false;
-    }
-    return true;
+    return this.files.length > 0;
   }
 
   private syncConfirm(): void {
     const ready = this.filesReady();
     this.confirmBtn.disabled = !ready;
-    this.noteEl.textContent = ready ? '' : `교각 ${this.pierCount}개의 CSV를 모두 선택해 주세요.`;
+    this.noteEl.textContent = ready ? '' : 'CSV 파일을 선택해 주세요.';
   }
 
   private orderedSteps(): SetupStep[] {
@@ -454,23 +451,27 @@ export class CsvSetupModal implements Disposable {
 
   private renderFileRows(): void {
     this.fileRows.replaceChildren();
-    for (let i = 0; i < this.pierCount; i += 1) {
-      this.fileRows.appendChild(this.buildFileRow(i));
-    }
+    this.fileRows.appendChild(this.buildFileRow());
     if (this.step === 'files') this.syncConfirm();
   }
 
-  private buildFileRow(index: number): HTMLElement {
+  private describeFiles(): string {
+    if (this.files.length === 0) return '선택된 파일 없음';
+    return this.files.map((f) => `${f.name} · ${formatBytes(f.size)}`).join('\n');
+  }
+
+  private buildFileRow(): HTMLElement {
     const row = document.createElement('div');
     row.className = 'csv-setup-modal__file';
 
     const title = document.createElement('div');
     title.className = 'csv-setup-modal__file-title';
-    title.textContent = `교각 P${index + 1}`;
+    title.textContent = 'CSV 파일';
 
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.csv,text/csv';
+    input.multiple = true;
     input.hidden = true;
 
     const pick = document.createElement('button');
@@ -485,19 +486,26 @@ export class CsvSetupModal implements Disposable {
 
     const status = document.createElement('div');
     status.className = 'csv-setup-modal__file-status';
-    const file = this.files[index];
-    status.textContent = file ? `${file.name} · ${formatBytes(file.size)}` : '선택된 파일 없음';
+    status.style.whiteSpace = 'pre-line';
+    status.textContent = this.describeFiles();
 
     const onChange = (): void => {
-      const next = input.files?.[0] ?? null;
-      if (!next) return;
-      if (!next.name.toLowerCase().endsWith('.csv') && !next.type.includes('csv')) {
+      const picked = Array.from(input.files ?? []);
+      if (picked.length === 0) return;
+      const csv = picked.filter(
+        (f) => f.name.toLowerCase().endsWith('.csv') || f.type.includes('csv'),
+      );
+      if (csv.length === 0) {
         this.noteEl.textContent = 'CSV 파일만 선택할 수 있습니다.';
         return;
       }
-      this.files[index] = next;
-      status.textContent = `${next.name} · ${formatBytes(next.size)}`;
+      csv.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      this.files = csv.slice(0, MAX_CSV_CASES);
+      status.textContent = this.describeFiles();
       this.syncConfirm();
+      if (csv.length > MAX_CSV_CASES) {
+        this.noteEl.textContent = `CSV 는 최대 ${MAX_CSV_CASES}개까지 사용합니다. 앞의 ${MAX_CSV_CASES}개만 선택했습니다.`;
+      }
     };
     input.addEventListener('change', onChange);
 

@@ -43,10 +43,9 @@ import {
 import { isViewerScreen, ScreenRouter, SCREEN_TITLES, type ScreenId } from '@/app/ScreenRouter';
 import { gradeOf, worstPierByDepth } from '@/constants/grade';
 import { Picking } from '@/modules/Picking';
-import {
-  inflowBoundaryLegendNote,
-  inflowBoundaryLegendNoteShort,
-} from '@/utils/flumeInflowBoundary';
+import { CaseSwitcher, DEFAULT_HEIGHT_EXAGGERATION } from '@/components/CaseSwitcher';
+import type { FlowScenario } from '@/constants/scenarios';
+import { buildScrdifDashboard } from '@/data/buildScrdifDashboard';
 import { ViewerToast } from '@/components/ViewerToast';
 import { viewState } from '@/state/viewState';
 import { captureCameraView, restoreCameraView } from '@/utils/cameraView';
@@ -59,12 +58,7 @@ import { LightManager } from '@/core/LightManager';
 import { RendererManager } from '@/core/RendererManager';
 import { SceneManager } from '@/core/SceneManager';
 import { createDataSource } from '@/data/createDataSource';
-import {
-  probeAtTime,
-  probeSeriesValueRange,
-  type SampleProbeSeries,
-} from '@/data/buildSampleProbeDashboard';
-import { probeFluidQuantityRange } from '@/data/buildProbeFluidSeries';
+import { probeAtTime, probeSeriesValueRange, type SampleProbeSeries } from '@/data/probeSeries';
 import { buildPierLayout } from '@/utils/pierLayout';
 import { createEmptyFluidSeries } from '@/data/createEmptyFluidSeries';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
@@ -79,7 +73,12 @@ import { VelocityArrows } from '@/modules/VelocityArrows';
 import { Vector3 } from 'three';
 import type { Scene } from 'three';
 import { ExperimentInfoPanel } from '@/components/ExperimentInfoPanel';
-import { fluidGridDims, paramsToFlumeGeometry, terrainGridDims } from '@/constants/experiment';
+import {
+  CSV_STRUCTURE,
+  fluidGridDims,
+  paramsToFlumeGeometry,
+  terrainGridDims,
+} from '@/constants/experiment';
 import type { FluidQuantity, FluidSeries } from '@/types/fluid';
 import type { ScourSeries } from '@/types/terrain';
 import {
@@ -122,10 +121,15 @@ function buildFluidRangeEntries(
 ): FluidRangeEntry[] {
   const meta = state.fluidSeries.metadata;
   const usePoints = state.fluidPoints.isVisible;
+  // 유속 없는 하상 변화 CSV: 하상 변화(scrdif) 범위는 CSV 전체 min/max 를 쓴다.
+  const scourOnly = state.probeSeries !== null && !state.probeFluidField;
   return selected.map((q) => {
-    const range = usePoints
-      ? state.fluidPoints.computeRangeForQuantity(q)
-      : state.terrainWater.computeRangeForQuantity(q);
+    const range =
+      scourOnly && q === 'scrdif' && state.probeSeries
+        ? probeSeriesValueRange(state.probeSeries, 'scrdif')
+        : usePoints
+          ? state.fluidPoints.computeRangeForQuantity(q)
+          : state.terrainWater.computeRangeForQuantity(q);
     return {
       quantity: q,
       label: fluidDashboardLabel(q),
@@ -139,6 +143,12 @@ function buildFluidRangeEntries(
 
 function fluidRangeLegendKey(entries: FluidRangeEntry[]): string {
   return entries.map((e) => `${e.quantity}|${e.min}|${e.max}|${e.unit}`).join(';');
+}
+
+/** 장면을 교체할 때 보던 시각·재생 상태를 이어 가는 옵션(케이스 전환용). */
+interface SwapOptions {
+  restoreTime?: number;
+  playing?: boolean;
 }
 
 // 파라미터에 의존하는 모듈 묶음. Apply 시 통째로 교체.
@@ -161,6 +171,8 @@ interface SimState {
   probeSeries: SampleProbeSeries | null;
   /** CSV t 블록 행 데이터로 만든 3D 유체 필드를 쓰는 중인지. */
   probeFluidField: boolean;
+  /** 실측 CSV 는 세굴심에 표시용 배율을 적용하지 않는다. */
+  pierDisplayScale: boolean;
   durationSeconds: number;
   dispose(): void;
 }
@@ -261,6 +273,8 @@ function pierDefsFromScourMetadata(
     z: p.z,
     diameter: p.diameter ?? params.pierDiameter,
     height: p.height ?? params.tankHeightY + 0.03,
+    ...(p.scourSearchRadius !== undefined ? { scourSearchRadius: p.scourSearchRadius } : {}),
+    ...(p.footing ? { footing: p.footing } : {}),
     shape: params.structureShape,
   }));
 }
@@ -412,6 +426,7 @@ async function buildSimState(
     coordinateFluid,
     probeSeries,
     probeFluidField,
+    pierDisplayScale: probeSeries === null,
     durationSeconds,
     dispose() {
       fluidPoints.dispose();
@@ -776,6 +791,8 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   viewerCenter.appendChild(fluidFieldLegend.element);
   /** 매 프레임 setProbeQuantity 에 쓰는 현재 항목의 고정 색 범위(재생 중 흔들리지 않도록). */
   let currentProbeRange: { min: number; max: number } | null = null;
+  /** 하상 변화(scrdif) 표시 때 지형 높이를 키우는 배율. 「케이스」 상자에서 고른다. */
+  let heightExaggeration = DEFAULT_HEIGHT_EXAGGERATION;
 
   let lastFluidLegendKey = '';
 
@@ -789,24 +806,16 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       return;
     }
     fluidFieldLegend.setVisible(true);
-    // 공간 필드가 있으면 수면 색과 범례가 같은 눈금을 쓰도록 필드 전체 범위로 고정한다.
-    const range = sim.probeFluidField
-      ? probeFluidQuantityRange(sim.fluidSeries, primary)
-      : (probeQuantityRange(probeSeries, primary) ?? { min: 0, max: 1 });
+    const range = probeQuantityRange(probeSeries, primary) ?? { min: 0, max: 1 };
     currentProbeRange = range;
-    sim.terrainWater.setColorRange(sim.probeFluidField ? range : null);
+    sim.terrainWater.setColorRange(null);
     const label = fluidDashboardLabel(primary);
     const unit = fluidUnitForQuantity(primary, sim.fluidSeries.metadata);
-    let note =
+    const note =
       primary === 'scrdif'
         ? '파란=세굴 · 베이지=변화 없음 · 황토=퇴적. 수면을 투명하게 하면 지형 굴곡이 잘 보입니다.'
         : '';
-    if (primary === 'scrdif' && sim.series.baseTerrain.metadata?.inflowBoundaryMasked) {
-      note = note ? `${note} ${inflowBoundaryLegendNoteShort()}` : inflowBoundaryLegendNoteShort();
-      fluidFieldLegend.setNoteTooltip(inflowBoundaryLegendNote());
-    } else {
-      fluidFieldLegend.setNoteTooltip('');
-    }
+    fluidFieldLegend.setNoteTooltip('');
     fluidFieldLegend.setQuantity(primary, label, range, unit, note);
   };
 
@@ -821,12 +830,14 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     // 3D 형태를 보여주는 게 훨씬 직관적이므로, 물을 투명하게 하고 굴곡을 과장해 드러낸다.
     if (primary === 'scrdif') {
       sim.terrainWater.setOpacity(Math.min(fluidSliceOpacity, 0.35));
-      sim.terrainWater.setVerticalExaggeration(4);
-      sim.terrain.setVerticalExaggeration(4);
+      sim.terrainWater.setVerticalExaggeration(heightExaggeration);
+      sim.terrain.setVerticalExaggeration(heightExaggeration);
+      sim.sedimentLayer.setVerticalExaggeration(heightExaggeration);
     } else {
       sim.terrainWater.setOpacity(fluidSliceOpacity);
       sim.terrainWater.setVerticalExaggeration(1);
       sim.terrain.setVerticalExaggeration(1);
+      sim.sedimentLayer.setVerticalExaggeration(1);
     }
   };
 
@@ -900,9 +911,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       const primary = fluidControls.getPrimaryQuantity();
       if (sim.probeSeries && primary === 'scrdif') {
         parts.push('지형 색 = 하상 Δ · 수면 = scrdif');
-        if (sim.series.baseTerrain.metadata?.inflowBoundaryMasked) {
-          parts.push(inflowBoundaryLegendNoteShort());
-        }
       }
     }
     if (ephemeralStatusNote) parts.push(ephemeralStatusNote);
@@ -959,6 +967,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     sim.series,
     sim.pierDefs,
     params.foundationDepth,
+    sim.pierDisplayScale,
   );
 
   const syncAlertSopSnapshot = (): void => {
@@ -969,6 +978,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       params.foundationDepth,
       tEnd,
       sim.durationSeconds,
+      sim.pierDisplayScale,
     );
     alertSopPage.setContext(depthsAtEnd, params.foundationDepth, sim.durationSeconds);
   };
@@ -1025,8 +1035,16 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   let navigateAfterApply: ScreenId | null = null;
   /** 이번 CSV 적용에서 발급된 ID. 이동 토스트에 한 번 적는다. */
   let issuedCaseId = '';
-  /** 4번에서 파싱만 끝난 CSV. 적용 버튼을 누를 때 장면에 넣는다. */
-  let stagedCsv: CsvDashboardLoadResult | null = null;
+  /** 4번에서 파싱만 끝난 CSV 케이스들. 적용 버튼을 누를 때 장면에 넣는다. */
+  let stagedCases: CsvDashboardLoadResult[] = [];
+  /** 장면에 적용되어 뷰어에서 전환할 수 있는 케이스들. */
+  let activeCases: CsvDashboardLoadResult[] = [];
+  const caseSwitcher = new CaseSwitcher();
+  /** 교각 주변만 표시(경계 영향 구역 제외). 「케이스」 상자의 체크와 같다. */
+  let regionOnly = true;
+  /** 케이스의 원본 격자값으로 현재 표시 범위에 맞는 세굴 시리즈를 만든다(약 50 ms). */
+  const viewOfCase = (c: CsvDashboardLoadResult): ReturnType<typeof buildScrdifDashboard> =>
+    buildScrdifDashboard(c.dataset, { scenario: c.scenario, regionOnly });
   // eslint-disable-next-line prefer-const -- applyParams 가 선언보다 앞에서 csvUploadPanel 참조
   let csvUploadPanel!: CsvUploadPanel;
   // eslint-disable-next-line prefer-const -- collectParams 가 선언 전 참조
@@ -1035,6 +1053,26 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   const collectParams = (): SimParams =>
     mergePanelParams(params, experimentInfoPanel.getParams(), fluidControls.getParams(), params);
 
+  /**
+   * 실측 CSV 케이스의 조건. 고정 조건(환경조건.xlsx: 기둥 직경·기초 근입·모래지반 두께)에
+   * FLOW-3D 시나리오 조건(d50·수심·유속)을 얹는다. 시나리오가 없으면 고정 조건만 쓴다.
+   */
+  const csvCaseParams = (scenario: FlowScenario | null): SimParams => ({
+    ...collectParams(),
+    pierDiameter: CSV_STRUCTURE.diameterM,
+    structureShape: 'circle',
+    foundationDepth: CSV_STRUCTURE.foundationDepthM,
+    sedimentThickness: CSV_STRUCTURE.sedimentThicknessM,
+    ...(scenario
+      ? {
+          waterDepth: scenario.waterDepthM,
+          sandGrainSizeMm: scenario.d50Mm,
+          inflowSpeed: scenario.velocityMS,
+          fluidU: scenario.velocityMS,
+        }
+      : {}),
+  });
+
   const applyParams = (
     newParams: SimParams,
     baseScour: ScourSeries | null = null,
@@ -1042,6 +1080,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     coordinateFluid = false,
     probeSeries: SampleProbeSeries | null = null,
     issueCase = false,
+    swapOptions: SwapOptions = {},
   ): void => {
     csvUploadPanel.setApplyLoading(true);
     fluidControls.setLoading(true);
@@ -1054,7 +1093,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       probeSeries,
     ).then(
       (next) => {
-        swapSim(next, newParams, issueCase);
+        swapSim(next, newParams, issueCase, swapOptions);
         csvUploadPanel.setApplyLoading(false);
         fluidControls.setLoading(false);
       },
@@ -1066,7 +1105,12 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     );
   };
 
-  const swapSim = (next: SimState, nextParams: SimParams = params, issueCase = false): void => {
+  const swapSim = (
+    next: SimState,
+    nextParams: SimParams = params,
+    issueCase = false,
+    swapOptions: SwapOptions = {},
+  ): void => {
     loop.stop();
     const old = sim;
     old.dispose();
@@ -1080,6 +1124,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       next.series,
       next.pierDefs,
       nextParams.foundationDepth,
+      next.pierDisplayScale,
     );
     if (issueCase) adoptIssuedCase(nextParams);
     syncAlertSopSnapshot();
@@ -1090,11 +1135,14 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     const autoPlayAfterApply = navigateAfterApply === 5;
     const canPlayback = next.durationSeconds > 1e-6;
     timeControls.setDuration(canPlayback ? next.durationSeconds : 0);
-    timeControls.setTime(0, { force: true, silent: !canPlayback });
+    const resumeAtTime = swapOptions.restoreTime !== undefined;
+    timeControls.setTime(swapOptions.restoreTime ?? 0, { force: true, silent: !canPlayback });
     timeControls.setTimelineEnabled(canPlayback, '「적용하고 결과 보기」 후 재생');
     pendingViewerPlaybackHint = !canPlayback;
     if (!canPlayback) {
       timeControls.setPlaying(false);
+    } else if (resumeAtTime) {
+      timeControls.setPlaying(swapOptions.playing ?? false);
     } else if (autoPlayAfterApply) {
       timeControls.setPlaying(true);
     }
@@ -1104,10 +1152,14 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     next.slicePlane.setHeight(next.waterLevelY);
     next.terrainWater.setWaterLevel(next.waterLevelY);
     next.slicePlane.setVisible(false);
-    next.terrainWater.setVisible(true);
+    // 유속 데이터가 없는 하상 변화 CSV: 수면은 꺼 두고(세굴 형상이 가려지지 않게) 유속 항목·추적 입자는 숨긴다.
+    const scourOnly = next.probeSeries !== null && !next.probeFluidField;
+    fluidControls.setScourOnlyMode(scourOnly);
+    next.terrainWater.setVisible(!scourOnly);
+    fluidControls.setSliceChecked(!scourOnly);
     next.arrows.setVisible(false);
-    fluidControls.setTracersAvailable(true, true);
-    next.tracers.setVisible(fluidControls.isTracersVisible());
+    fluidControls.setTracersAvailable(!scourOnly, !scourOnly);
+    next.tracers.setVisible(!scourOnly && fluidControls.isTracersVisible());
     next.tracers.setWaterLevel(next.waterLevelY);
     applyTracerVelocity(next, nextParams, 0);
     next.fluidPoints.setVisible(false);
@@ -1186,23 +1238,38 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
 
   csvUploadPanel = new CsvUploadPanel({
     onApplyScene: () => {
-      const staged = stagedCsv;
+      const staged = stagedCases[0];
       if (!staged) {
         viewerToast.show('CSV 파싱을 먼저 완료한 뒤 적용해 주세요.');
         return;
       }
       if (router.screen === 4) navigateAfterApply = 5;
-      const next = collectParams();
-      applyParams(next, staged.scour, staged.fluid, false, staged.probeSeries, true);
+      activeCases = stagedCases;
+      caseSwitcher.setCases(
+        activeCases.map((c) => ({ name: c.caseName, scenario: c.scenario })),
+        0,
+      );
+      const view = viewOfCase(staged);
+      applyParams(
+        csvCaseParams(staged.scenario),
+        view.scour,
+        staged.fluid,
+        false,
+        view.probeSeries,
+        true,
+      );
     },
-    onLoaded: (result) => {
-      stagedCsv = result;
+    onLoaded: (results) => {
+      stagedCases = results;
+      const warnings = results.flatMap((r) => r.warnings);
       viewerToast.show(
-        'CSV 파싱이 끝났습니다. 조건을 확인한 뒤 「적용하고 결과 보기」를 누르세요.',
+        warnings.length > 0
+          ? `CSV 파싱이 끝났습니다. 확인 필요: ${warnings.join(' / ')}`
+          : 'CSV 파싱이 끝났습니다. 조건을 확인한 뒤 「적용하고 결과 보기」를 누르세요.',
       );
     },
     onInvalidated: () => {
-      stagedCsv = null;
+      stagedCases = [];
     },
     onError: (message) => {
       console.error('[CSV]', message);
@@ -1229,20 +1296,37 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
         bridgeType: current.bridgeType,
       };
     },
-    getLoadOptions: () => {
-      const count = params.pierCount;
-      return {
-        pierCount: count,
-        pierArrangement: count >= 2 ? ('along' as const) : params.pierArrangement,
-        pierDiameter: params.pierDiameter,
-        sandGrainSizeMm: params.sandGrainSizeMm,
-        permeable: params.structurePermeable,
-        inflowSpeed: params.inflowSpeed,
-        tankHeightY: params.tankHeightY,
-      };
-    },
   });
-  dockLeft.append(conditionSetupCaseBar.element, csvUploadPanel.element, fluidControls.element);
+  dockLeft.append(
+    conditionSetupCaseBar.element,
+    csvUploadPanel.element,
+    caseSwitcher.element,
+    fluidControls.element,
+  );
+  /** 보던 시각과 재생 상태를 유지한 채 선택한 케이스를 현재 표시 범위로 다시 적용한다. */
+  const reapplyCase = (index: number): void => {
+    const target = activeCases[index];
+    if (!target) return;
+    const view = viewOfCase(target);
+    applyParams(
+      csvCaseParams(target.scenario),
+      view.scour,
+      target.fluid,
+      false,
+      view.probeSeries,
+      false,
+      { restoreTime: timeControls.time, playing: timeControls.isPlaying },
+    );
+  };
+  caseSwitcher.onChange(reapplyCase);
+  caseSwitcher.onExaggerationChange((factor) => {
+    heightExaggeration = factor;
+    applyFluidPrimaryQuantity(fluidControls.getPrimaryQuantity());
+  });
+  caseSwitcher.onRegionChange((next) => {
+    regionOnly = next;
+    reapplyCase(caseSwitcher.selectedIndex);
+  });
 
   caseManagementPage.bindStartNewSimulation(() => {
     router.goto(4);
@@ -1306,6 +1390,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     planViewOverlay.element.style.display = planView ? 'block' : 'none';
     fluidControls.setReadOnlyField(screen >= 5 && screen <= 9);
     fluidControls.setSetupMode(setupView);
+    caseSwitcher.setScreenVisible(screen >= 5 && screen <= 9);
     syncViewerChrome(screen);
     gradeLegendPanel.setFoundationDepthM(params.foundationDepth);
     if (showViewer) {
@@ -1438,6 +1523,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       params.foundationDepth,
       t,
       sim.durationSeconds,
+      sim.pierDisplayScale,
     );
     activePierMonitor.setFoundationDepthM(params.foundationDepth);
     activePierMonitor.update(pierDepths);

@@ -32,4 +32,12 @@ describe('pierScourDisplayScale', () => {
     expect(out.map((r) => r.pierId)).toEqual(['P1', 'P2']);
     expect(out[1]!.scourDepthM).toBeGreaterThan(out[0]!.scourDepthM);
   });
+
+  it('enabled=false 이면 실측 세굴심을 그대로 돌려준다', () => {
+    const readings = [
+      { pierId: 'P1', scourDepthM: 0.012 },
+      { pierId: 'P2', scourDepthM: 0.021 },
+    ];
+    expect(scalePierScourReadings(readings, 0.08, 900, 1800, false)).toEqual(readings);
+  });
 });

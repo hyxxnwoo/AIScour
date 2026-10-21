@@ -33,6 +33,7 @@ export class SedimentLayer implements Disposable {
   private readonly positions: BufferAttribute;
   private readonly maxQuads: number;
   private currentFrameIndex = -1;
+  private verticalExaggeration = 1;
 
   public constructor(options: SedimentLayerOptions) {
     this.scene = options.scene;
@@ -85,9 +86,17 @@ export class SedimentLayer implements Disposable {
     }
   }
 
+  /** Terrain 과 같은 과장 배율을 써야 지형이 과장될 때 벽면이 지표 위로 비쳐 보이지 않는다. */
+  public setVerticalExaggeration(factor: number): void {
+    const f = Math.max(0.1, factor);
+    if (Math.abs(f - this.verticalExaggeration) < 1e-9) return;
+    this.verticalExaggeration = f;
+    if (this.currentFrameIndex >= 0) this.applyFrame(this.currentFrameIndex);
+  }
+
   private bedAt(gx: number, gy: number, delta: Float32Array): number {
     const idx = gy * this.grid.width + gx;
-    return this.baseZ[idx] + delta[idx];
+    return this.baseZ[idx] + delta[idx] * this.verticalExaggeration;
   }
 
   private applyFrame(index: number): void {
