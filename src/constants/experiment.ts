@@ -3,12 +3,16 @@
 // 좌표 규약: X=흐름(길이), Y=연직(높이), Z=폭. 퇴적물 표면 표고 = 0.
 
 export const FLUME = {
-  // 전체 수조 치수(미터)
-  tank: { lengthX: 1.116, widthZ: 0.456, heightY: 0.427 },
-  // 퇴적층 두께(미터). 수조 바닥은 표고 -sedimentThicknessY 에 위치.
-  sedimentThicknessY: 0.127,
-  /** 플룸 케이스 기초 근입(= 퇴적층 두께, m). 등급 잔여 여유율 판정용 */
-  foundationDepthM: 0.127,
+  // 전체 수조(계산영역) 치수(미터, 환경조건.xlsx 계산영역 1.70 × 1.50 × 0.39 m)
+  tank: { lengthX: 1.7, widthZ: 1.5, heightY: 0.39 },
+  // 모래지반 하단 바닥층 두께(미터, 환경조건.xlsx 0.01 m). 모래층 아래 고정층.
+  bottomLayerThicknessM: 0.01,
+  // 모래 밀도(kg/m³, 환경조건.xlsx Sediment density)
+  sedimentDensityKgM3: 2650,
+  // 모래지반 두께(미터, 환경조건.xlsx 모래지반 0.08 m). 수조 바닥은 표고 -sedimentThicknessY 에 위치.
+  sedimentThicknessY: 0.08,
+  /** 기초 근입(= 하단부 매립높이 0.08 m, 환경조건.xlsx). 등급 잔여 여유율 판정용 */
+  foundationDepthM: 0.08,
   // 입구에서 퇴적물 시작까지의 구간(미터). 구조물이 놓이는 전방 구역.
   structureFrontX: 0.1,
   // 모래 입경(mm)
@@ -18,15 +22,17 @@ export const FLUME = {
   // 총 계산 시간(초)
   totalTimeSeconds: 1800,
   // 구조물(원기둥) 물리 특성
-  structure: { shape: '원형', diameterM: 0.1, permeability: '불투과성' },
+  structure: { shape: '원형', diameterM: 0.0625, permeability: '불투과성' },
   // 난류 방정식
   turbulenceModel: 'RNG k-ε',
   // Bed Load Transport Rate equation
   bedLoadEquation: 'Meyer-Peter & Müller',
-  // 지형(하상) 격자 셀 한 변(미터). 값이 작을수록 고해상도.
+  // CSV 지형(하상) 격자 셀 한 변(미터). 값이 작을수록 고해상도.
   terrainCellSize: 0.01,
-  // 유체 격자 셀 한 변(미터). 지형보다 성글게 하여 메모리를 절감한다.
-  fluidCellSize: 0.02,
+  // 합성(기본 시뮬레이션) 지형 격자 셀. 수조가 1.7 × 1.5 m 로 커져 CSV 용보다 성글게 둔다.
+  synthTerrainCellSize: 0.02,
+  // 유체 격자 셀 한 변(미터). 지형보다 성글게 하여 메모리를 절감한다(수조 확대에 맞춰 0.05).
+  fluidCellSize: 0.05,
   // 수조 실측치 대비 X·Z 도메인 여유(미터, 각 측). 지형·유체·수면이 동일하게 확장된다.
   terrainMarginX: 0.12,
   terrainMarginZ: 0.18,
@@ -104,7 +110,7 @@ export function terrainPhysicalSize(geom: FlumeGeometry = defaultFlumeGeometry()
 
 // 지형(하상) 격자 정점 수. width = 흐름(X) 방향, height = 폭(Z) 방향.
 export function terrainGridDims(geom: FlumeGeometry = defaultFlumeGeometry()): TerrainGridDims {
-  const cs = FLUME.terrainCellSize;
+  const cs = FLUME.synthTerrainCellSize;
   const { lengthX, widthZ } = terrainPhysicalSize(geom);
   return {
     width: vertexCount(lengthX, cs),

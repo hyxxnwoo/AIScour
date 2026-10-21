@@ -91,3 +91,35 @@ describe('sectionProfile', () => {
     expect(kpi.marginRemainPct).toBeGreaterThan(0);
   });
 });
+
+describe('종단 A–A′ 교각 선택', () => {
+  const mk = (id: string, z: number) => ({
+    id,
+    x: 0,
+    z,
+    diameter: 0.0625,
+    height: 0.3,
+    shape: 'circle' as const,
+  });
+  const piers = [mk('P1', -0.27), mk('P2', 0), mk('P3', 0.27)];
+
+  it('고른 교각의 Z 를 지나고 그 교각만 단면에 표시한다', async () => {
+    const series = await new SyntheticScourSource({
+      frameCount: 2,
+      frameIntervalSeconds: 30,
+    }).load();
+    for (const p of piers) {
+      expect(sectionPointAtDistance(series, 'A', 0.5, piers, p.id).worldZ).toBeCloseTo(p.z);
+      const on = piersOnSection(series, 'A', piers, p.id);
+      expect(on.map((o) => o.pierId)).toEqual([p.id]);
+    }
+  });
+
+  it('교각을 지정하지 않으면 기존처럼 전체 교각 평균 Z 를 쓴다', async () => {
+    const series = await new SyntheticScourSource({
+      frameCount: 2,
+      frameIntervalSeconds: 30,
+    }).load();
+    expect(piersOnSection(series, 'A', piers)).toHaveLength(3);
+  });
+});

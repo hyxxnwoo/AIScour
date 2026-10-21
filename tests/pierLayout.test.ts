@@ -64,7 +64,7 @@ describe('pierLayout', () => {
 
   it('기둥 간격은 지름·수조 폭을 고려한다', () => {
     const spacing = pierSpacingZ({ ...DEFAULT_SIM_PARAMS, pierCount: 3, pierDiameter: 0.1 });
-    expect(spacing).toBeGreaterThanOrEqual(0.25);
+    expect(spacing).toBeGreaterThanOrEqual(DEFAULT_SIM_PARAMS.pierDiameter * 3.5 - 1e-9);
   });
 
   it('buildPierLayout 은 P1…Pn ID 와 공통 형상을 부여한다', () => {
@@ -105,7 +105,7 @@ describe('pierLayout', () => {
 
   it('흐름 방향 간격은 수조 길이를 고려한다', () => {
     const spacing = pierSpacingX({ ...DEFAULT_SIM_PARAMS, pierCount: 3, pierArrangement: 'along' });
-    expect(spacing).toBeGreaterThanOrEqual(0.25);
+    expect(spacing).toBeGreaterThanOrEqual(DEFAULT_SIM_PARAMS.pierDiameter * 3.5 - 1e-9);
   });
 
   it('pierXPositions 는 지형 X 범위 안에 있다', () => {
@@ -117,5 +117,18 @@ describe('pierLayout', () => {
       expect(x).toBeGreaterThanOrEqual(-halfX);
       expect(x).toBeLessThanOrEqual(halfX);
     }
+  });
+});
+
+describe('buildCsvLikePierLayout (CSV 업로드 전 기본 배치)', () => {
+  it('S01 간격으로 x = 0 에 횡 배치하고 하단부·높이는 환경조건 값을 쓴다', () => {
+    const piers = buildPierLayout(DEFAULT_SIM_PARAMS);
+    expect(piers).toHaveLength(3);
+    expect(piers.every((p) => p.x === 0)).toBe(true);
+    expect(piers[1]!.z - piers[0]!.z).toBeCloseTo(0.27, 6);
+    expect(piers[0]!.z + piers[2]!.z).toBeCloseTo(0, 9);
+    expect(piers[0]!.diameter).toBeCloseTo(0.0625, 9);
+    expect(piers[0]!.height).toBeCloseTo(0.3, 9);
+    expect(piers[0]!.footing?.height).toBeCloseTo(0.05, 9);
   });
 });

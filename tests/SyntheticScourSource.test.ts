@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SyntheticScourSource } from '@/data/SyntheticScourSource';
-import { structureCenterX } from '@/constants/experiment';
+import { FLUME, structureCenterX } from '@/constants/experiment';
 
 describe('SyntheticScourSource', () => {
   it('지정한 격자 크기와 프레임 수의 데이터를 생성한다', async () => {
@@ -64,7 +64,7 @@ describe('SyntheticScourSource', () => {
   });
 
   it('structureCenterX 기본값은 입구 전방 구간을 반영한다', () => {
-    expect(structureCenterX()).toBeCloseTo(-1.116 / 2 + 0.1, 5);
+    expect(structureCenterX()).toBeCloseTo(-FLUME.tank.lengthX / 2 + FLUME.structureFrontX, 5);
   });
 
   it('metadata.piers 개수는 piers 옵션과 일치한다', async () => {

@@ -58,9 +58,20 @@ export function sampleColorRamp(
   out.b = clamp.b / 255;
 }
 
-/** 격자 위치 기반 미세 명암(±4%) — 평평한 하상에 모래 알갱이 느낌. */
+/**
+ * 격자 위치 기반 미세 명암(±4%) — 평평한 하상에 모래 알갱이 느낌.
+ * 정수 해시라 격자 주기 무늬가 생기지 않는다.
+ */
 export function sandGrainFactor(gridX: number, gridY: number): number {
-  return (((gridX * 73 + gridY * 37) & 0xff) / 255) * 0.08 - 0.04;
+  let h = Math.imul(gridX | 0, 0x27d4eb2d) ^ Math.imul(gridY | 0, 0x165667b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h ^= h >>> 13;
+  return ((h & 0xff) / 255) * 0.08 - 0.04;
+}
+
+function smoothstep(a: number, b: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
 }
 
 /**
@@ -74,7 +85,9 @@ export function sampleTerrainSandColor(
   gridY: number,
   out: { r: number; g: number; b: number },
 ): void {
-  const grain = sandGrainFactor(gridX, gridY);
+  // 세굴·퇴적이 클수록 알갱이 명암을 줄여, 파인 영역에서 정점 격자가 점무늬로 드러나지 않게 한다.
+  const change = absMax <= 1e-12 ? 0 : Math.min(1, Math.abs(delta) / absMax);
+  const grain = sandGrainFactor(gridX, gridY) * (1 - smoothstep(0, 0.35, change));
   const baseR = 0.84 + grain;
   const baseG = 0.7 + grain * 0.75;
   const baseB = 0.44 + grain * 0.5;
@@ -102,7 +115,7 @@ export function sampleTerrainSandColor(
   if (norm < -1e-6) {
     sampleColorRamp(delta, -absMax, absMax, out);
     if (norm > -0.22) {
-      const blend = (norm + 0.22) / 0.22;
+      const blend = smoothstep(0, 1, (norm + 0.22) / 0.22);
       out.r = out.r * (1 - blend) + baseR * blend;
       out.g = out.g * (1 - blend) + baseG * blend;
       out.b = out.b * (1 - blend) + baseB * blend;

@@ -155,27 +155,73 @@ function createResampler(
   return { width, height, ix0, tx, iy0, ty };
 }
 
+/** Catmull-Rom 가중치(p0..p3, t∈[0,1]). 보간 곡선이 1차 미분까지 이어져 셀 경계 꺾임이 생기지 않는다. */
+function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): number {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return (
+    0.5 *
+    (2 * p1 +
+      (-p0 + p2) * t +
+      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+      (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+  );
+}
+
+/**
+ * CSV 격자 → 지형 격자 bicubic(Catmull-Rom) 보간 후 3×3 이항 필터를 한 번 적용한다.
+ * 쌍선형 보간만 쓰면 CSV 셀 경계가 능선처럼 보여 깎인 영역이 격자 모양으로 드러난다.
+ */
 function resampleBed(
   bed: Float32Array,
   nx: number,
   ny: number,
   r: Resampler,
   out: Float32Array,
+  scratch: Float32Array,
 ): void {
+  const col = [0, 0, 0, 0];
   for (let gy = 0; gy < r.height; gy += 1) {
     const y0 = r.iy0[gy];
-    const y1 = Math.min(ny - 1, y0 + 1);
     const wy = r.ty[gy];
+    const rows = [
+      Math.max(0, y0 - 1) * nx,
+      y0 * nx,
+      Math.min(ny - 1, y0 + 1) * nx,
+      Math.min(ny - 1, y0 + 2) * nx,
+    ];
     for (let gx = 0; gx < r.width; gx += 1) {
       const x0 = r.ix0[gx];
-      const x1 = Math.min(nx - 1, x0 + 1);
       const wx = r.tx[gx];
-      const v00 = bed[y0 * nx + x0];
-      const v10 = bed[y0 * nx + x1];
-      const v01 = bed[y1 * nx + x0];
-      const v11 = bed[y1 * nx + x1];
-      out[gy * r.width + gx] =
-        v00 * (1 - wx) * (1 - wy) + v10 * wx * (1 - wy) + v01 * (1 - wx) * wy + v11 * wx * wy;
+      const xs = [Math.max(0, x0 - 1), x0, Math.min(nx - 1, x0 + 1), Math.min(nx - 1, x0 + 2)];
+      for (let k = 0; k < 4; k += 1) {
+        const o = rows[k];
+        col[k] = catmullRom(bed[o + xs[0]], bed[o + xs[1]], bed[o + xs[2]], bed[o + xs[3]], wx);
+      }
+      scratch[gy * r.width + gx] = catmullRom(col[0], col[1], col[2], col[3], wy);
+    }
+  }
+  smooth3x3(scratch, r.width, r.height, out);
+}
+
+/** [1 2 1]⊗[1 2 1]/16 필터(가장자리는 가장 가까운 값으로 복제). */
+function smooth3x3(src: Float32Array, width: number, height: number, out: Float32Array): void {
+  for (let gy = 0; gy < height; gy += 1) {
+    const ya = Math.max(0, gy - 1) * width;
+    const yb = gy * width;
+    const yc = Math.min(height - 1, gy + 1) * width;
+    for (let gx = 0; gx < width; gx += 1) {
+      const xa = Math.max(0, gx - 1);
+      const xc = Math.min(width - 1, gx + 1);
+      out[yb + gx] =
+        (src[ya + xa] +
+          2 * src[ya + gx] +
+          src[ya + xc] +
+          2 * (src[yb + xa] + 2 * src[yb + gx] + src[yb + xc]) +
+          src[yc + xa] +
+          2 * src[yc + gx] +
+          src[yc + xc]) /
+        16;
     }
   }
 }
@@ -413,6 +459,7 @@ export function buildScrdifDashboard(
   };
 
   const bed = new Float32Array(nx * ny);
+  const scratch = new Float32Array(width * height);
   const frames: ScourFrame[] = [];
   const samples: SampleProbeSample[] = [];
   let minScrdif = Infinity;
@@ -427,7 +474,7 @@ export function buildScrdifDashboard(
     for (let row = 0; row < dataset.count; row += 1) bed[rowToGrid[row]] = masked[row];
 
     const delta = new Float32Array(width * height);
-    resampleBed(bed, nx, ny, resampler, delta);
+    resampleBed(bed, nx, ny, resampler, delta, scratch);
     frames.push({ timestampSeconds: dataset.times[t], deltaElevations: delta });
 
     const stats = frameStats(masked);

@@ -16,9 +16,7 @@ export interface SedimentLayerOptions {
   thicknessM: number;
 }
 
-const SCOUR_EPS = 0.0005;
-
-// SedimentLayer: 세굴로 파인 하상 아래 모래층 — pit 벽면이 bed 표고를 따라 내려간다.
+// SedimentLayer: 하상 아래 모래층의 옆면 — 지형 가장자리를 따라 bed 표고에서 바닥까지 내려간다.
 export class SedimentLayer implements Disposable {
   private readonly scene: Scene;
   private readonly grid: TerrainGrid;
@@ -47,8 +45,8 @@ export class SedimentLayer implements Disposable {
     this.halfW = ((width - 1) * cellSize) / 2;
     this.halfH = ((height - 1) * cellSize) / 2;
 
-    // 셀당 최대 4면 × 2삼각형 = 8정점
-    this.maxQuads = width * height * 4;
+    // 가장자리 구간당 2삼각형(6정점)
+    this.maxQuads = (width - 1) * 2 + (height - 1) * 2;
     const maxVerts = this.maxQuads * 6;
     const pos = new Float32Array(maxVerts * 3);
     this.geometry = new BufferGeometry();
@@ -109,77 +107,47 @@ export class SedimentLayer implements Disposable {
     const arr = this.positions.array as Float32Array;
     let vi = 0;
 
-    const pushQuad = (
-      x0: number,
-      z0: number,
-      y0: number,
-      x1: number,
-      z1: number,
-      y1: number,
-    ): void => {
+    // 지형 가장자리 단면(수조 유리벽 쪽에서 보이는 모래층 옆면). 정점마다 지표 높이를 따라가므로
+    // 셀 단위 계단 없이 지형과 같은 곡선으로 이어진다.
+    const pushSkirt = (gx0: number, gy0: number, gx1: number, gy1: number): void => {
       if (vi + 18 > arr.length) return;
-      // 두 삼각형 (CCW)
-      arr[vi++] = x0;
-      arr[vi++] = y0;
-      arr[vi++] = z0;
-      arr[vi++] = x1;
-      arr[vi++] = y1;
-      arr[vi++] = z1;
-      arr[vi++] = x0;
-      arr[vi++] = this.bottomY;
-      arr[vi++] = z0;
-
-      arr[vi++] = x1;
-      arr[vi++] = y1;
-      arr[vi++] = z1;
-      arr[vi++] = x0;
-      arr[vi++] = this.bottomY;
-      arr[vi++] = z0;
-      arr[vi++] = x1;
-      arr[vi++] = this.bottomY;
-      arr[vi++] = z1;
+      const xa = gx0 * cellSize - this.halfW;
+      const za = gy0 * cellSize - this.halfH;
+      const xb = gx1 * cellSize - this.halfW;
+      const zb = gy1 * cellSize - this.halfH;
+      const ya = this.bedAt(gx0, gy0, delta);
+      const yb = this.bedAt(gx1, gy1, delta);
+      const bottom = this.bottomY;
+      const tri = [
+        xa,
+        ya,
+        za,
+        xb,
+        yb,
+        zb,
+        xa,
+        bottom,
+        za,
+        xb,
+        yb,
+        zb,
+        xa,
+        bottom,
+        za,
+        xb,
+        bottom,
+        zb,
+      ];
+      for (const v of tri) arr[vi++] = v;
     };
 
-    for (let gy = 0; gy < height; gy += 1) {
-      for (let gx = 0; gx < width; gx += 1) {
-        const d = delta[gy * width + gx];
-        if (d >= -SCOUR_EPS) continue;
-
-        const bed = this.bedAt(gx, gy, delta);
-        const x = gx * cellSize - this.halfW;
-        const z = gy * cellSize - this.halfH;
-        const x1 = x + cellSize;
-        const z1 = z + cellSize;
-
-        if (gx + 1 < width) {
-          const nBed = this.bedAt(gx + 1, gy, delta);
-          if (nBed > bed + SCOUR_EPS) {
-            const rimY = (bed + nBed) * 0.5;
-            pushQuad(x1, z, rimY, x1, z1, rimY);
-          }
-        }
-        if (gy + 1 < height) {
-          const nBed = this.bedAt(gx, gy + 1, delta);
-          if (nBed > bed + SCOUR_EPS) {
-            const rimY = (bed + nBed) * 0.5;
-            pushQuad(x, z1, rimY, x1, z1, rimY);
-          }
-        }
-        if (gx > 0) {
-          const nBed = this.bedAt(gx - 1, gy, delta);
-          if (nBed > bed + SCOUR_EPS) {
-            const rimY = (bed + nBed) * 0.5;
-            pushQuad(x, z, rimY, x, z1, rimY);
-          }
-        }
-        if (gy > 0) {
-          const nBed = this.bedAt(gx, gy - 1, delta);
-          if (nBed > bed + SCOUR_EPS) {
-            const rimY = (bed + nBed) * 0.5;
-            pushQuad(x, z, rimY, x1, z, rimY);
-          }
-        }
-      }
+    for (let gx = 0; gx + 1 < width; gx += 1) {
+      pushSkirt(gx, 0, gx + 1, 0);
+      pushSkirt(gx, height - 1, gx + 1, height - 1);
+    }
+    for (let gy = 0; gy + 1 < height; gy += 1) {
+      pushSkirt(0, gy, 0, gy + 1);
+      pushSkirt(width - 1, gy, width - 1, gy + 1);
     }
 
     this.positions.needsUpdate = true;

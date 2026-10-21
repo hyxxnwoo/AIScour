@@ -7,7 +7,7 @@ function pitSeries(): ScourSeries {
   const width = 7;
   const height = 7;
   const delta = new Float32Array(width * height);
-  delta[3 * width + 3] = -0.02; // 가운데 한 칸만 파인 구덩이
+  delta[3 * width] = -0.02; // 가장자리(옆면)에 걸친 한 칸 구덩이
   return {
     baseTerrain: {
       width,
@@ -19,28 +19,31 @@ function pitSeries(): ScourSeries {
   };
 }
 
-/** 벽면 꼭짓점 중 가장 높은 y(구덩이 가장자리 높이). */
+/** 옆면 꼭짓점 중 지표를 따라가는 점(바닥 제외)의 가장 낮은 y. */
 function wallTopY(scene: Scene): number {
   const mesh = scene.children.find((c): c is Mesh => c instanceof Mesh);
   if (!mesh) throw new Error('sediment mesh not found');
   const pos = mesh.geometry.getAttribute('position');
   const drawCount = mesh.geometry.drawRange.count;
-  let top = -Infinity;
-  for (let i = 0; i < drawCount; i += 1) top = Math.max(top, pos.getY(i));
-  return top;
+  let low = Infinity;
+  for (let i = 0; i < drawCount; i += 1) {
+    const y = pos.getY(i);
+    if (y > -0.2 + 1e-6) low = Math.min(low, y);
+  }
+  return low;
 }
 
 describe('SedimentLayer', () => {
-  it('세굴이 있으면 구덩이 벽면을 만든다', () => {
+  it('세굴이 있으면 옆면이 지표를 따라 내려간다', () => {
     const scene = new Scene();
-    const layer = new SedimentLayer({ scene, series: pitSeries(), thicknessM: 0.08 });
+    const layer = new SedimentLayer({ scene, series: pitSeries(), thicknessM: 0.2 });
     expect(wallTopY(scene)).toBeLessThan(0);
     layer.dispose();
   });
 
   it('과장 배율을 키우면 벽면이 지형과 같은 비율로 더 깊어진다', () => {
     const scene = new Scene();
-    const layer = new SedimentLayer({ scene, series: pitSeries(), thicknessM: 0.08 });
+    const layer = new SedimentLayer({ scene, series: pitSeries(), thicknessM: 0.2 });
     const flat = wallTopY(scene);
     layer.setVerticalExaggeration(4);
     const exaggerated = wallTopY(scene);

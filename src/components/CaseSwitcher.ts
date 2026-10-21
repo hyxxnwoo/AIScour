@@ -96,7 +96,7 @@ export class CaseSwitcher implements Disposable {
     const exaggerationTitle = document.createElement('label');
     exaggerationTitle.className = 'case-switcher__title';
     exaggerationTitle.htmlFor = 'case-switcher-exaggeration';
-    exaggerationTitle.textContent = 'Z 스케일';
+    exaggerationTitle.textContent = '퇴적 스케일';
     exaggerationTitle.title =
       '지형 표고(Z)에만 곱하는 배율입니다. ×1 이 실제 비율이며, 세굴·퇴적은 최대 2 cm 안팎이라 ×1 에서는 완만하게 보입니다. ' +
       '교각·하단부(노출 5 cm)에는 적용하지 않으므로 배율이 크면 퇴적 둔덕이 하단부보다 높아 보일 수 있습니다.';

@@ -231,10 +231,10 @@ export class CsvUploadPanel implements Disposable {
     strip.setAttribute('role', 'list');
     strip.setAttribute('aria-label', 'CSV 업로드 단계');
 
-    const defs: Array<{ id: CsvSetupFlowStep; n: number; label: string; sub: string }> = [
-      { id: 'select', n: 1, label: 'CSV 선택', sub: '기둥·파일' },
-      { id: 'parse', n: 2, label: 'CSV 파싱', sub: '검증' },
-      { id: 'apply', n: 3, label: '적용하고 결과 보기', sub: '3D 장면' },
+    const defs: Array<{ id: CsvSetupFlowStep; n: number; label: string }> = [
+      { id: 'select', n: 1, label: 'CSV 선택' },
+      { id: 'parse', n: 2, label: 'CSV 파싱' },
+      { id: 'apply', n: 3, label: '결과 보기' },
     ];
 
     const buttons = {} as Record<CsvSetupFlowStep, HTMLButtonElement>;
@@ -252,7 +252,7 @@ export class CsvUploadPanel implements Disposable {
       btn.dataset.stepN = String(d.n);
       btn.setAttribute('role', 'listitem');
       btn.innerHTML = `<span class="csv-setup-flow__idx">${d.n}</span>
-        <span class="csv-setup-flow__text"><b>${d.label}</b><i>${d.sub}</i></span>`;
+        <span class="csv-setup-flow__text"><b>${d.label}</b></span>`;
       btn.addEventListener('click', () => this.onFlowStepClick(d.id));
       strip.appendChild(btn);
       buttons[d.id] = btn;
@@ -298,7 +298,7 @@ export class CsvUploadPanel implements Disposable {
     const hintEl = this.element.querySelector('.csv-upload-panel__hint');
     if (hintEl) {
       const hints: Record<CsvSetupFlowStep, string> = {
-        select: '① CSV 선택 — 모달에서 기둥 수·교량·교각별 CSV를 확정하세요.',
+        select: '',
         parse: '② CSV 파싱 — 파일이 모두 선택되었습니다. 파싱을 실행하세요.',
         apply: '③ 적용하고 결과 보기 — 파싱이 끝났습니다. 3D 장면을 만든 뒤 세굴 뷰로 이동합니다.',
       };

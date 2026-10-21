@@ -192,7 +192,7 @@ body.is-login-screen {
   grid-row: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto auto;
+  grid-template-rows: auto auto auto auto;
   align-items: center;
   gap: 5px 10px;
   padding: 6px 12px 4px;
@@ -395,6 +395,23 @@ body.is-login-screen {
   gap: 6px 12px;
   font-size: 11.5px;
   color: var(--accent-muted);
+}
+
+.section-profile-panel__caption {
+  flex: 1 1 100%;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--accent-muted);
+}
+
+.viewer-stage.is-plan-view .section-profile-panel__caption {
+  grid-column: 1 / -1;
+  grid-row: 4;
+  padding-top: 1px;
+}
+
+.section-profile-panel__legend-item[hidden] {
+  display: none;
 }
 
 .section-profile-panel__legend-item {

@@ -1,8 +1,10 @@
 import {
+  CSV_STRUCTURE,
   paramsToFlumeGeometry,
   structureCenterX,
   terrainPhysicalSize,
 } from '@/constants/experiment';
+import { BASELINE_SCENARIO, FOOTING_SPECS } from '@/constants/scenarios';
 import type { PierDefinition } from '@/modules/PierMarker';
 import type { PierArrangement, SimParams } from '@/types/simParams';
 
@@ -154,11 +156,42 @@ export function buildCenteredPierLayout(params: SimParams): PierDefinition[] {
   }));
 }
 
-/** SimParams 기준 교각 정의 배열(P1…Pn). */
+/**
+ * CSV 업로드 후와 같은 구조물 배치(기준 케이스 S01). 수조 중심(x = 0)에서 횡(Z)으로 나란히 놓고,
+ * 간격·높이·하단부는 환경조건·시나리오 표 값을 쓴다. CSV 업로드 전 기본 화면용.
+ */
+export function buildCsvLikePierLayout(
+  params: Pick<SimParams, 'pierCount' | 'pierDiameter' | 'structureShape'>,
+): PierDefinition[] {
+  const count = clampPierCount(params.pierCount);
+  const spacing = BASELINE_SCENARIO.pierSpacingM;
+  const spec = FOOTING_SPECS[BASELINE_SCENARIO.footingShape];
+  const radius =
+    count > 1 ? Math.min(params.pierDiameter * 2, spacing / 2) : params.pierDiameter * 2;
+  return symmetricLinePositions(count, spacing).map((z, i) => ({
+    id: `P${i + 1}`,
+    x: 0,
+    z,
+    diameter: params.pierDiameter,
+    height: CSV_STRUCTURE.exposedHeightM,
+    shape: params.structureShape,
+    scourSearchRadius: radius,
+    footing: {
+      shape: BASELINE_SCENARIO.footingShape,
+      lengthX: spec.lengthX,
+      widthZ: spec.widthZ,
+      height: CSV_STRUCTURE.footingExposedM,
+    },
+  }));
+}
+
+/** SimParams 기준 교각 정의 배열(P1…Pn). 횡 배치(across)는 CSV 와 같은 위치·형상을 쓴다. */
 export function buildPierLayout(params: SimParams): PierDefinition[] {
   const geom = paramsToFlumeGeometry(params);
   const pierHeight = params.tankHeightY + 0.03;
   const arrangement = params.pierArrangement ?? 'along';
+
+  if (arrangement === 'across') return buildCsvLikePierLayout(params);
 
   if (arrangement === 'along') {
     const xPositions = pierXPositions(params);

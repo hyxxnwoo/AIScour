@@ -251,8 +251,6 @@ export class FluidControls implements Disposable {
     this.readOnlyNoticeEl = document.createElement('div');
     this.readOnlyNoticeEl.className = 'fluid-controls__read-only-notice';
     this.readOnlyNoticeEl.hidden = true;
-    this.readOnlyNoticeEl.textContent =
-      '뷰어 모드 — u/v/w·scrdif 변경과 재시뮬은 4번 「조건 설정」에서 합니다.';
     this.element.appendChild(this.readOnlyNoticeEl);
 
     this.applyBtn = document.createElement('button');
@@ -269,11 +267,6 @@ export class FluidControls implements Disposable {
     this.applyBtn.addEventListener('click', onApplyClick);
     this.listenerCleanups.push(() => this.applyBtn.removeEventListener('click', onApplyClick));
     this.element.appendChild(this.applyBtn);
-
-    const hint = document.createElement('div');
-    hint.className = 'fluid-controls__hint';
-    hint.textContent = '● 굵게 표시된 체크 = 수면·플로팅 범례의 기준 항목';
-    this.element.appendChild(hint);
 
     // ── 슬라이스 토글 + 높이 슬라이더
     const sliceRow = document.createElement('div');
@@ -352,14 +345,12 @@ export class FluidControls implements Disposable {
     this.rangeLabel = document.createElement('span');
     this.rangeLabel.className = 'fluid-controls__range';
     this.rangeLabel.textContent = '— / —';
-    this.element.appendChild(this.rangeLabel);
 
     // 단위 메모
     const unitsLine = document.createElement('div');
     unitsLine.className = 'fluid-controls__units';
     unitsLine.textContent = `u,v,w ${options.velocityUnit ?? 'm/s'} · scrdif ${options.scrdifUnit ?? 'm'}`;
     this.unitsEl = unitsLine;
-    this.element.appendChild(unitsLine);
 
     this.setReadOnlyField(options.readOnlyField ?? false);
   }
@@ -376,7 +367,7 @@ export class FluidControls implements Disposable {
       this.liveCheckbox.disabled = true;
       this.liveRow.hidden = true;
       this.applyBtn.hidden = true;
-      this.readOnlyNoticeEl.hidden = false;
+      this.readOnlyNoticeEl.hidden = !this.readOnlyNoticeEl.textContent;
     } else {
       this.liveCheckbox.disabled = this.debounceMs <= 0;
       this.readOnlyNoticeEl.hidden = true;
@@ -406,9 +397,7 @@ export class FluidControls implements Disposable {
     }
     this.liveRow.hidden = true;
     this.applyBtn.hidden = true;
-    this.readOnlyNoticeEl.hidden = false;
-    this.readOnlyNoticeEl.textContent =
-      '이 값은 CSV 영역 아래 「적용하고 결과 보기」를 눌렀을 때 반영됩니다.';
+    this.readOnlyNoticeEl.hidden = true;
   }
 
   private scheduleLiveApply(): void {
@@ -524,9 +513,9 @@ export class FluidControls implements Disposable {
       this.readOnlyNoticeEl.textContent =
         '실측 CSV — 표시·재생만 조정합니다. 파일·간격 변경은 4번 「조건 설정」.';
     } else if (this.readOnlyField) {
-      this.readOnlyNoticeEl.textContent =
-        '뷰어 모드 — u/v/w·scrdif 변경과 재시뮬은 4번 「조건 설정」에서 합니다.';
+      this.readOnlyNoticeEl.textContent = '';
     }
+    this.readOnlyNoticeEl.hidden = !this.readOnlyField || !this.readOnlyNoticeEl.textContent;
     for (const q of FLUID_DASHBOARD_QUANTITIES) {
       const paramKey = FLUID_QUANTITY_PARAM_KEYS[q];
       const input = this.valueInputs.get(paramKey);

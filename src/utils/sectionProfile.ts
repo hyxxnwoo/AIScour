@@ -15,6 +15,13 @@ export function defaultTransversePierId(piers: PierDefinition[]): string {
   );
 }
 
+/** 종단 A–A′ 가 지나는 Z. 교각을 고르면 그 교각 중심, 아니면 교각들의 평균. */
+export function longitudinalLineWorldZ(piers: PierDefinition[], pierId?: string): number {
+  const picked = pierId ? piers.find((p) => p.id === pierId) : undefined;
+  if (picked) return picked.z;
+  return piers.length > 0 ? piers.reduce((sum, p) => sum + p.z, 0) / piers.length : 0;
+}
+
 export function transverseLineWorldX(piers: PierDefinition[], pierId: string): number {
   return piers.find((p) => p.id === pierId)?.x ?? piers[0]?.x ?? 0;
 }
@@ -146,7 +153,7 @@ export function sectionPointAtDistance(
   const b = terrainWorldBounds(series);
   const len = sectionLengthM(series, section);
   const s = Math.max(0, Math.min(distanceM, len));
-  const zLine = piers.length > 0 ? piers.reduce((sum, p) => sum + p.z, 0) / piers.length : 0;
+  const zLine = longitudinalLineWorldZ(piers, transversePierId);
   const xLine = transverseLineWorldX(piers, transversePierId ?? defaultTransversePierId(piers));
   if (section === 'A') return { s, worldX: b.xMin + s, worldZ: zLine };
   return { s, worldX: xLine, worldZ: b.zMin + s };
@@ -164,7 +171,7 @@ export function sampleSectionProfile(
   const b = terrainWorldBounds(series);
   const frameIdx = frameIndexAtTime(series, timeSeconds);
   const len = sectionLengthM(series, section);
-  const zLine = piers.length > 0 ? piers.reduce((a, p) => a + p.z, 0) / piers.length : 0;
+  const zLine = longitudinalLineWorldZ(piers, transversePierId);
   const xLine = transverseLineWorldX(piers, transversePierId ?? defaultTransversePierId(piers));
 
   const out: SectionSample[] = [];
@@ -196,7 +203,11 @@ export function piersOnSection(
   const xLine = transverseLineWorldX(piers, focusId);
 
   if (section === 'A') {
+    // 교각을 골랐으면 그 교각이 놓인 종단선(같은 Z)에 걸친 교각만 그린다.
+    const zLine = longitudinalLineWorldZ(piers, transversePierId);
+    const zTol = Math.max(0.04, (focusPier?.diameter ?? 0.1) * 0.55);
     return [...piers]
+      .filter((p) => !transversePierId || Math.abs(p.z - zLine) <= zTol)
       .sort((a, b) => a.x - b.x)
       .map((p) => ({
         pierId: p.id,

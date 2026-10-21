@@ -55,7 +55,7 @@ export const DEFAULT_SIM_PARAMS: SimParams = {
   tankHeightY: FLUME.tank.heightY,
   structureFrontX: FLUME.structureFrontX,
   pierCount: 3,
-  pierArrangement: 'along',
+  pierArrangement: 'across',
   pierDiameter: FLUME.structure.diameterM,
   structureShape: 'circle',
   structurePermeable: false,

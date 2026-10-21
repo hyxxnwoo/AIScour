@@ -3,7 +3,12 @@ import { Vector3 } from 'three';
 import type { PierDefinition } from '@/modules/PierMarker';
 import type { ScourSeries } from '@/types/terrain';
 import type { Disposable } from '@/types/disposable';
-import { terrainWorldBounds, type SectionId, type SectionWorldPoint } from '@/utils/sectionProfile';
+import {
+  longitudinalLineWorldZ,
+  terrainWorldBounds,
+  type SectionId,
+  type SectionWorldPoint,
+} from '@/utils/sectionProfile';
 
 /** Top 뷰 위 단면선 A–A′ / B–B′ 오버레이 */
 export class PlanViewOverlay implements Disposable {
@@ -65,8 +70,7 @@ export class PlanViewOverlay implements Disposable {
     if (!this.series || !this.camera || w <= 0 || h <= 0) return;
 
     const b = terrainWorldBounds(this.series);
-    const zLine =
-      this.piers.length > 0 ? this.piers.reduce((a, p) => a + p.z, 0) / this.piers.length : 0;
+    const zLine = longitudinalLineWorldZ(this.piers, this.activeTransversePierId ?? undefined);
     const g = this.ctx;
 
     if (this.section === 'A') {
@@ -163,7 +167,7 @@ export class PlanViewOverlay implements Disposable {
   }
 
   private onCanvasClick = (event: MouseEvent): void => {
-    if (this.section !== 'B' || this.piers.length === 0) return;
+    if (this.piers.length === 0) return;
     const w = this.element.clientWidth;
     const h = this.element.clientHeight;
     const rect = this.element.getBoundingClientRect();

@@ -1,11 +1,21 @@
 import { FLUME, structureCenterX, terrainGridDims } from '@/constants/experiment';
-import type { ScourDataSource, ScourFrame, ScourSeries, TerrainGrid } from '@/types/terrain';
+import type {
+  PierFooting,
+  ScourDataSource,
+  ScourFrame,
+  ScourSeries,
+  TerrainGrid,
+} from '@/types/terrain';
 import { combinedFlowScourDelta } from '@/utils/scourShape';
 
 export interface SyntheticScourPierRef {
   id?: string;
   x: number;
   z: number;
+  /** 지정하면 교각 높이로 쓴다(미지정 시 수조 높이 + 0.03 m). */
+  height?: number;
+  scourSearchRadius?: number;
+  footing?: PierFooting;
 }
 
 export interface SyntheticScourOptions {
@@ -99,7 +109,11 @@ export class SyntheticScourSource implements ScourDataSource {
           x: pier.x,
           z: pier.z,
           diameter: pierDiameter,
-          height: pierHeight,
+          height: pier.height ?? pierHeight,
+          ...(pier.scourSearchRadius !== undefined
+            ? { scourSearchRadius: pier.scourSearchRadius }
+            : {}),
+          ...(pier.footing ? { footing: pier.footing } : {}),
         })),
       },
     };

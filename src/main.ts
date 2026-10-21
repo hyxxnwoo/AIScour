@@ -305,7 +305,14 @@ async function buildSimState(
     tankHeightY: params.tankHeightY,
     permeable: params.structurePermeable,
     inflowSpeed: params.inflowSpeed,
-    piers: buildPierLayout(params).map((p) => ({ id: p.id, x: p.x, z: p.z })),
+    piers: buildPierLayout(params).map((p) => ({
+      id: p.id,
+      x: p.x,
+      z: p.z,
+      ...(p.height !== undefined ? { height: p.height } : {}),
+      ...(p.scourSearchRadius !== undefined ? { scourSearchRadius: p.scourSearchRadius } : {}),
+      ...(p.footing ? { footing: p.footing } : {}),
+    })),
   });
   const activeSeries = baseScourSeries ?? (await scourSrc.load());
   const resolvedPierDefs =
@@ -606,9 +613,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       planViewGuide.setSection(sec);
       planViewOverlay.setSection(sec);
       planViewOverlay.setHover(null);
-      planViewOverlay.setActiveTransversePierId(
-        sec === 'B' ? sectionProfilePanel.getTransversePierId() : null,
-      );
+      planViewOverlay.setActiveTransversePierId(sectionProfilePanel.getTransversePierId());
       if (router.screen === 6) {
         statusBar.update({ extra: sec === 'A' ? '단면 A–A′' : '단면 B–B′' });
         planViewOverlay.draw();
@@ -633,9 +638,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       viewState.setSectionId(sec);
       planViewOverlay.setSection(sec);
       planViewOverlay.setHover(null);
-      planViewOverlay.setActiveTransversePierId(
-        sec === 'B' ? sectionProfilePanel.getTransversePierId() : null,
-      );
+      planViewOverlay.setActiveTransversePierId(sectionProfilePanel.getTransversePierId());
       if (router.screen === 6) {
         statusBar.update({ extra: sec === 'A' ? '단면 A–A′' : '단면 B–B′' });
         planViewOverlay.draw();
@@ -646,12 +649,6 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   viewerMain.appendChild(planViewGuide.element);
 
   planViewOverlay.setOnPierPick((pierId) => {
-    if (sectionProfilePanel.getSection() !== 'B') {
-      sectionProfilePanel.setSection('B');
-      viewState.setSectionId('B');
-      planViewOverlay.setSection('B');
-      statusBar.update({ extra: '단면 B–B′' });
-    }
     sectionProfilePanel.setTransversePierId(pierId);
     viewState.setSelectedPier(pierId);
     planViewOverlay.setActiveTransversePierId(pierId);
@@ -1600,8 +1597,8 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     if (router.screen === 6) {
       const sec = sectionProfilePanel.getSection();
       const transversePier = sectionProfilePanel.getTransversePierId();
-      planViewOverlay.setActiveTransversePierId(sec === 'B' ? transversePier : null);
-      const depthPierId = sec === 'B' ? transversePier : 'P2';
+      planViewOverlay.setActiveTransversePierId(transversePier);
+      const depthPierId = transversePier;
       const pierDepthForKpi =
         pierDepths.find((d) => d.pierId === depthPierId)?.scourDepthM ??
         pierDepths[0]?.scourDepthM ??
@@ -1613,7 +1610,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
         params.foundationDepth,
         pierDepthForKpi,
         sim.pierDefs,
-        sec === 'B' ? transversePier : undefined,
+        transversePier,
       );
       sectionProfilePanel.update(sim.series, t, params.foundationDepth, sim.pierDefs, kpi);
       planViewOverlay.setContext(sim.series, sim.pierDefs, cameraManager.camera);

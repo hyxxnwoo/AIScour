@@ -27,6 +27,8 @@ const CH = {
   cur: '#f07167',
   mid: '#4ecdc4',
   foot: '#5b9bd5',
+  scour: '#7fb3e0',
+  deposit: '#d4b88a',
   pier: '#8fa4b8',
   zero: 'rgba(232, 240, 250, 0.38)',
 };
@@ -144,7 +146,7 @@ function buildProfSvg(
     <circle cx="${hx}" cy="${hy}" r="4.5" fill="${CH.cur}" stroke="#fff" stroke-width="1.5"/>`;
   }
 
-  return `<svg class="section-profile-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="단면 하상 변화" data-plot-l="${L}" data-plot-t="${T}" data-plot-w="${plotW}" data-plot-h="${plotH}" data-len="${len}">
+  return `<svg class="section-profile-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="초기 하상 대비 단면 하상 높이 변화" data-plot-l="${L}" data-plot-t="${T}" data-plot-w="${plotW}" data-plot-h="${plotH}" data-len="${len}">
     <defs>
       <linearGradient id="sec-scour-fill" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="rgba(91,155,213,0.08)"/>
@@ -168,9 +170,11 @@ function buildProfSvg(
     </g>
     ${yLabels}${xLabels}
     <text x="${L - 10}" y="${T - 10}" fill="${CH.inkDim}" font-size="12" font-family="system-ui,sans-serif" text-anchor="end">Δz (m)</text>
+    <text x="${L + 8}" y="${Math.max(T + 12, y0 - 24)}" fill="${CH.deposit}" font-size="12" font-family="system-ui,sans-serif">▲ 퇴적 (+) · 하상이 쌓임</text>
+    <text x="${L + 8}" y="${Math.min(T + plotH - 8, y0 + 32)}" fill="${CH.scour}" font-size="12" font-family="system-ui,sans-serif">▼ 세굴 (−) · 하상이 깎임</text>
     <text x="${L + plotW / 2}" y="${H - 6}" fill="${CH.inkDim}" font-size="12" font-family="system-ui,sans-serif" text-anchor="middle">단면 거리 (m)</text>
-    <text x="${W - R - 4}" y="${y0 - 6}" fill="${CH.ink}" font-size="12.5" font-family="system-ui,sans-serif" text-anchor="end">초기 하상 0 m</text>
-    <text x="${W - R - 4}" y="${yFoot + 14}" fill="${CH.foot}" font-size="12.5" font-weight="600" font-family="system-ui,sans-serif" text-anchor="end">기초 −${foundationDepthM.toFixed(2)} m</text>
+    <text x="${W - R - 4}" y="${y0 - 6}" fill="${CH.ink}" font-size="12.5" font-family="system-ui,sans-serif" text-anchor="end">초기 하상 (t = 0 s) · 변화 0</text>
+    <text x="${W - R - 4}" y="${yFoot + 14}" fill="${CH.foot}" font-size="12.5" font-weight="600" font-family="system-ui,sans-serif" text-anchor="end">기초 바닥 −${foundationDepthM.toFixed(2)} m (하단부 매립 깊이) · 여기까지 깎이면 기초 노출</text>
   </svg>`;
 }
 
@@ -243,25 +247,47 @@ export class SectionProfilePanel implements Disposable {
 
     const legend = document.createElement('div');
     legend.className = 'section-profile-panel__legend';
-    const mkLeg = (cls: string, label: string): HTMLElement => {
+    const mkLeg = (cls: string, label: string, tip: string): HTMLElement => {
       const item = document.createElement('span');
       item.className = `section-profile-panel__legend-item ${cls}`;
+      item.title = tip;
       item.append(document.createElement('i'), document.createTextNode(label));
       return item;
     };
-    this.midLabel = mkLeg('is-mid', '');
-    this.curLabel = mkLeg('is-cur', '');
+    this.midLabel = mkLeg(
+      'is-mid',
+      '',
+      '비교용 과거 하상 — 지금 재생 시각의 1/4 지점에서 하상이 얼마나 변해 있었는지 점선으로 보여 줍니다.',
+    );
+    this.curLabel = mkLeg(
+      'is-cur',
+      '',
+      '지금 재생 시각의 하상 — 시간 슬라이더를 움직이면 이 선이 따라 움직입니다.',
+    );
     legend.append(
-      mkLeg('is-scour', '세굴'),
-      mkLeg('is-deposit', '퇴적'),
+      mkLeg(
+        'is-scour',
+        '세굴 (하상이 깎인 곳)',
+        '현재 하상이 초기 하상(0 m 선)보다 낮아진 구간입니다. 파란 면적이 깎여 나간 모래의 단면입니다.',
+      ),
+      mkLeg(
+        'is-deposit',
+        '퇴적 (하상이 쌓인 곳)',
+        '현재 하상이 초기 하상(0 m 선)보다 높아진 구간입니다. 갈색 면적이 쌓인 모래의 단면입니다.',
+      ),
       this.midLabel,
       this.curLabel,
-      mkLeg('is-foot', '기초 저면'),
+      mkLeg(
+        'is-foot',
+        '기초 바닥 (매립 깊이)',
+        '하단부(총 높이 0.13 m) 중 모래에 묻힌 깊이(매립높이 0.08 m, 환경조건)입니다. 세굴 깊이가 이 선에 닿으면 기초가 완전히 노출됩니다.',
+      ),
     );
-
+    const caption = document.createElement('div');
+    caption.className = 'section-profile-panel__caption';
     this.pierSegHost = document.createElement('div');
     this.pierSegHost.className = 'section-profile-panel__pier-seg';
-    head.append(this.titleEl, seg, this.pierSegHost, legend);
+    head.append(this.titleEl, seg, this.pierSegHost, legend, caption);
     this.chartHost = document.createElement('div');
     this.chartHost.className = 'section-profile-panel__chart viz-tier viz-tier--basic';
     this.kpiHost = document.createElement('div');
@@ -308,7 +334,7 @@ export class SectionProfilePanel implements Disposable {
       piers,
       viewAspect,
       this.hoverS,
-      this.section === 'B' ? this.transversePierId : undefined,
+      this.transversePierId,
     );
   }
 
@@ -343,7 +369,7 @@ export class SectionProfilePanel implements Disposable {
         this.section,
         s,
         this.lastPiers,
-        this.section === 'B' ? this.transversePierId : undefined,
+        this.transversePierId,
       ),
     );
   };
@@ -393,8 +419,12 @@ export class SectionProfilePanel implements Disposable {
     kpi: SectionKpi,
   ): void {
     const midT = timeSeconds / 4;
-    this.midLabel.lastChild!.textContent = `t = ${Math.round(midT)} s`;
-    this.curLabel.lastChild!.textContent = `t = ${Math.round(timeSeconds)} s · 현재`;
+    const atStart = timeSeconds < 0.5;
+    this.midLabel.hidden = atStart;
+    this.midLabel.lastChild!.textContent = `t = ${Math.round(midT)} s 하상 (비교 · 현재의 1/4 시점)`;
+    this.curLabel.lastChild!.textContent = atStart
+      ? 't = 0 s 하상 (현재 · 초기 상태)'
+      : `t = ${Math.round(timeSeconds)} s 하상 (현재)`;
     this.lastSeries = series;
     this.lastTime = timeSeconds;
     this.lastFoundation = foundationDepthM;
@@ -425,7 +455,7 @@ export class SectionProfilePanel implements Disposable {
 
   private paintKpiValues(kpi: SectionKpi, foundationDepthM: number): void {
     const g = gradeOf(kpi.maxScourDepthM, foundationDepthM);
-    const focusPier = this.section === 'B' ? this.transversePierId : 'P2';
+    const focusPier = this.transversePierId;
     const specs: Array<{
       label: string;
       num: number | null;
@@ -539,7 +569,7 @@ export class SectionProfilePanel implements Disposable {
   }
 
   private syncPierSeg(): void {
-    if (this.section !== 'B' || this.lastPiers.length === 0) {
+    if (this.lastPiers.length === 0) {
       this.pierSegHost.hidden = true;
       this.pierSegHost.replaceChildren();
       this.pierSegBuiltKey = '';
@@ -570,16 +600,9 @@ export class SectionProfilePanel implements Disposable {
   }
 
   private setTitle(): void {
-    const pierLabel =
-      this.lastPiers.length > 0
-        ? [...this.lastPiers]
-            .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
-            .map((p) => p.id)
-            .join('·')
-        : 'P1·P2·P3';
     this.titleEl.textContent =
       this.section === 'A'
-        ? `단면 A–A′ · 흐름 방향 종단 (${pierLabel} 관통)`
+        ? `단면 A–A′ · 흐름 방향 종단 (${this.transversePierId} 관통)`
         : `단면 B–B′ · 횡단 (${this.transversePierId} 관통 · ${this.lastPiers.length}개 선)`;
   }
 
