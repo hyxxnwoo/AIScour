@@ -46,10 +46,12 @@ function buildTsSvg(
   for (const [y0, y1, col] of bands) {
     s += `<rect x="${L}" y="${Y(y0)}" width="${iw}" height="${Y(y1) - Y(y0)}" fill="${col}" opacity="0.06"/>`;
   }
-  for (let v = 0; v <= fd; v += fd / 5) {
+  // 실험실 규모(기초 근입 0.08 m 등)에서는 소수 한 자리로는 눈금이 전부 0.0 / 0.1 로 보이므로 자릿수를 늘린다.
+  const yDecimals = fd < 0.5 ? 3 : 1;
+  for (let v = 0; v <= fd + 1e-9; v += fd / 5) {
     const y = Y(v);
     s += `<line x1="${L}" y1="${y}" x2="${W - R}" y2="${y}" stroke="${CH.grid}"/>`;
-    s += `<text x="${L - 7}" y="${y + 4}" fill="${CH.ink2}" font-size="13" text-anchor="end">${v.toFixed(1)}</text>`;
+    s += `<text x="${L - 7}" y="${y + 4}" fill="${CH.ink2}" font-size="13" text-anchor="end">${v.toFixed(yDecimals)}</text>`;
   }
   const tickStep = durationSeconds > 600 ? 300 : 60;
   for (let tt = 0; tt <= durationSeconds + 0.01; tt += tickStep) {

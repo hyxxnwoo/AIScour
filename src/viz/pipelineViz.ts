@@ -86,7 +86,6 @@ export function renderPipelineStageStrip(
     <header class="pipeline-stage-strip__head">
       <div>
         <h3 class="pipeline-stage-strip__title">처리 파이프라인</h3>
-        <p class="pipeline-stage-strip__hint">단계·결과 칩을 눌러 목록 필터 · 재클릭으로 해제</p>
       </div>
       <button type="button" class="pipeline-seg__chip pipeline-seg__chip--all${allOn}" data-act="pipeline-reset" data-tip="전체 보기">전체 ${files.length}</button>
     </header>

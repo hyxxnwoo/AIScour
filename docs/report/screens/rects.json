@@ -1,0 +1,864 @@
+{
+ "s01_login": [
+  {
+   "n": 1,
+   "sel": ".login-screen__intro",
+   "outline": true,
+   "rect": {
+    "x": 545,
+    "y": 396.9375,
+    "w": 380,
+    "h": 406.109375
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".login-screen__stats",
+   "outline": true,
+   "rect": {
+    "x": 545,
+    "y": 579.046875,
+    "w": 380,
+    "h": 224
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".login-screen__card",
+   "outline": true,
+   "rect": {
+    "x": 997,
+    "y": 428.484375,
+    "w": 378,
+    "h": 343
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".login-screen__submit",
+   "outline": true,
+   "rect": {
+    "x": 1028,
+    "y": 672.484375,
+    "w": 316,
+    "h": 42
+   }
+  }
+ ],
+ "s04_condition": [
+  {
+   "n": 1,
+   "sel": ".condition-setup-case",
+   "outline": true,
+   "rect": {
+    "x": 8,
+    "y": 108,
+    "w": 283,
+    "h": 180.46875
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".csv-setup-flow",
+   "outline": true,
+   "rect": {
+    "x": 19,
+    "y": 315.0625,
+    "w": 261,
+    "h": 48.25
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".csv-upload-panel__actions",
+   "outline": true,
+   "rect": {
+    "x": 19,
+    "y": 556.03125,
+    "w": 261,
+    "h": 74
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".fluid-controls",
+   "outline": true,
+   "rect": {
+    "x": 8,
+    "y": 709.625,
+    "w": 283,
+    "h": 240
+   }
+  },
+  {
+   "n": 5,
+   "sel": ".viewer-main",
+   "outline": false,
+   "rect": {
+    "x": 300,
+    "y": 96,
+    "w": 1300,
+    "h": 1104
+   }
+  },
+  {
+   "n": 6,
+   "sel": ".viewer-toast",
+   "outline": true,
+   "rect": {
+    "x": 761.9140625,
+    "y": 1088.609375,
+    "w": 376.171875,
+    "h": 39.390625
+   }
+  },
+  {
+   "n": 7,
+   "sel": ".time-controls",
+   "outline": true,
+   "rect": {
+    "x": 630,
+    "y": 1140,
+    "w": 640,
+    "h": 52
+   }
+  }
+ ],
+ "s05_viewer": [
+  {
+   "n": 1,
+   "sel": ".case-switcher",
+   "outline": true,
+   "rect": {
+    "x": 8,
+    "y": 108,
+    "w": 303,
+    "h": 199
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".fluid-controls",
+   "outline": true,
+   "rect": {
+    "x": 8,
+    "y": 316.59375,
+    "w": 303,
+    "h": 158.75
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".dashboard-customize",
+   "outline": true,
+   "rect": {
+    "x": 8,
+    "y": 484.9375,
+    "w": 303,
+    "h": 134
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".viewer-main",
+   "outline": false,
+   "rect": {
+    "x": 320,
+    "y": 96,
+    "w": 1260,
+    "h": 1104
+   }
+  },
+  {
+   "n": 5,
+   "sel": ".fluid-field-legend",
+   "outline": true,
+   "rect": {
+    "x": 800,
+    "y": 108,
+    "w": 300,
+    "h": 147.4375
+   }
+  },
+  {
+   "n": 6,
+   "sel": ".view-mode-toggle",
+   "outline": true,
+   "rect": {
+    "x": 1454,
+    "y": 108,
+    "w": 114,
+    "h": 34
+   }
+  },
+  {
+   "n": 7,
+   "sel": ".camera-presets",
+   "outline": true,
+   "rect": {
+    "x": 1589,
+    "y": 108,
+    "w": 323,
+    "h": 38
+   }
+  },
+  {
+   "n": 8,
+   "sel": ".pier-scour-monitor",
+   "outline": true,
+   "rect": {
+    "x": 1589,
+    "y": 155.59375,
+    "w": 323,
+    "h": 340.71875
+   }
+  },
+  {
+   "n": 9,
+   "sel": ".color-legend",
+   "outline": true,
+   "rect": {
+    "x": 1589,
+    "y": 505.90625,
+    "w": 323,
+    "h": 133.21875
+   }
+  },
+  {
+   "n": 10,
+   "sel": ".time-controls",
+   "outline": true,
+   "rect": {
+    "x": 630,
+    "y": 1140,
+    "w": 640,
+    "h": 52
+   }
+  }
+ ],
+ "s06_plan_section": [
+  {
+   "n": 1,
+   "sel": ".plan-view-guide",
+   "outline": true,
+   "rect": {
+    "x": 332,
+    "y": 108,
+    "w": 222.296875,
+    "h": 136.1875
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".plan-view-overlay",
+   "outline": true,
+   "rect": {
+    "x": 320,
+    "y": 96,
+    "w": 1260,
+    "h": 420
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".section-profile-panel__chart",
+   "outline": true,
+   "rect": {
+    "x": 320,
+    "y": 617.53125,
+    "w": 1260,
+    "h": 428.46875
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".section-profile-panel__kpis",
+   "outline": true,
+   "rect": {
+    "x": 320,
+    "y": 1046,
+    "w": 1260,
+    "h": 110
+   }
+  },
+  {
+   "n": 5,
+   "sel": ".pier-scour-monitor",
+   "outline": true,
+   "rect": {
+    "x": 1589,
+    "y": 155.59375,
+    "w": 323,
+    "h": 340.71875
+   }
+  },
+  {
+   "n": 6,
+   "sel": ".time-controls",
+   "outline": true,
+   "rect": {
+    "x": 320,
+    "y": 1156,
+    "w": 1260,
+    "h": 44
+   }
+  }
+ ],
+ "s07_grade_bed": [
+  {
+   "n": 1,
+   "sel": ".grade-legend-panel",
+   "outline": true,
+   "rect": {
+    "x": 1589,
+    "y": 155.59375,
+    "w": 323,
+    "h": 496.5625
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".viewer-main",
+   "outline": false,
+   "rect": {
+    "x": 320,
+    "y": 96,
+    "w": 1260,
+    "h": 1104
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".pier-scour-monitor",
+   "outline": true,
+   "rect": {
+    "x": 1589,
+    "y": 661.75,
+    "w": 323,
+    "h": 340.71875
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".color-legend",
+   "outline": true,
+   "rect": {
+    "x": 1589,
+    "y": 1012.0625,
+    "w": 323,
+    "h": 133.21875
+   }
+  },
+  {
+   "n": 5,
+   "sel": ".time-controls",
+   "outline": true,
+   "rect": {
+    "x": 630,
+    "y": 1140,
+    "w": 640,
+    "h": 52
+   }
+  }
+ ],
+ "s08_timeline": [
+  {
+   "n": 1,
+   "sel": ".viewer-main",
+   "outline": false,
+   "rect": {
+    "x": 320,
+    "y": 96,
+    "w": 1260,
+    "h": 684.640625
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".pier-timeline-panel__chart-wrap",
+   "outline": true,
+   "rect": {
+    "x": 320,
+    "y": 781.640625,
+    "w": 920,
+    "h": 374.359375
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".pier-timeline-panel__gantt",
+   "outline": true,
+   "rect": {
+    "x": 1253,
+    "y": 821.640625,
+    "w": 315,
+    "h": 124.5
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".pier-timeline-panel__reach",
+   "outline": true,
+   "rect": {
+    "x": 1253,
+    "y": 956.140625,
+    "w": 315,
+    "h": 168
+   }
+  },
+  {
+   "n": 5,
+   "sel": ".pier-scour-monitor",
+   "outline": true,
+   "rect": {
+    "x": 1589,
+    "y": 155.59375,
+    "w": 323,
+    "h": 340.71875
+   }
+  },
+  {
+   "n": 6,
+   "sel": ".time-controls",
+   "outline": true,
+   "rect": {
+    "x": 320,
+    "y": 1156,
+    "w": 1260,
+    "h": 44
+   }
+  }
+ ],
+ "s09_risk": [
+  {
+   "n": 1,
+   "sel": ".risk-judgment-panel__summary",
+   "outline": true,
+   "rect": {
+    "x": 1590,
+    "y": 164.59375,
+    "w": 321,
+    "h": 251.484375
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".risk-judgment-panel__cards",
+   "outline": true,
+   "rect": {
+    "x": 1590,
+    "y": 452.578125,
+    "w": 321,
+    "h": 562
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".viewer-main",
+   "outline": false,
+   "rect": {
+    "x": 320,
+    "y": 96,
+    "w": 1260,
+    "h": 1104
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".color-legend",
+   "outline": true,
+   "rect": {
+    "x": 1589,
+    "y": 982.78125,
+    "w": 323,
+    "h": 133.21875
+   }
+  },
+  {
+   "n": 5,
+   "sel": ".time-controls",
+   "outline": true,
+   "rect": {
+    "x": 630,
+    "y": 1140,
+    "w": 640,
+    "h": 52
+   }
+  }
+ ],
+ "s10_alert_sop": [
+  {
+   "n": 1,
+   "sel": ".alert-sop-kpi-strip",
+   "outline": true,
+   "rect": {
+    "x": 14,
+    "y": 66,
+    "w": 1892,
+    "h": 191.390625
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".alert-sop-flow",
+   "outline": true,
+   "rect": {
+    "x": 14,
+    "y": 263.390625,
+    "w": 1892,
+    "h": 66.359375
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".alert-sop-page__col",
+   "outline": true,
+   "rect": {
+    "x": 14,
+    "y": 337.75,
+    "w": 554.234375,
+    "h": 850.25
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".alert-sop-page__focus",
+   "outline": true,
+   "rect": {
+    "x": 585.234375,
+    "y": 346.75,
+    "w": 729.53125,
+    "h": 253.40625
+   }
+  },
+  {
+   "n": 5,
+   "sel": ".alert-sop-page__sop-list",
+   "outline": true,
+   "rect": {
+    "x": 577.234375,
+    "y": 675.59375,
+    "w": 745.53125,
+    "h": 345.1875
+   }
+  },
+  {
+   "n": 6,
+   "sel": ".alert-sop-page__hist-block",
+   "outline": true,
+   "rect": {
+    "x": 577.234375,
+    "y": 1020.78125,
+    "w": 745.53125,
+    "h": 166.21875
+   }
+  },
+  {
+   "n": 7,
+   "sel": ".alert-sop-page__grade-stack",
+   "outline": true,
+   "rect": {
+    "x": 1342.765625,
+    "y": 434.1875,
+    "w": 552.234375,
+    "h": 719.8125
+   }
+  }
+ ],
+ "s02_cases": [
+  {
+   "n": 1,
+   "sel": ".global-nav",
+   "outline": true,
+   "rect": {
+    "x": 0,
+    "y": 0,
+    "w": 1920,
+    "h": 56
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".case-bi-strip",
+   "outline": true,
+   "rect": {
+    "x": 10,
+    "y": 97,
+    "w": 1900,
+    "h": 188.71875
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".case-new-sim__cta",
+   "outline": true,
+   "rect": {
+    "x": 1387,
+    "y": 302.71875,
+    "w": 200,
+    "h": 40
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".mgmt-filter-row",
+   "outline": true,
+   "rect": {
+    "x": 11,
+    "y": 383.71875,
+    "w": 1588,
+    "h": 63
+   }
+  },
+  {
+   "n": 5,
+   "sel": ".mgmt-table-wrap",
+   "outline": true,
+   "rect": {
+    "x": 11,
+    "y": 474.71875,
+    "w": 1588,
+    "h": 716.28125
+   }
+  },
+  {
+   "n": 6,
+   "sel": ".case-sel-summary",
+   "outline": true,
+   "rect": {
+    "x": 1623,
+    "y": 338.71875,
+    "w": 274,
+    "h": 369.390625
+   }
+  },
+  {
+   "n": 7,
+   "sel": ".mgmt-pager",
+   "outline": true,
+   "rect": {
+    "x": 19,
+    "y": 1150,
+    "w": 1572,
+    "h": 41
+   }
+  }
+ ],
+ "s03_data_pipeline": [
+  {
+   "n": 1,
+   "sel": ".pipeline-stage-strip",
+   "outline": true,
+   "rect": {
+    "x": 10,
+    "y": 97,
+    "w": 1900,
+    "h": 112.9375
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".mgmt-panel",
+   "outline": true,
+   "rect": {
+    "x": 10,
+    "y": 227.9375,
+    "w": 1550,
+    "h": 964.0625
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".pipeline-kpi",
+   "outline": true,
+   "rect": {
+    "x": 1570,
+    "y": 237.9375,
+    "w": 340,
+    "h": 281.40625
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".data-pipeline__upload-note",
+   "outline": true,
+   "rect": {
+    "x": 1570,
+    "y": 531.34375,
+    "w": 340,
+    "h": 45.1875
+   }
+  },
+  {
+   "n": 5,
+   "sel": ".data-pipeline__pager",
+   "outline": true,
+   "rect": {
+    "x": 11,
+    "y": 1150,
+    "w": 1548,
+    "h": 41
+   }
+  }
+ ],
+ "a01_cfd_pathlines": [
+  {
+   "n": 1,
+   "sel": ".view-mode-toggle",
+   "outline": true,
+   "rect": {
+    "x": 1454,
+    "y": 108,
+    "w": 114,
+    "h": 34
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".cfd-layer-panel",
+   "outline": true,
+   "rect": {
+    "x": 1400.375,
+    "y": 152,
+    "w": 167.625,
+    "h": 281.25
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".viewer-main",
+   "outline": false,
+   "rect": {
+    "x": 320,
+    "y": 96,
+    "w": 1260,
+    "h": 1104
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".cfd-velocity-colorbar",
+   "outline": true,
+   "rect": {
+    "x": 1368,
+    "y": 1044.75,
+    "w": 200,
+    "h": 71.25
+   }
+  },
+  {
+   "n": 5,
+   "sel": ".cfd-frame-readout",
+   "outline": true,
+   "rect": {
+    "x": 412,
+    "y": 1088,
+    "w": 196.34375,
+    "h": 28
+   }
+  },
+  {
+   "n": 6,
+   "sel": ".axis-triad",
+   "outline": true,
+   "rect": {
+    "x": 332,
+    "y": 1108,
+    "w": 72,
+    "h": 80
+   }
+  }
+ ],
+ "a02_cfd_bed_isolines": [
+  {
+   "n": 1,
+   "sel": ".cfd-layer-panel",
+   "outline": true,
+   "rect": {
+    "x": 1444.65625,
+    "y": 152,
+    "w": 123.34375,
+    "h": 255.25
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".viewer-main",
+   "outline": false,
+   "rect": {
+    "x": 320,
+    "y": 96,
+    "w": 1260,
+    "h": 1104
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".color-legend",
+   "outline": true,
+   "rect": {
+    "x": 1589,
+    "y": 505.90625,
+    "w": 323,
+    "h": 133.21875
+   }
+  },
+  {
+   "n": 4,
+   "sel": ".cfd-frame-readout",
+   "outline": true,
+   "rect": {
+    "x": 412,
+    "y": 1088,
+    "w": 196.34375,
+    "h": 28
+   }
+  },
+  {
+   "n": 5,
+   "sel": ".axis-triad",
+   "outline": true,
+   "rect": {
+    "x": 332,
+    "y": 1108,
+    "w": 72,
+    "h": 80
+   }
+  }
+ ],
+ "a03_cfd_cutplane": [
+  {
+   "n": 1,
+   "sel": ".cfd-layer-panel",
+   "outline": true,
+   "rect": {
+    "x": 1264.015625,
+    "y": 152,
+    "w": 303.984375,
+    "h": 334.25
+   }
+  },
+  {
+   "n": 2,
+   "sel": ".viewer-main",
+   "outline": false,
+   "rect": {
+    "x": 320,
+    "y": 96,
+    "w": 1260,
+    "h": 1104
+   }
+  },
+  {
+   "n": 3,
+   "sel": ".cfd-velocity-colorbar",
+   "outline": true,
+   "rect": {
+    "x": 1368,
+    "y": 1044.75,
+    "w": 200,
+    "h": 71.25
+   }
+  }
+ ]
+}

@@ -20,7 +20,7 @@ interface ScenarioField {
 }
 
 const SCENARIO_FIELDS: ScenarioField[] = [
-  { key: 'd50Mm', label: 'd50', format: (s) => `${s.d50Mm} mm` },
+  { key: 'd50Mm', label: '하상·퇴적물 입경', format: (s) => `${s.d50Mm} mm` },
   { key: 'waterDepthM', label: '수심', format: (s) => `${s.waterDepthM} m` },
   { key: 'velocityMS', label: '유속', format: (s) => `${s.velocityMS} m/s` },
   { key: 'pierSpacingM', label: '기둥 간격', format: (s) => `${s.pierSpacingM} m` },

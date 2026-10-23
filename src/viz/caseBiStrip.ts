@@ -175,6 +175,7 @@ function renderStatusPanel(cases: MockCaseRow[], statusChip: CaseStatusChip): st
   const doneN = segments.find((s) => s.id === 'done')?.value ?? 0;
   const verifyPct = (doneN / total) * 100;
   const runN = segments.find((s) => s.id === 'run')?.value ?? 0;
+  const selSeg = segments.find((s) => s.id === statusChip);
 
   const donut = renderDonutChart({
     size: BI_DONUT_SIZE,
@@ -203,14 +204,15 @@ function renderStatusPanel(cases: MockCaseRow[], statusChip: CaseStatusChip): st
   return `<section class="case-bi-panel case-bi-panel--status" aria-label="케이스 상태" data-bi-run-count="${runN}">
     <header class="case-bi-panel__head">
       <h3 class="case-bi-panel__title">상태</h3>
-      <p class="case-bi-panel__hint">클릭·호버 → 목록 필터</p>
     </header>
     <div class="case-bi-panel__body">
       ${renderDonutSlot(donut, {
         id: 'status',
-        label: '전체',
-        value: cases.length,
-        sub: `검증완료 ${verifyPct.toFixed(0)}%`,
+        label: selSeg ? selSeg.label : '전체',
+        value: selSeg ? selSeg.value : cases.length,
+        sub: selSeg
+          ? `${selSeg.label} ${((selSeg.value / total) * 100).toFixed(0)}%`
+          : `검증완료 ${verifyPct.toFixed(0)}%`,
       })}
       <div class="case-bi-panel__side">
         ${renderBiKpi('검증완료율', `<b data-bi-count="${verifyPct}">0</b>%`, verifyPct, '--ok')}
@@ -500,7 +502,7 @@ export function bindCaseBiStrip(container: HTMLElement): () => void {
             'status',
             row.getAttribute('data-bi-status-label') ?? id,
             row.getAttribute('data-bi-status-count') ?? '0',
-            `${row.getAttribute('data-bi-status-pct') ?? '0'}%`,
+            `${row.getAttribute('data-bi-status-label') ?? id} ${row.getAttribute('data-bi-status-pct') ?? '0'}%`,
           );
         }
         spotlightStatus(id);
@@ -516,7 +518,7 @@ export function bindCaseBiStrip(container: HTMLElement): () => void {
           'status',
           statusRow.getAttribute('data-bi-status-label') ?? id,
           statusRow.getAttribute('data-bi-status-count') ?? '0',
-          `${statusRow.getAttribute('data-bi-status-pct') ?? '0'}%`,
+          `${statusRow.getAttribute('data-bi-status-label') ?? id} ${statusRow.getAttribute('data-bi-status-pct') ?? '0'}%`,
         );
         spotlightStatus(id);
       }

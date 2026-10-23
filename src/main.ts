@@ -23,7 +23,12 @@ import { ScreenPlaceholder } from '@/components/ScreenPlaceholder';
 import { SectionProfilePanel } from '@/components/SectionProfilePanel';
 import { PlanViewOverlay } from '@/components/PlanViewOverlay';
 import { PlanViewGuide } from '@/components/PlanViewGuide';
-import { computeSectionKpi } from '@/utils/sectionProfile';
+import {
+  computeSectionKpi,
+  defaultTransversePierId,
+  longitudinalLineWorldZ,
+  transverseLineWorldX,
+} from '@/utils/sectionProfile';
 import { formatCaseHeadline, nextCaseId } from '@/utils/issueCaseId';
 import { GradeLegendPanel } from '@/components/GradeLegendPanel';
 import { PierLabelOverlay } from '@/components/PierLabelOverlay';
@@ -90,6 +95,25 @@ import {
 import { normalizeFluidQuantityRange } from '@/utils/fluidQuantityColor';
 import { scalePierScourReadings } from '@/utils/pierScourDisplayScale';
 import { pierScourDepths } from '@/utils/pierScourSample';
+import { AxisTriad } from '@/components/AxisTriad';
+import { CfdFrameReadout } from '@/components/CfdFrameReadout';
+import { CfdLayerPanel } from '@/components/CfdLayerPanel';
+import { ViewModeToggle } from '@/components/ViewModeToggle';
+import { cfdLayers } from '@/state/cfdLayers';
+import {
+  createCfdFlowField,
+  estimateSpeedMax,
+  type CfdFlowSource,
+  type FlowPier,
+} from '@/data/cfdFlowField';
+import { CFD_SETTINGS } from '@/constants/cfdSettings';
+import { CfdPathlines } from '@/modules/CfdPathlines';
+import { CfdVectorGlyphs } from '@/modules/CfdVectorGlyphs';
+import { CfdCutPlane } from '@/modules/CfdCutPlane';
+import { CfdVelocityColorbar } from '@/components/CfdVelocityColorbar';
+import { CfdProbePanel } from '@/components/CfdProbePanel';
+import { CfdProbeMarker } from '@/modules/CfdProbeMarker';
+import { computeCfdProbe } from '@/utils/cfdProbe';
 import { captureSceneScreenshot, scdtScreenshotName } from '@/utils/screenshot';
 import {
   alignFluidSeriesToTerrain,
@@ -97,6 +121,8 @@ import {
   fluidHeightRange,
   fluidYiAtWorldY,
   sceneViewRadius,
+  sampleTerrainBedAtWorld,
+  terrainDomainXZExtents,
   waterSurfaceElevation,
 } from '@/utils/fluidWorld';
 
@@ -174,6 +200,8 @@ interface SimState {
   /** 실측 CSV 는 세굴심에 표시용 배율을 적용하지 않는다. */
   pierDisplayScale: boolean;
   durationSeconds: number;
+  /** 이 sim 에 종속된 지연 생성 모듈(CFD 레이어 등)의 정리 함수 */
+  disposers: Array<() => void>;
   dispose(): void;
 }
 
@@ -415,6 +443,7 @@ async function buildSimState(
     probeSeries?.durationSeconds ?? 0,
   );
 
+  const disposers: Array<() => void> = [];
   return {
     series: activeSeries,
     fluidSeries,
@@ -435,7 +464,10 @@ async function buildSimState(
     probeFluidField,
     pierDisplayScale: probeSeries === null,
     durationSeconds,
+    disposers,
     dispose() {
+      for (const fn of disposers) fn();
+      disposers.length = 0;
       fluidPoints.dispose();
       tracers.dispose();
       arrows.dispose();
@@ -648,6 +680,230 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   });
   viewerMain.appendChild(planViewGuide.element);
 
+  // 보기 모드(기본/CFD)는 viewState 에 두어 5~9번 화면을 오가도 유지한다. 지금 단계는 토글·상태만 있고,
+  // CFD 전용 렌더 레이어는 viewState.subscribe 로 viewMode 를 읽어 이후 단계에서 붙인다.
+  const viewModeToggle = new ViewModeToggle(viewState.viewMode, {
+    onChange: (mode) => viewState.setViewMode(mode),
+  });
+  viewerMain.appendChild(viewModeToggle.element);
+  const cfdLayerPanel = new CfdLayerPanel(cfdLayers, {
+    get: () => viewState.sectionId,
+    set: (sec) => viewState.setSectionId(sec),
+    subscribe: (fn) => viewState.subscribe(fn),
+  });
+  const cfdFrameReadout = new CfdFrameReadout();
+  const axisTriad = new AxisTriad();
+  const cfdVelocityColorbar = new CfdVelocityColorbar();
+  viewerMain.append(
+    cfdLayerPanel.element,
+    cfdFrameReadout.element,
+    axisTriad.element,
+    cfdVelocityColorbar.element,
+  );
+  /** CFD 전용 후처리 UI 는 CFD 모드 + 5~9번 화면에서만 보인다(기본 모드에서는 계산도 하지 않는다). */
+  const cfdChromeActive = (): boolean =>
+    viewState.viewMode === 'cfd' && router.screen >= 5 && router.screen <= 9;
+  const syncCfdChrome = (): void => {
+    const on = cfdChromeActive();
+    cfdLayerPanel.setVisible(on);
+    cfdFrameReadout.setVisible(on);
+    axisTriad.setVisible(on);
+  };
+  /**
+   * CFD 유동장 소스는 sim 마다 처음 필요할 때 한 번만 만든다(기본 모드에서는 만들지 않는다).
+   * 해석 유속(u·v·w)이 들어 있으면 실데이터, 없으면 합성 유동장(목업).
+   */
+  const cfdFlowCache = new WeakMap<object, CfdFlowSource>();
+  const cfdBedAt =
+    (state: SimState) =>
+    (x: number, z: number): number | null =>
+      sampleTerrainBedAtWorld(state.series.baseTerrain, undefined, x, z);
+  const cfdPiersOf = (state: SimState): FlowPier[] => {
+    const defaultDiameter = Math.max(params.pierDiameter, 1e-3);
+    // 기둥 형상·하단부(footing)·기준 높이는 PierMarker 가 그리는 것과 같아야 유선이 실제 구조물을 통과하지 않는다.
+    return state.pierDefs.map((d) => {
+      const pier: FlowPier = {
+        x: d.x,
+        z: d.z,
+        radius: (d.diameter ?? defaultDiameter) / 2,
+        shape: d.shape === 'square' ? 'square' : 'circle',
+        baseY: 0, // buildSimState 의 PierMarker baseElevation
+      };
+      if (d.footing) pier.footing = d.footing;
+      return pier;
+    });
+  };
+  const cfdFlowFor = (state: SimState): CfdFlowSource => {
+    let flow = cfdFlowCache.get(state);
+    if (!flow) {
+      flow = createCfdFlowField({
+        fluidSeries: state.fluidSeries,
+        inflowSpeed: Math.abs(params.fluidU) > 1e-6 ? params.fluidU : params.inflowSpeed,
+        waterLevelY: state.waterLevelY,
+        bedElevation: cfdBedAt(state),
+        piers: cfdPiersOf(state),
+      });
+      cfdFlowCache.set(state, flow);
+    }
+    return flow;
+  };
+
+  /** CFD 유동장 레이어(유선·벡터)는 켜질 때 처음 만들고, sim 이 교체되면 함께 정리한다. */
+  interface CfdFlowViz {
+    pathlines: CfdPathlines | null;
+    glyphs: CfdVectorGlyphs | null;
+    cut: CfdCutPlane | null;
+    cutOn: boolean;
+    speedMax: number;
+    pathOn: boolean;
+    vecOn: boolean;
+  }
+  const cfdVizCache = new WeakMap<object, CfdFlowViz>();
+  const cfdVizFor = (state: SimState): CfdFlowViz => {
+    let viz = cfdVizCache.get(state);
+    if (!viz) {
+      const created: CfdFlowViz = {
+        pathlines: null,
+        glyphs: null,
+        cut: null,
+        cutOn: false,
+        speedMax: estimateSpeedMax(
+          cfdFlowFor(state),
+          terrainDomainXZExtents(state.series.baseTerrain),
+          cfdBedAt(state),
+          state.waterLevelY,
+        ),
+        pathOn: false,
+        vecOn: false,
+      };
+      state.disposers.push(() => {
+        created.pathlines?.dispose();
+        created.glyphs?.dispose();
+        created.cut?.dispose();
+      });
+      cfdVizCache.set(state, created);
+      viz = created;
+    }
+    return viz;
+  };
+  const syncCfdFlowViz = (): void => {
+    const chrome = cfdChromeActive();
+    const planView = router.screen === 6; // 평면뷰는 상부 시점 고정이라 유동장 레이어를 숨긴다
+    const wantPath = chrome && !planView && cfdLayers.isOn('pathlines');
+    const wantVec = chrome && !planView && cfdLayers.isOn('vectors');
+    const wantCut = chrome && !planView && cfdLayers.isOn('cutPlane');
+    const existing = cfdVizCache.get(sim);
+    if (!wantPath && !wantVec && !wantCut && !existing) {
+      cfdVelocityColorbar.setVisible(false);
+      return;
+    }
+    const viz = cfdVizFor(sim);
+    const flow = cfdFlowFor(sim);
+    const base = sim.series.baseTerrain;
+    const bounds = terrainDomainXZExtents(base);
+    if (wantPath && !viz.pathlines) {
+      viz.pathlines = new CfdPathlines({
+        scene: sceneManager.scene,
+        flow,
+        bounds,
+        bedAt: cfdBedAt(sim),
+        waterLevelY: sim.waterLevelY,
+        piers: cfdPiersOf(sim),
+        speedMax: viz.speedMax,
+      });
+    }
+    if (wantVec && !viz.glyphs) {
+      viz.glyphs = new CfdVectorGlyphs({
+        scene: sceneManager.scene,
+        flow,
+        bounds,
+        bedAt: cfdBedAt(sim),
+        waterLevelY: sim.waterLevelY,
+        speedMax: viz.speedMax,
+      });
+    }
+    if (wantCut && !viz.cut) {
+      viz.cut = new CfdCutPlane({
+        scene: sceneManager.scene,
+        flow,
+        bounds,
+        bedAt: cfdBedAt(sim),
+        waterLevelY: sim.waterLevelY,
+        speedMax: viz.speedMax,
+      });
+    }
+    viz.pathOn = wantPath;
+    viz.vecOn = wantVec;
+    viz.cutOn = wantCut;
+    viz.cut?.setVisible(wantCut);
+    if (viz.cut && wantCut) {
+      // 종단(A–A′)=XZ 평면(고정 Z), 횡단(B–B′)=YZ 평면(고정 X). 위치는 수동이 아니면 평면·단면 화면의 단면선(선택 교각)에 맞춘다.
+      const axis = viewState.sectionId === 'A' ? 'longitudinal' : 'transverse';
+      const frac = cfdLayers.cutPosition;
+      const range = viz.cut.positionRange(axis);
+      const pierId = viewState.selectedPierId ?? defaultTransversePierId(sim.pierDefs);
+      const auto =
+        axis === 'longitudinal'
+          ? longitudinalLineWorldZ(sim.pierDefs, viewState.selectedPierId ?? undefined)
+          : transverseLineWorldX(sim.pierDefs, pierId);
+      viz.cut.setPlane(axis, frac === null ? auto : range.min + frac * (range.max - range.min));
+    }
+    viz.pathlines?.setVisible(wantPath);
+    viz.glyphs?.setVisible(wantVec);
+    viz.glyphs?.setDensity(cfdLayers.vectorDensity);
+    cfdVelocityColorbar.setRange(viz.speedMax);
+    cfdVelocityColorbar.setFlowOrigin(flow.origin);
+    cfdVelocityColorbar.setVisible(chrome && (wantPath || wantVec || wantCut));
+  };
+
+  /**
+   * 수면·교량 표시와 자유수면 교란. 기본 화면의 표시 규칙(수면 체크, 7번 화면은 교량 숨김)을 그대로 따르고,
+   * CFD 모드에서만 레이어 토글(수면·교량)과 교란 파형을 추가로 적용한다. 평면뷰(6)와 조건설정(4)은 건드리지 않는다.
+   */
+  const applyCfdSurfaceBridge = (): void => {
+    const s = router.screen;
+    if (s < 5 || s > 9 || s === 6) return;
+    const cfd = viewState.viewMode === 'cfd';
+    const surfaceLayer = !cfd || cfdLayers.isOn('freeSurface');
+    sim.terrainWater.setVisible(fluidControls.isSliceVisible() && surfaceLayer);
+    sim.pierMarker.setBridgeStructureVisible(s !== 7 && (!cfd || cfdLayers.isOn('bridge')));
+    sim.terrainWater.setSurfaceDisturbance(
+      cfd && cfdLayers.isOn('freeSurface')
+        ? {
+            piers: cfdPiersOf(sim),
+            inflowSpeed: Math.abs(params.fluidU) > 1e-6 ? params.fluidU : params.inflowSpeed,
+            gain: CFD_SETTINGS.surfaceDisturbanceGain,
+          }
+        : null,
+    );
+  };
+  let lastSurfaceOpacity = cfdLayers.surfaceOpacity;
+
+  /** CFD 모드 하상 표현(색·등심선·메시). 기본 모드에서는 항상 기존 모래색 표현으로 되돌린다. */
+  const applyCfdBedStyle = (): void => {
+    const cfd = viewState.viewMode === 'cfd';
+    const contour = cfd && cfdLayers.isOn('bedContour');
+    sim.terrain.setColorMode(!cfd ? 'basic' : contour ? 'cfd' : 'plain');
+    sim.terrain.setIsolinesVisible(cfd && cfdLayers.isOn('isolines'));
+    sim.terrain.setWireframeVisible(cfd && cfdLayers.isOn('mesh'));
+    legend.setStyle(cfd ? 'cfd' : 'basic');
+    if (!cfd) clearCfdProbe();
+    if (cfd) cfdLayerPanel.setFlowOrigin(cfdFlowFor(sim).origin);
+    syncCfdFlowViz();
+    applyCfdSurfaceBridge();
+    if (cfd && cfdLayers.surfaceOpacity !== lastSurfaceOpacity) {
+      lastSurfaceOpacity = cfdLayers.surfaceOpacity;
+      fluidSliceOpacity = lastSurfaceOpacity;
+      applyFluidPrimaryQuantity(fluidControls.getPrimaryQuantity());
+    }
+  };
+  viewState.subscribe(() => {
+    viewModeToggle.setMode(viewState.viewMode);
+    syncCfdChrome();
+    applyCfdBedStyle();
+  });
+  cfdLayers.subscribe(applyCfdBedStyle);
+
   planViewOverlay.setOnPierPick((pierId) => {
     sectionProfilePanel.setTransversePierId(pierId);
     viewState.setSelectedPier(pierId);
@@ -741,8 +997,73 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     canvas.classList.toggle('is-pier-hover', id != null);
   });
 
+  // ── CFD 클릭 프로브: 하상을 클릭하면 좌표·표고 변화·유속·전단응력을 보여 준다(CFD 모드 전용).
+  let cfdProbeAt: { x: number; z: number } | null = null;
+  const cfdProbeMarker = new CfdProbeMarker(
+    sceneManager.scene,
+    Math.max(sim.terrain.cellSize * 3, 0.02),
+  );
+  const clearCfdProbe = (): void => {
+    cfdProbeAt = null;
+    cfdProbePanel.setSample(null);
+    cfdProbeMarker.hide();
+  };
+  const cfdProbePanel = new CfdProbePanel(() => clearCfdProbe());
+  viewerMain.appendChild(cfdProbePanel.element);
+  const refreshCfdProbe = (t: number): void => {
+    if (!cfdProbeAt) return;
+    const q =
+      cfdChromeActive() && router.screen !== 6
+        ? sim.terrain.queryAtWorld(cfdProbeAt.x, cfdProbeAt.z)
+        : null;
+    if (!q) {
+      clearCfdProbe();
+      return;
+    }
+    const flow = cfdFlowFor(sim);
+    cfdProbePanel.setFlowOrigin(flow.origin);
+    cfdProbePanel.setSample(
+      computeCfdProbe({
+        flow,
+        x: cfdProbeAt.x,
+        z: cfdProbeAt.z,
+        elevation: q.elevation,
+        deltaElevation: q.deltaElevation,
+        baseElevation: q.baseElevation,
+        waterLevelY: sim.waterLevelY,
+        t,
+      }),
+    );
+    cfdProbeMarker.setPosition(cfdProbeAt.x, q.elevation, cfdProbeAt.z);
+  };
+  const bedPicking = new Picking({
+    canvas,
+    camera: cameraManager.camera,
+    pickables: [...sim.terrain.pickables, ...sim.pierMarker.getPierPickables()],
+    emitOnHover: false,
+  });
+  // 궤도 회전(드래그) 끝에서 발생하는 click 은 프로브로 취급하지 않는다.
+  let probePointerDown: { x: number; y: number } | null = null;
+  let probeDragged = false;
+  canvas.addEventListener('pointerdown', (e) => {
+    probePointerDown = { x: e.clientX, y: e.clientY };
+    probeDragged = false;
+  });
+  canvas.addEventListener('pointerup', (e) => {
+    if (probePointerDown) {
+      probeDragged = Math.hypot(e.clientX - probePointerDown.x, e.clientY - probePointerDown.y) > 4;
+    }
+  });
+  bedPicking.onClick((hit) => {
+    if (probeDragged || !hit || !cfdChromeActive() || router.screen === 6) return;
+    if (hit.objectName?.startsWith('pier-')) return; // 교각 클릭은 교각 선택으로 처리
+    cfdProbeAt = { x: hit.worldX, z: hit.worldZ };
+    refreshCfdProbe(timeControls.time);
+  });
+
   const syncPierPickables = (): void => {
     pierPicking.updatePickables(sim.pierMarker.getPierPickables());
+    bedPicking.updatePickables([...sim.terrain.pickables, ...sim.pierMarker.getPierPickables()]);
   };
 
   const timeControls = new TimeControls({
@@ -883,6 +1204,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
       onSliceVisibilityChange: (v) => {
         sim.terrainWater.setVisible(v);
         sim.slicePlane.setVisible(false);
+        applyCfdSurfaceBridge();
       },
       onTracersVisibilityChange: (v) => sim.tracers.setVisible(v),
     },
@@ -1002,6 +1324,9 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     );
     fluidControls.element.classList.toggle('fluid-controls--viewer', screen >= 5 && screen <= 9);
     planViewGuide.element.classList.toggle('is-hidden', screen !== 6);
+    viewModeToggle.setVisible(screen >= 5 && screen <= 9);
+    syncCfdChrome();
+    syncCfdFlowViz();
   };
 
   let stopViewerScreenMotion: (() => void) | null = null;
@@ -1149,11 +1474,13 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     next.slicePlane.setHeight(next.waterLevelY);
     next.terrainWater.setWaterLevel(next.waterLevelY);
     next.slicePlane.setVisible(false);
-    // 유속 데이터가 없는 하상 변화 CSV: 수면은 꺼 두고(세굴 형상이 가려지지 않게) 유속 항목·추적 입자는 숨긴다.
+    // 유속 데이터가 없는 하상 변화 CSV: 유속 항목·추적 입자는 숨긴다.
     const scourOnly = next.probeSeries !== null && !next.probeFluidField;
     fluidControls.setScourOnlyMode(scourOnly);
-    next.terrainWater.setVisible(!scourOnly);
-    fluidControls.setSliceChecked(!scourOnly);
+    // 수면은 기본으로 켜 두고, 항목 전환·재생 중에도 기본 물 색을 유지한다.
+    next.terrainWater.setBaseColorOnly(scourOnly);
+    next.terrainWater.setVisible(true);
+    fluidControls.setSliceChecked(true);
     next.arrows.setVisible(false);
     fluidControls.setTracersAvailable(!scourOnly, !scourOnly);
     next.tracers.setVisible(!scourOnly && fluidControls.isTracersVisible());
@@ -1165,6 +1492,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     // 방금 폐기된 옛 인스턴스가 아니라 실제로 화면에 보이는 next 에 적용된다.
     params = nextParams;
     sim = next;
+    applyCfdBedStyle();
     syncPierPickables();
     applyViewStateToViewer();
     applyFluidPrimaryQuantity(fluidControls.getPrimaryQuantity());
@@ -1343,6 +1671,8 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
 
   sim.terrainWater.setOpacity(fluidSliceOpacity);
   sim.slicePlane.setOpacity(fluidSliceOpacity);
+  // 저장된 보기 모드가 CFD 이면 첫 화면부터 CFD 표현을 적용한다(관련 컨트롤이 모두 만들어진 뒤).
+  applyCfdBedStyle();
 
   sim.terrain.onFrameApplied(({ absMax }) => legend.setRange(absMax));
 
@@ -1440,6 +1770,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
         }
         statusBar.update({ extra: buildViewerStatusExtra(screen) });
       }
+      applyCfdSurfaceBridge();
       loop.start();
     } else {
       cameraManager.setPlanViewOrbitLock(false);
@@ -1480,7 +1811,7 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
         rendererManager.renderer,
         sceneManager.scene,
         cameraManager.camera,
-        scdtScreenshotName(screen, SCREEN_TITLES[screen]),
+        scdtScreenshotName(screen, SCREEN_TITLES[screen], new Date(), viewState.viewMode),
       );
     },
   });
@@ -1659,6 +1990,20 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     syncFluidFieldLegend();
 
     cameraManager.update();
+    if (cfdChromeActive()) {
+      cfdFrameReadout.update(t, sim.terrain.frameIndex, sim.terrain.frameCount);
+      axisTriad.update(cameraManager.camera.quaternion);
+      // 유동장 시각: 타임라인이 있으면 t, 없으면 실시간 시계. 입자는 재생 중(또는 타임라인 없음)에만 이동한다.
+      const flowT = timelineLive ? t : ambientRippleTime;
+      const viz = cfdVizCache.get(sim);
+      if (viz && (viz.pathOn || viz.vecOn || viz.cutOn)) {
+        const advance = !timelineLive || timeControls.isPlaying ? delta : 0;
+        if (viz.pathOn) viz.pathlines?.update(flowT, advance);
+        if (viz.vecOn) viz.glyphs?.update(flowT, delta);
+        if (viz.cutOn) viz.cut?.update(flowT, delta);
+      }
+      refreshCfdProbe(flowT);
+    }
     rendererManager.renderer.render(sceneManager.scene, cameraManager.camera);
   });
 
@@ -1671,6 +2016,9 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
   const dispose = (): void => {
     shortcuts.dispose();
     pierPicking.dispose();
+    bedPicking.dispose();
+    cfdProbePanel.dispose();
+    cfdProbeMarker.dispose();
     loop.dispose();
     logoutButton.dispose();
     cameraPresets.dispose();
@@ -1698,6 +2046,11 @@ async function bootstrap(router: ScreenRouter): Promise<void> {
     conditionSetupCaseBar.dispose();
     planViewOverlay.dispose();
     planViewGuide.dispose();
+    viewModeToggle.dispose();
+    cfdLayerPanel.dispose();
+    cfdFrameReadout.dispose();
+    axisTriad.dispose();
+    cfdVelocityColorbar.dispose();
     unbindViewerScreenViz();
     stopViewerScreenMotion?.();
     router.dispose();

@@ -36,7 +36,7 @@ const STEP_META: Record<SetupStep, { label: string; prompt: string }> = {
   },
   files: {
     label: '파일 선택',
-    prompt: `결과 CSV 를 고릅니다. 케이스(s01, s02…)를 여러 개 함께 고르면 뷰어에서 바꿔 볼 수 있습니다(최대 ${MAX_CSV_CASES}개).`,
+    prompt: `결과 CSV 를 고릅니다.`,
   },
 };
 

@@ -1,4 +1,5 @@
 import { colorRampToCssGradient } from '@/utils/colorRamp';
+import { cfdScourGradientCss } from '@/utils/cfdScourColor';
 import type { Disposable } from '@/types/disposable';
 import { binMaxCount, binValues } from '@/viz/histogram';
 
@@ -19,6 +20,7 @@ export class ColorLegend implements Disposable {
   private readonly maxLabel: HTMLSpanElement;
   private readonly midLabel: HTMLSpanElement;
   private readonly unit: string;
+  private readonly bar: HTMLElement;
   private readonly histogramHost: HTMLElement;
   private absMax = 1;
 
@@ -38,6 +40,7 @@ export class ColorLegend implements Disposable {
     const bar = document.createElement('div');
     bar.className = 'color-legend__bar';
     bar.style.background = colorRampToCssGradient('to right');
+    this.bar = bar;
     this.element.appendChild(bar);
 
     this.histogramHost = document.createElement('div');
@@ -58,6 +61,12 @@ export class ColorLegend implements Disposable {
     this.element.appendChild(hint);
 
     this.setRange(options.initialAbsMax ?? 1);
+  }
+
+  /** CFD 모드에서는 하상 색이 발산형(적-백-청)이므로 컬러바도 같은 색으로 바꾼다. */
+  public setStyle(style: 'basic' | 'cfd'): void {
+    this.bar.style.background =
+      style === 'cfd' ? cfdScourGradientCss('to right') : colorRampToCssGradient('to right');
   }
 
   // 좌측은 -absMax(세굴), 우측은 +absMax(퇴적), 중앙은 0

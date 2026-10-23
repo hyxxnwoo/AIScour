@@ -294,7 +294,7 @@
   min-width: 0;
   min-height: 0;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  --case-bi-body-h: clamp(64px, 12vh, 132px);
+  --case-bi-body-h: clamp(120px, 16vh, 140px);
   overflow: hidden;
 }
 
@@ -337,6 +337,21 @@
 
 .case-mgmt-page .case-bi-panel--status .case-bi-kpi {
   display: none;
+}
+
+/* 상태 범례 4행을 세로로 쌓으면 본문 높이를 넘겨 짤리므로 항상 2×2 로 둔다 */
+.case-mgmt-page .case-bi-panel--status .case-bi-legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: center;
+  gap: 3px;
+  height: auto;
+}
+
+.case-mgmt-page .case-bi-panel--status .case-bi-legend__row {
+  min-width: 0;
+  padding: 3px 5px;
+  gap: 2px 4px;
 }
 
 .case-mgmt-page .case-bi-panel__body--grade {
@@ -698,8 +713,8 @@
 
 @media (max-height: 760px) {
   .case-mgmt-page .mgmt-page__body > .case-bi-strip {
-    --case-bi-body-h: 96px;
-    --case-bi-viz-w: 76px;
+    --case-bi-body-h: 120px;
+    --case-bi-viz-w: 84px;
   }
 }
 
@@ -1062,7 +1077,7 @@
   }
 
   .case-mgmt-page .mgmt-page__body > .case-bi-strip {
-    --case-bi-body-h: clamp(52px, 9vh, 88px);
+    --case-bi-body-h: 120px;
   }
 
   .ui-dock {
@@ -1082,7 +1097,7 @@
   }
 
   .case-mgmt-page .mgmt-page__body > .case-bi-strip {
-    --case-bi-body-h: 48px;
+    --case-bi-body-h: 120px;
   }
 }
 

@@ -40,7 +40,7 @@ describe('CaseSwitcher', () => {
     const labels = [...sw.element.querySelectorAll('#case-switcher-select option')].map(
       (o) => o.textContent,
     );
-    expect(labels).toEqual(['S02 · ① d50', 'run_a']);
+    expect(labels).toEqual(['S02 · ① 하상·퇴적물 입경', 'run_a']);
     sw.dispose();
   });
 
@@ -57,7 +57,7 @@ describe('CaseSwitcher', () => {
 
     expect(picked).toEqual([2]);
     expect(sw.selectedIndex).toBe(2);
-    expect(sw.element.textContent).toContain('S03 · ① d50');
+    expect(sw.element.textContent).toContain('S03 · ① 하상·퇴적물 입경');
     expect(sw.element.textContent).toContain('0.25 mm');
     sw.dispose();
   });

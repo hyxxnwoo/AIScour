@@ -432,7 +432,6 @@ export class CaseManagementPage implements Disposable {
         <aside class="mgmt-panel mgmt-panel--side viz-widget viz-tier--detail" data-widget-id="case-compare">
           <h2 class="mgmt-h2">선택 케이스 요약</h2>
           ${summaryHtml}
-          <p class="mgmt-hint">잔여 여유율·등급은 기초 근입 ${fd} m 기준 <span class="mgmt-prov">잠정</span></p>
           <div class="mgmt-side-actions">
             <button type="button" class="mgmt-btn" data-act="open-viewer-selected" ${selected ? '' : 'disabled'}>선택 케이스 뷰어에서 열기</button>
             <button type="button" class="mgmt-btn mgmt-btn--ghost" data-act="export-csv">CSV 내보내기</button>

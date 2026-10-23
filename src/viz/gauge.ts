@@ -29,7 +29,9 @@ export function renderSemiRemainGauge(opts: SemiGaugeOptions): string {
   for (const [lo, hi, color] of bands) {
     const a0 = Math.PI * (1 - hi / 100);
     const a1 = Math.PI * (1 - lo / 100);
-    arcs += `<path d="${describeDonutSegment(cx, cy, ro, ri, a0, a1)}" fill="${color}" opacity="0.35"/>`;
+    // describeArc 는 SVG 좌표(y 아래로 증가)로 각도를 해석해 양의 각도가 아래쪽 반원이 된다.
+    // 바늘·눈금(polar)은 위쪽 반원이므로, 색 띠도 각도를 뒤집어 같은 위쪽 반원에 그린다.
+    arcs += `<path d="${describeDonutSegment(cx, cy, ro, ri, -a1, -a0)}" fill="${color}" opacity="0.35"/>`;
   }
   const needleA = semiGaugeNeedleAngle(opts.valuePct);
   const [nx, ny] = polar(cx, cy, ro - 4, needleA);
@@ -55,7 +57,9 @@ export function renderSemiRemainGauge(opts: SemiGaugeOptions): string {
     }
   }
   const pulseCls = opts.pulse ? ' viz-semi-gauge--pulse' : '';
-  return `<svg class="viz-semi-gauge${pulseCls}" viewBox="0 0 ${size} ${size * 0.72}" width="${size}" height="${size * 0.72}" aria-hidden="true">
+  // 보조 라벨(cy+22)이 있으면 글자 아래쪽까지 들어가도록 높이를 늘린다(기본 높이로는 라벨이 잘린다).
+  const height = opts.label ? Math.max(size * 0.72, cy + 28) : size * 0.72;
+  return `<svg class="viz-semi-gauge${pulseCls}" viewBox="0 0 ${size} ${height}" width="${size}" height="${height}" aria-hidden="true">
     ${arcs}${ticks}
     <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="${accent}" stroke-width="2.5" stroke-linecap="round"/>
     <circle cx="${cx}" cy="${cy}" r="4" fill="${accent}"/>

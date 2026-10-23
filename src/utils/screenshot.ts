@@ -38,13 +38,14 @@ function defaultFileName(): string {
   return `bridge-scour-${ts}.png`;
 }
 
-/** 목업 규격: SCDT_{화면번호2자리}_{화면명}_{YYYYMMDD_HHmm}.png */
+/** 목업 규격: SCDT_{화면번호2자리}_{화면명}[_CFD]_{YYYYMMDD_HHmm}.png (CFD 모드일 때만 모드 표기) */
 export function scdtScreenshotName(
   screenNo: number,
   screenTitle: string,
   date: Date = new Date(),
+  viewMode: 'basic' | 'cfd' = 'basic',
 ): string {
   const p = (n: number): string => String(n).padStart(2, '0');
-  const nm = screenTitle.replace(/[\s·]+/g, '');
+  const nm = screenTitle.replace(/[\s·]+/g, '') + (viewMode === 'cfd' ? '_CFD' : '');
   return `SCDT_${p(screenNo)}_${nm}_${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}_${p(date.getHours())}${p(date.getMinutes())}.png`;
 }

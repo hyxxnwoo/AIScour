@@ -2,6 +2,7 @@ import {
   BufferAttribute,
   DoubleSide,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   type Object3D,
   PlaneGeometry,
@@ -10,6 +11,11 @@ import {
 import type { ScourFrame, ScourSeries, TerrainGrid } from '@/types/terrain';
 import type { Disposable } from '@/types/disposable';
 import { sampleTerrainSandColor } from '@/utils/colorRamp';
+import { sampleCfdScourColor } from '@/utils/cfdScourColor';
+import { BedIsolines } from '@/modules/BedIsolines';
+
+/** basic: 모래색(기본 화면) · cfd: 세굴 적색/0 흰색/퇴적 청색 발산형 · plain: 색 없이 단색(컨투어 레이어 끔) */
+export type TerrainColorMode = 'basic' | 'cfd' | 'plain';
 
 // Terrain: 베이스 지형 + 시간에 따른 세굴 변화를 단일 Mesh 로 렌더링한다.
 // 정점 높이는 Δ표고, vertex color 는 초기 지반 대비 세굴/퇴적 변화량(Δ) 컬러맵.
@@ -18,6 +24,7 @@ export class Terrain implements Disposable {
   private readonly grid: TerrainGrid;
   private readonly frames: ScourFrame[];
   private readonly mesh: Mesh;
+  private readonly material: MeshStandardMaterial;
   private readonly geometry: PlaneGeometry;
   private readonly baseZ: Float32Array;
   private readonly colors: Float32Array;
@@ -26,6 +33,13 @@ export class Terrain implements Disposable {
   private verticalExaggeration = 1;
   private currentFrameIndex = -1;
   private currentAbsMax = 0;
+  private colorMode: TerrainColorMode = 'basic';
+  private wireMesh: Mesh | null = null;
+  private wireOn = false;
+  private isolines: BedIsolines | null = null;
+  private isolinesOn = false;
+  private isolineStep: number | null = null;
+  private visible = true;
   private readonly frameListeners = new Set<(info: { index: number; absMax: number }) => void>();
 
   public constructor(scene: Scene, series: ScourSeries) {
@@ -63,6 +77,7 @@ export class Terrain implements Disposable {
       metalness: 0.0,
       flatShading: false,
     });
+    this.material = material;
     this.mesh = new Mesh(this.geometry, material);
     this.mesh.receiveShadow = true;
     this.scene.add(this.mesh);
@@ -73,6 +88,11 @@ export class Terrain implements Disposable {
 
   public get frameCount(): number {
     return this.frames.length;
+  }
+
+  /** 현재 적용된 프레임의 0 기반 인덱스. 아직 적용 전이면 -1. */
+  public get frameIndex(): number {
+    return this.currentFrameIndex;
   }
 
   // Picking 등 외부 모듈이 raycasting 대상으로 사용할 메쉬 목록.
@@ -86,7 +106,60 @@ export class Terrain implements Disposable {
   }
 
   public setVisible(visible: boolean): void {
+    this.visible = visible;
     this.mesh.visible = visible;
+    if (this.wireMesh) this.wireMesh.visible = visible && this.wireOn;
+    this.isolines?.setVisible(visible && this.isolinesOn);
+  }
+
+  /** 하상 색 방식 전환. 기본 화면은 'basic' 이며 CFD 모드에서만 다른 값을 쓴다. */
+  public setColorMode(mode: TerrainColorMode): void {
+    if (mode === this.colorMode) return;
+    this.colorMode = mode;
+    this.material.roughness = mode === 'basic' ? 0.94 : 0.55;
+    this.material.needsUpdate = true;
+    if (this.currentFrameIndex >= 0) this.applyFrame(this.currentFrameIndex);
+  }
+
+  /** 해석 격자 와이어프레임(하상 메시와 같은 지오메트리를 공유). */
+  public setWireframeVisible(on: boolean): void {
+    this.wireOn = on;
+    if (on && !this.wireMesh) {
+      const mat = new MeshBasicMaterial({
+        color: 0x1b2430,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.3,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      });
+      this.wireMesh = new Mesh(this.geometry, mat);
+      this.wireMesh.renderOrder = 1;
+      this.scene.add(this.wireMesh);
+    }
+    if (this.wireMesh) this.wireMesh.visible = this.visible && on;
+  }
+
+  /** 하상 등심선(세굴심 Δ 등치선). 켜는 순간과 이후 프레임이 바뀔 때만 다시 계산한다. */
+  public setIsolinesVisible(on: boolean): void {
+    if (on === this.isolinesOn && (!on || this.isolines)) return;
+    this.isolinesOn = on;
+    if (on) {
+      if (!this.isolines) {
+        this.isolines = new BedIsolines(this.scene);
+        this.isolines.setStep(this.isolineStep);
+      }
+      if (this.currentFrameIndex >= 0) this.applyFrame(this.currentFrameIndex);
+    }
+    this.isolines?.setVisible(this.visible && on);
+  }
+
+  /** null 이면 자동 간격(absMax 기준, 상한 0.5 m). */
+  public setIsolineStep(step: number | null): void {
+    this.isolineStep = step;
+    this.isolines?.setStep(step);
+    if (this.isolinesOn && this.currentFrameIndex >= 0) this.applyFrame(this.currentFrameIndex);
   }
 
   // 월드 좌표(x, z) → 격자 셀 정보. 격자 밖이면 null.
@@ -181,7 +254,15 @@ export class Terrain implements Disposable {
       positions.setY(i, z);
       const gx = i % this.grid.width;
       const gy = (i / this.grid.width) | 0;
-      sampleTerrainSandColor(delta[i], absMax, gx, gy, this.tmpColor);
+      if (this.colorMode === 'basic') {
+        sampleTerrainSandColor(delta[i], absMax, gx, gy, this.tmpColor);
+      } else if (this.colorMode === 'cfd') {
+        sampleCfdScourColor(delta[i], absMax, this.tmpColor);
+      } else {
+        this.tmpColor.r = 0.66;
+        this.tmpColor.g = 0.66;
+        this.tmpColor.b = 0.64;
+      }
       const j = i * 3;
       this.colors[j] = this.tmpColor.r;
       this.colors[j + 1] = this.tmpColor.g;
@@ -191,6 +272,16 @@ export class Terrain implements Disposable {
     (this.geometry.attributes['color'] as BufferAttribute).needsUpdate = true;
     this.geometry.computeVertexNormals();
     this.currentAbsMax = absMax;
+    if (this.isolinesOn && this.isolines) {
+      this.isolines.update({
+        delta,
+        width: this.grid.width,
+        height: this.grid.height,
+        cellSize: this.grid.cellSize,
+        positionsY: (idx) => positions.getY(idx),
+        absMax,
+      });
+    }
     for (const cb of this.frameListeners) cb({ index, absMax });
   }
 
@@ -207,6 +298,11 @@ export class Terrain implements Disposable {
   public dispose(): void {
     this.frameListeners.clear();
     this.scene.remove(this.mesh);
+    if (this.wireMesh) {
+      this.scene.remove(this.wireMesh);
+      (this.wireMesh.material as MeshBasicMaterial).dispose();
+    }
+    this.isolines?.dispose();
     this.geometry.dispose();
     (this.mesh.material as MeshStandardMaterial).dispose();
   }

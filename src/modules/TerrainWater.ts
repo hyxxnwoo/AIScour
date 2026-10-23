@@ -41,9 +41,29 @@ export interface TerrainWaterOptions {
 const MAX_MESH_SEGMENTS = 96;
 const MAX_TEX_SIZE = 96;
 
+/** CFD 자유수면 교란을 적용할 수 있는 최대 교각 수(셰이더 유니폼 배열 크기). */
+export const MAX_SURFACE_PIERS = 8;
+
+export interface SurfaceDisturbanceOptions {
+  /** 교각 중심(x,z)·반경(m) */
+  piers: Array<{ x: number; z: number; radius: number }>;
+  /** 접근 유속(m/s) */
+  inflowSpeed: number;
+  /** 시각화용 과장 배율(실험실 규모에서는 U²/2g 가 수 mm 라 키워야 보인다) */
+  gain: number;
+}
+
+const GRAVITY = 9.81;
+const STROUHAL = 0.2;
+
 const WATER_VERTEX_SHADER = /* glsl */ `
   uniform float uTime;
   uniform float uWaveAmp;
+  uniform float uCfd;
+  uniform int uPierCount;
+  uniform vec3 uPiers[${MAX_SURFACE_PIERS}];
+  uniform float uInflow;
+  uniform float uGain;
   attribute float aWet;
   varying vec2 vUv;
   varying float vWet;
@@ -61,12 +81,47 @@ const WATER_VERTEX_SHADER = /* glsl */ `
     return w1 + w2 + w3;
   }
 
+  // CFD 자유수면 교란(합성): 교각 전면 수면 상승·측면 하강(포텐셜류 베르누이) + 후면 카르만 주기의 파형.
+  // 전면 상승 η = (U²/2g)·(2R²cos2θ/r² − R⁴/r⁴), 후면 파형은 후류 폭 안에서 감쇠하는 사인파.
+  float cfdEta(vec2 xz, float t) {
+    float eta = 0.0;
+    float u2g = uInflow * uInflow / (2.0 * ${GRAVITY.toFixed(2)}) * uGain;
+    for (int i = 0; i < ${MAX_SURFACE_PIERS}; i++) {
+      if (i >= uPierCount) break;
+      vec2 d = xz - uPiers[i].xy;
+      float R = uPiers[i].z;
+      float r2 = max(dot(d, d), R * R);
+      float c2 = (d.x * d.x - d.y * d.y) / r2;
+      eta += u2g * (2.0 * R * R * c2 / r2 - (R * R * R * R) / (r2 * r2));
+      if (d.x > R) {
+        float s = d.x / R;
+        float decay = 1.0 / (1.0 + 0.35 * (s - 1.0));
+        float b = R * (1.0 + 0.25 * (s - 1.0));
+        float env = exp(-pow(d.y / (1.5 * b), 2.0));
+        float ramp = smoothstep(R, 1.5 * R, d.x);
+        float u = max(uInflow, 1e-4);
+        float freq = ${STROUHAL.toFixed(2)} * u / (2.0 * R);
+        float phase = 6.2831853 * freq * (t - d.x / (0.85 * u));
+        eta += 0.5 * u2g * decay * env * ramp * sin(phase);
+      }
+    }
+    return eta;
+  }
+
   void main() {
     vUv = uv;
     vWet = aWet;
     vec3 pos = position;
     vec3 normal = vec3(0.0, 1.0, 0.0);
-    if (aWet > 0.5) {
+    if (aWet > 0.5 && uCfd > 0.5) {
+      vec2 xz = (modelMatrix * vec4(pos, 1.0)).xz;
+      float e0 = cfdEta(xz, uTime);
+      pos.y += e0;
+      float eps = 0.004;
+      float ex = cfdEta(xz + vec2(eps, 0.0), uTime);
+      float ez = cfdEta(xz + vec2(0.0, eps), uTime);
+      normal = normalize(vec3(-(ex - e0) / eps, 1.0, -(ez - e0) / eps));
+    } else if (aWet > 0.5) {
       float h = waveHeight(vec2(pos.x, pos.z), uTime);
       pos.y += h * uWaveAmp;
 
@@ -169,6 +224,9 @@ function minWaterDepth(cellSize: number, nominalDepthM: number): number {
   return Math.max(0.005, Math.min(cellSize * 0.75, nominalDepthM * 0.5));
 }
 
+/** 기본 물 색(0~1) — 수면 체적 메쉬 색 0x1d6fa8 과 동일. */
+const BASE_WATER_COLOR = { r: 0x1d / 255, g: 0x6f / 255, b: 0xa8 / 255 };
+
 /** 지형 하상 위 수면 — 고정 수심 기준으로 지형 전체에 표시, 색상만 CSV 유체 필드 사용. */
 export class TerrainWater implements Disposable {
   private readonly scene: Scene;
@@ -210,6 +268,7 @@ export class TerrainWater implements Disposable {
   private probeRange: { min: number; max: number } = { min: 0, max: 1 };
   /** 고정 색 범위. null 이면 프레임마다 자동 측정. */
   private fixedRange: { min: number; max: number } | null = null;
+  private baseColorOnly = false;
 
   public constructor(options: TerrainWaterOptions) {
     this.scene = options.scene;
@@ -270,6 +329,11 @@ export class TerrainWater implements Disposable {
         uFlowDir: { value: new Vector2(1, 0) },
         uFlowSpeed: { value: 0 },
         uHasFlow: { value: 0 },
+        uCfd: { value: 0 },
+        uPierCount: { value: 0 },
+        uPiers: { value: Array.from({ length: MAX_SURFACE_PIERS }, () => new Vector3()) },
+        uInflow: { value: 0 },
+        uGain: { value: 1 },
       },
       vertexShader: WATER_VERTEX_SHADER,
       fragmentShader: WATER_FRAGMENT_SHADER,
@@ -381,6 +445,38 @@ export class TerrainWater implements Disposable {
     if (this.currentFluidFrameIndex >= 0) {
       this.applyFluidFrame(this.currentFluidFrameIndex);
     }
+  }
+
+  /**
+   * 항목(유속·세굴 등)과 무관하게 기본 물 색으로 수면을 칠한다. 유속 데이터가 없는
+   * 하상 변화 CSV 에서 항목 전환·재생 중 수면 색이 바뀌지 않게 할 때 쓴다.
+   */
+  public setBaseColorOnly(enabled: boolean): void {
+    if (enabled === this.baseColorOnly) return;
+    this.baseColorOnly = enabled;
+    if (this.currentFluidFrameIndex >= 0) {
+      this.recolorSurface();
+    }
+  }
+
+  /**
+   * CFD 자유수면 교란(교각 앞 수면 상승, 후면 파형)을 켜거나(옵션 전달) 끈다(null).
+   * 해석 데이터에 수면 필드가 없으므로 합성 모델이며, 켠 동안은 기본 잔물결 대신 이 파형을 쓴다.
+   */
+  public setSurfaceDisturbance(options: SurfaceDisturbanceOptions | null): void {
+    const u = this.surfaceMaterial.uniforms;
+    if (!options || options.piers.length === 0) {
+      u['uCfd'].value = 0;
+      u['uPierCount'].value = 0;
+      return;
+    }
+    const piers = options.piers.slice(0, MAX_SURFACE_PIERS);
+    const arr = u['uPiers'].value as Vector3[];
+    piers.forEach((p, i) => arr[i].set(p.x, p.z, p.radius));
+    u['uPierCount'].value = piers.length;
+    u['uInflow'].value = options.inflowSpeed;
+    u['uGain'].value = options.gain;
+    u['uCfd'].value = 1;
   }
 
   public setVerticalExaggeration(factor: number): void {
@@ -569,14 +665,19 @@ export class TerrainWater implements Disposable {
     if (!frame) return;
 
     // 프로브 실측값이 있고(scrdif 제외) 현재 선택 양이면, 공간 전체를 단일 색으로 균일하게 칠한다.
-    const useProbeColor = this.probeValue !== null && this.currentQuantity !== 'scrdif';
+    const useProbeColor =
+      !this.baseColorOnly && this.probeValue !== null && this.currentQuantity !== 'scrdif';
     const range = useProbeColor
       ? this.probeRange
       : (this.fixedRange ?? this.measureQuantityRange(frame, this.currentQuantity));
     this.currentRange = range;
     const { min: vMin, max: vMax } = range;
 
-    if (useProbeColor) {
+    if (this.baseColorOnly) {
+      this.tmpColor.r = BASE_WATER_COLOR.r;
+      this.tmpColor.g = BASE_WATER_COLOR.g;
+      this.tmpColor.b = BASE_WATER_COLOR.b;
+    } else if (useProbeColor) {
       colorForFluidQuantity(this.currentQuantity, this.probeValue!, vMin, vMax, this.tmpColor);
     }
 
@@ -602,7 +703,7 @@ export class TerrainWater implements Disposable {
           continue;
         }
 
-        if (!useProbeColor) {
+        if (!useProbeColor && !this.baseColorOnly) {
           const { xi, zi, inside } = this.fluidCellAtWorld(worldX, worldZ);
           const v = inside
             ? sampleFluidQuantity(this.fluidGrid, frame, this.currentQuantity, xi, yi, zi)

@@ -3,7 +3,7 @@
 /** 하상·퇴적물 대표 입경 (d50, mm) */
 export const BED_MATERIAL_GRAIN_LABEL = '하상·퇴적물 입경';
 
-export const BED_MATERIAL_GRAIN_HINT = 'd50 · 중값 입경';
+export const BED_MATERIAL_GRAIN_HINT = '중값 입경';
 
 export function formatBedMaterialGrainMm(value: string | number): string {
   const s = typeof value === 'number' ? value.toFixed(value >= 1 ? 1 : 2) : value;
